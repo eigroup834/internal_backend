@@ -43,11 +43,18 @@ exports.getCompanies = async (req, res) => {
     for (const [key, val] of Object.entries(filterObj)) {
       if (val && val.trim() !== "" && filterColumns[key]) {
         const col = filterColumns[key];
-        whereClauses.push(`UPPER(${col}) = UPPER(@${key})`);
-        request.input(key, val.trim());
+
+        if (key === "SEGMENT") {
+          whereClauses.push(`UPPER(${col}) = UPPER(@${key})`);
+          request.input(key, val.trim());
+        } else {
+          whereClauses.push(`UPPER(${col}) LIKE UPPER(@${key})`);
+          request.input(key, `%${val.trim()}%`);
+        }
       }
     }
-    
+
+
     if (search) {
       const likeClauses = [
         "c.[COMPANY_NAME] LIKE @search1",
