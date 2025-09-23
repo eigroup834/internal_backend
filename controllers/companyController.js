@@ -93,8 +93,6 @@ exports.getCompanies = async (req, res) => {
       ${whereSQL};
     `;
 
-    console.log(query);
-
     const result = await request.query(query);
 
     res.json({
@@ -402,99 +400,78 @@ exports.GetCompanyDetail = async (req, res) => {
 exports.exportCompanies = async (req, res) => {
   try {
     const { filters = {} } = req.body;
-    const pool = await poolPromise;
-    const request = pool.request();
 
     let whereClauses = [];
+    let request = (await poolPromise).request();
 
-    if (filters.COUNTRY) {
-      whereClauses.push("UPPER(c.COUNTRY) LIKE UPPER(@COUNTRY)");
-      request.input("COUNTRY", `%${filters.COUNTRY}%`);
-    }
-    if (filters.STATE) {
-      whereClauses.push("UPPER(c.STATE) LIKE UPPER(@STATE)");
-      request.input("STATE", `%${filters.STATE}%`);
-    }
-    if (filters.CITY) {
-      whereClauses.push("UPPER(c.CITY) LIKE UPPER(@CITY)");
-      request.input("CITY", `%${filters.CITY}%`);
-    }
-    if (filters.INDUSTRY) {
-      whereClauses.push("UPPER(s.INDUSTRY) LIKE UPPER(@INDUSTRY)");
-      request.input("INDUSTRY", `%${filters.INDUSTRY}%`);
-    }
-    if (filters.SEGMENT) {
-      whereClauses.push("UPPER(m.SEG_CODE) = UPPER(@SEGMENT)");
-      request.input("SEGMENT", filters.SEGMENT);
-    }
+    if (filters?.COUNTRY) { whereClauses.push(`COUNTRY = @COUNTRY`); request.input("COUNTRY", filters.COUNTRY); }
+    if (filters?.STATE) { whereClauses.push(`STATE = @STATE`); request.input("STATE", filters.STATE); }
+    if (filters?.CITY) { whereClauses.push(`CITY = @CITY`); request.input("CITY", filters.CITY); }
+    if (filters?.INDUSTRY) { whereClauses.push(`INDUSTRY = @INDUSTRY`); request.input("INDUSTRY", filters.INDUSTRY); }
+    if (filters?.SEGMENT) { whereClauses.push(`SEG_CODE = @SEGMENT`); request.input("SEGMENT", filters.SEGMENT); }
 
     const whereSQL = whereClauses.length ? "WHERE " + whereClauses.join(" AND ") : "";
 
     const query = `
-      SELECT DISTINCT c.COMPANY_CODE, c.COMPANY_NAME, c.ADDRESS, c.CITY, c.STATE, c.COUNTRY, c.PINCODE, c.PHONES
-      FROM dbo.DEVP_COMPANY_DETAIL c
-      INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
-      INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
-      ${whereSQL}
-      ORDER BY c.COMPANY_CODE ASC
+      SELECT c.COMPANY_CODE, c.COMPANY_NAME, c.ADDRESS, c.CITY, c.STATE, c.COUNTRY, c.PINCODE, c.PHONES,
+             s.INDUSTRY, s.SEGMENT, c.OLDNAME, c.UPDATED_DATE
+      FROM DEVP_COMPANY_DETAIL c
+      LEFT JOIN DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
+      LEFT JOIN DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+      ${whereSQL};
     `;
 
-    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
-      stream: res,
-      useStyles: true,
-      useSharedStrings: true
-    });
+    const result = await request.query(query);
 
-    const worksheet = workbook.addWorksheet("Companies");
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Companies');
 
     worksheet.columns = [
-      { header: "Company Code", key: "COMPANY_CODE", width: 20 },
-      { header: "Company Name", key: "COMPANY_NAME", width: 30 },
-      { header: "Address", key: "ADDRESS", width: 40 },
-      { header: "City", key: "CITY", width: 20 },
-      { header: "State", key: "STATE", width: 20 },
-      { header: "Country", key: "COUNTRY", width: 20 },
-      { header: "Pin Code", key: "PINCODE", width: 15 },
-      { header: "Phones", key: "PHONES", width: 30 },
+      { header: 'Company Code', key: 'COMPANY_CODE', width: 20 },
+      { header: 'Company Name', key: 'COMPANY_NAME', width: 30 },
+      { header: 'Address', key: 'ADDRESS', width: 40 },
+      { header: 'City', key: 'CITY', width: 20 },
+      { header: 'State', key: 'STATE', width: 20 },
+      { header: 'Country', key: 'COUNTRY', width: 20 },
+      { header: 'Pin Code', key: 'PINCODE', width: 15 },
+      { header: 'Phones', key: 'PHONES', width: 30 },
+      { header: 'Industry', key: 'INDUSTRY', width: 20 },
+      { header: 'Segment', key: 'SEGMENT', width: 20 },
+      { header: 'Old Name', key: 'OLDNAME', width: 25 },
+      { header: 'Last Updated', key: 'UPDATED_DATE', width: 25 },
     ];
 
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename=Companies_${Date.now()}.xlsx`
-    );
-
-    const stream = pool.request().query(query);
-
-    stream.then(result => {
-      result.recordset.forEach(row => {
-        worksheet.addRow({
-          COMPANY_CODE: row.COMPANY_CODE,
-          COMPANY_NAME: row.COMPANY_NAME,
-          ADDRESS: row.ADDRESS,
-          CITY: row.CITY,
-          STATE: row.STATE,
-          COUNTRY: row.COUNTRY,
-          PINCODE: row.PINCODE || "N/A",
-          PHONES: row.PHONES || ""
-        }).commit();
+    result.recordset.forEach(c => {
+      worksheet.addRow({
+        COMPANY_CODE: c.COMPANY_CODE,
+        COMPANY_NAME: c.COMPANY_NAME,
+        ADDRESS: c.ADDRESS,
+        CITY: c.CITY,
+        STATE: c.STATE,
+        COUNTRY: c.COUNTRY,
+        PINCODE: c.PINCODE || 'N/A',
+        PHONES: Array.isArray(c.PHONES) 
+          ? c.PHONES.map(p => `${p.type}: ${p.isd || ''}${p.std ? '-' + p.std : ''}-${p.number}`).join(', ')
+          : c.PHONES || '',
+        INDUSTRY: c.INDUSTRY,
+        SEGMENT: c.SEGMENT,
+        OLDNAME: c.OLDNAME,
+        UPDATED_DATE: c.UPDATED_DATE ? new Date(c.UPDATED_DATE).toLocaleString() : ''
       });
-
-      worksheet.commit();
-      workbook.commit();
-    }).catch(err => {
-      console.error("Export stream error:", err);
-      res.status(500).json({ message: "Export failed" });
     });
 
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=Companies_${Date.now()}.xlsx`);
+
+    await workbook.xlsx.write(res);
+    res.end();
+
   } catch (err) {
-    console.error("Export Error:", err);
-    res.status(500).json({ message: "Failed to export companies" });
+    console.error('Export Error:', err);
+    res.status(500).json({ message: 'Failed to export companies' });
   }
 };
+
 
 
 
