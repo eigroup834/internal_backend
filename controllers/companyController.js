@@ -1,5 +1,6 @@
 const { poolPromise } = require("../db");
 const sql = require("mssql");
+const ExcelJS = require('exceljs');
 
 const generateCompanyCode = (name) => {
   const prefix = name.replace(/[^A-Z0-9]/gi, "").substring(0, 4).toUpperCase();
@@ -395,6 +396,103 @@ exports.GetCompanyDetail = async (req, res) => {
   } catch (err) {
     console.error("Error fetching company details:", err);
     res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.exportCompanies = async (req, res) => {
+  try {
+    const { filters = {} } = req.body;
+    const pool = await poolPromise;
+    const request = pool.request();
+
+    let whereClauses = [];
+
+    if (filters.COUNTRY) {
+      whereClauses.push("UPPER(c.COUNTRY) LIKE UPPER(@COUNTRY)");
+      request.input("COUNTRY", `%${filters.COUNTRY}%`);
+    }
+    if (filters.STATE) {
+      whereClauses.push("UPPER(c.STATE) LIKE UPPER(@STATE)");
+      request.input("STATE", `%${filters.STATE}%`);
+    }
+    if (filters.CITY) {
+      whereClauses.push("UPPER(c.CITY) LIKE UPPER(@CITY)");
+      request.input("CITY", `%${filters.CITY}%`);
+    }
+    if (filters.INDUSTRY) {
+      whereClauses.push("UPPER(s.INDUSTRY) LIKE UPPER(@INDUSTRY)");
+      request.input("INDUSTRY", `%${filters.INDUSTRY}%`);
+    }
+    if (filters.SEGMENT) {
+      whereClauses.push("UPPER(m.SEG_CODE) = UPPER(@SEGMENT)");
+      request.input("SEGMENT", filters.SEGMENT);
+    }
+
+    const whereSQL = whereClauses.length ? "WHERE " + whereClauses.join(" AND ") : "";
+
+    const query = `
+      SELECT DISTINCT c.COMPANY_CODE, c.COMPANY_NAME, c.ADDRESS, c.CITY, c.STATE, c.COUNTRY, c.PINCODE, c.PHONES
+      FROM dbo.DEVP_COMPANY_DETAIL c
+      INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
+      INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+      ${whereSQL}
+      ORDER BY c.COMPANY_CODE ASC
+    `;
+
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: res,
+      useStyles: true,
+      useSharedStrings: true
+    });
+
+    const worksheet = workbook.addWorksheet("Companies");
+
+    worksheet.columns = [
+      { header: "Company Code", key: "COMPANY_CODE", width: 20 },
+      { header: "Company Name", key: "COMPANY_NAME", width: 30 },
+      { header: "Address", key: "ADDRESS", width: 40 },
+      { header: "City", key: "CITY", width: 20 },
+      { header: "State", key: "STATE", width: 20 },
+      { header: "Country", key: "COUNTRY", width: 20 },
+      { header: "Pin Code", key: "PINCODE", width: 15 },
+      { header: "Phones", key: "PHONES", width: 30 },
+    ];
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=Companies_${Date.now()}.xlsx`
+    );
+
+    const stream = pool.request().query(query);
+
+    stream.then(result => {
+      result.recordset.forEach(row => {
+        worksheet.addRow({
+          COMPANY_CODE: row.COMPANY_CODE,
+          COMPANY_NAME: row.COMPANY_NAME,
+          ADDRESS: row.ADDRESS,
+          CITY: row.CITY,
+          STATE: row.STATE,
+          COUNTRY: row.COUNTRY,
+          PINCODE: row.PINCODE || "N/A",
+          PHONES: row.PHONES || ""
+        }).commit();
+      });
+
+      worksheet.commit();
+      workbook.commit();
+    }).catch(err => {
+      console.error("Export stream error:", err);
+      res.status(500).json({ message: "Export failed" });
+    });
+
+  } catch (err) {
+    console.error("Export Error:", err);
+    res.status(500).json({ message: "Failed to export companies" });
   }
 };
 

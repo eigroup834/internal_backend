@@ -11,6 +11,8 @@ router.get("/industries/segments", authenticateToken, companyController.getSegme
 router.get("/industries-with-segments", authenticateToken, companyController.getIndustriesWithSegments);
 
 router.get("/:companyCode", authenticateToken, companyController.GetCompanyDetail); 
-router.put("/updateCompany/:companyCode", authenticateToken, companyController.EditCompany); 
+router.put("/updateCompany/:companyCode", authenticateToken, companyController.EditCompany);
+
+router.post("/exportCompany", authenticateToken, companyController.exportCompanies); 
 
 module.exports = router;
