@@ -32,19 +32,28 @@ exports.getCompanies = async (req, res) => {
     let whereClauses = [];
     let request = (await poolPromise).request();
 
-    for (const [col, val] of Object.entries(filterObj)) {
-      if (val && val.trim() !== "") {
-        whereClauses.push(`[${col}] = @${col}`);
-        request.input(col, val);
+    const filterColumns = {
+      COUNTRY: "c.COUNTRY",
+      STATE: "c.STATE",
+      CITY: "c.CITY",
+      INDUSTRY: "s.INDUSTRY",
+      SEGMENT: "m.SEG_CODE"
+    };
+
+    for (const [key, val] of Object.entries(filterObj)) {
+      if (val && val.trim() !== "" && filterColumns[key]) {
+        const col = filterColumns[key];
+        whereClauses.push(`UPPER(${col}) = UPPER(@${key})`);
+        request.input(key, val.trim());
       }
     }
-
+    
     if (search) {
       const likeClauses = [
-        "[COMPANY_NAME] LIKE @search1",
-        "[COMPANY_CODE] LIKE @search2",
-        "[EMAIL] LIKE @search3",
-        "[PHONES] LIKE @search4",
+        "c.[COMPANY_NAME] LIKE @search1",
+        "c.[COMPANY_CODE] LIKE @search2",
+        "c.[EMAIL] LIKE @search3",
+        "c.[PHONES] LIKE @search4",
       ];
 
       whereClauses.push("(" + likeClauses.join(" OR ") + ")");
@@ -56,17 +65,27 @@ exports.getCompanies = async (req, res) => {
 
     const whereSQL =
       whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
-
     const query = `
       WITH CompanyData AS (
-        SELECT *, ROW_NUMBER() OVER (ORDER BY [${sortBy}] ${sortOrder}) AS RowNum
-        FROM dbo.DEVP_COMPANY_DETAIL
+        SELECT DISTINCT c.*, s.INDUSTRY, s.SEGMENT,
+               ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
+        FROM dbo.DEVP_COMPANY_DETAIL c
+        INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
+        INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
         ${whereSQL}
       )
-      SELECT * FROM CompanyData WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum
-      };
-      SELECT COUNT(*) AS total FROM dbo.DEVP_COMPANY_DETAIL ${whereSQL};
+      SELECT *
+      FROM CompanyData
+      WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
+
+      SELECT COUNT(DISTINCT c.COMPANY_CODE) AS total
+      FROM dbo.DEVP_COMPANY_DETAIL c
+      INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
+      INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+      ${whereSQL};
     `;
+
+    console.log(query);
 
     const result = await request.query(query);
 
