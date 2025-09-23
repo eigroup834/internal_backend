@@ -400,24 +400,54 @@ exports.GetCompanyDetail = async (req, res) => {
 exports.exportCompanies = async (req, res) => {
   try {
     const { filters = {} } = req.body;
+    const request = (await poolPromise).request();
+    const whereClauses = [];
 
-    let whereClauses = [];
-    let request = (await poolPromise).request();
+    const addFilter = (value, column) => {
+      if (value !== undefined && value !== null) {
+        if (value.trim() === '') {
+          if (column === 'SEGMENT') {
+            whereClauses.push(`(seg.SEGMENT IS NULL OR seg.SEGMENT = '')`);
+          }
+        } else {
+          whereClauses.push(`${column.includes('.') ? column : 'c.' + column} = @${column}`);
+          request.input(column, value.trim());
+        }
+      }
+    };
 
-    if (filters?.COUNTRY) { whereClauses.push(`COUNTRY = @COUNTRY`); request.input("COUNTRY", filters.COUNTRY); }
-    if (filters?.STATE) { whereClauses.push(`STATE = @STATE`); request.input("STATE", filters.STATE); }
-    if (filters?.CITY) { whereClauses.push(`CITY = @CITY`); request.input("CITY", filters.CITY); }
-    if (filters?.INDUSTRY) { whereClauses.push(`INDUSTRY = @INDUSTRY`); request.input("INDUSTRY", filters.INDUSTRY); }
-    if (filters?.SEGMENT) { whereClauses.push(`SEG_CODE = @SEGMENT`); request.input("SEGMENT", filters.SEGMENT); }
+    addFilter(filters.COUNTRY, 'COUNTRY');
+    addFilter(filters.STATE, 'STATE');
+    addFilter(filters.CITY, 'CITY');
+    addFilter(filters.INDUSTRY, 'INDUSTRY');
+    addFilter(filters.SEGMENT, 'SEGMENT');
 
-    const whereSQL = whereClauses.length ? "WHERE " + whereClauses.join(" AND ") : "";
+    const whereSQL = whereClauses.length ? 'WHERE ' + whereClauses.join(' AND ') : '';
 
     const query = `
-      SELECT c.COMPANY_CODE, c.COMPANY_NAME, c.ADDRESS, c.CITY, c.STATE, c.COUNTRY, c.PINCODE, c.PHONES,
-             s.INDUSTRY, s.SEGMENT, c.OLDNAME, c.UPDATED_DATE
+      SELECT 
+        c.COMPANY_CODE,
+        c.COMPANY_NAME,
+        c.ADDRESS,
+        c.CITY,
+        c.STATE,
+        c.COUNTRY,
+        c.PINCODE,
+        c.PHONES,
+        COALESCE(seg.INDUSTRY, 'N/A') AS INDUSTRY,
+        COALESCE(seg.SEGMENT, 'N/A') AS SEGMENT,
+        c.OLDNAME,
+        c.UPDATED_DATE
       FROM DEVP_COMPANY_DETAIL c
-      LEFT JOIN DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
-      LEFT JOIN DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+      LEFT JOIN (
+        SELECT 
+          m.COMPANY_CODE,
+          STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRY,
+          STRING_AGG(s.SEGMENT, ', ') AS SEGMENT
+        FROM DEVP_COMP_SEGMENT_MAP m
+        LEFT JOIN DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+        GROUP BY m.COMPANY_CODE
+      ) seg ON c.COMPANY_CODE = seg.COMPANY_CODE
       ${whereSQL};
     `;
 
@@ -435,13 +465,27 @@ exports.exportCompanies = async (req, res) => {
       { header: 'Country', key: 'COUNTRY', width: 20 },
       { header: 'Pin Code', key: 'PINCODE', width: 15 },
       { header: 'Phones', key: 'PHONES', width: 30 },
-      { header: 'Industry', key: 'INDUSTRY', width: 20 },
-      { header: 'Segment', key: 'SEGMENT', width: 20 },
+      { header: 'Industry', key: 'INDUSTRY', width: 25 },
+      { header: 'Segment', key: 'SEGMENT', width: 25 },
       { header: 'Old Name', key: 'OLDNAME', width: 25 },
       { header: 'Last Updated', key: 'UPDATED_DATE', width: 25 },
     ];
 
     result.recordset.forEach(c => {
+      let phones = '';
+      if (c.PHONES) {
+        if (typeof c.PHONES === 'string') {
+          try {
+            const arr = JSON.parse(c.PHONES);
+            phones = arr.map(p => `${p.type}: ${p.isd || ''}${p.std ? '-' + p.std : ''}-${p.number}`).join(', ');
+          } catch {
+            phones = c.PHONES;
+          }
+        } else if (Array.isArray(c.PHONES)) {
+          phones = c.PHONES.map(p => `${p.type}: ${p.isd || ''}${p.std ? '-' + p.std : ''}-${p.number}`).join(', ');
+        }
+      }
+
       worksheet.addRow({
         COMPANY_CODE: c.COMPANY_CODE,
         COMPANY_NAME: c.COMPANY_NAME,
@@ -450,12 +494,10 @@ exports.exportCompanies = async (req, res) => {
         STATE: c.STATE,
         COUNTRY: c.COUNTRY,
         PINCODE: c.PINCODE || 'N/A',
-        PHONES: Array.isArray(c.PHONES) 
-          ? c.PHONES.map(p => `${p.type}: ${p.isd || ''}${p.std ? '-' + p.std : ''}-${p.number}`).join(', ')
-          : c.PHONES || '',
+        PHONES: phones,
         INDUSTRY: c.INDUSTRY,
         SEGMENT: c.SEGMENT,
-        OLDNAME: c.OLDNAME,
+        OLDNAME: c.OLDNAME || '',
         UPDATED_DATE: c.UPDATED_DATE ? new Date(c.UPDATED_DATE).toLocaleString() : ''
       });
     });
@@ -471,8 +513,3 @@ exports.exportCompanies = async (req, res) => {
     res.status(500).json({ message: 'Failed to export companies' });
   }
 };
-
-
-
-
-
