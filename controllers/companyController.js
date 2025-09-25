@@ -252,6 +252,26 @@ exports.addCompany = async (req, res) => {
 
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+      .input("COMPANY_NAME", sql.NVarChar(255), name)
+      .input("DIVISION", sql.NVarChar(255), name)
+      .input("OLDNAME", sql.NVarChar(255), oldname)
+      .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
+      .input("CITY", sql.NVarChar(100), city)
+      .input("PINCODE", sql.VarChar(20), pincode)
+      .input("STATE", sql.NVarChar(100), state)
+      .input("COUNTRY", sql.NVarChar(100), country)
+      .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
+      .input("EMAIL", sql.NVarChar(255), email)
+      .input("WEBSITE", sql.NVarChar(255), website)
+      .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
+      .input("USER_CODE", sql.VarChar(50), usercode)
+      .query(`
+        INSERT INTO DEVP_COMPANY_UPDATE_HISTORY (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE)
+        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE)
+      `);
+
+    await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .input("SEGMENT", sql.NVarChar(255), segment)
       .input("SEG_CODE", sql.VarChar(50), segment)
       .query(`
