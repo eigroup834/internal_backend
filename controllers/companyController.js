@@ -197,12 +197,28 @@ exports.addCompany = async (req, res) => {
     } = req.body;
 
     await transaction.begin();
+
+    const duplicateCheck = await new sql.Request(transaction)
+      .input("COMPANY_NAME", sql.NVarChar(255), name)
+      .input("EMAIL", sql.NVarChar(255), email)
+      .query(`
+        SELECT TOP 1 COMPANY_CODE 
+        FROM DEVP_COMPANY_DETAIL 
+        WHERE COMPANY_NAME = @COMPANY_NAME AND EMAIL = @EMAIL
+      `);
+
+    if (duplicateCheck.recordset.length > 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Duplicate company found with same name and email.",
+      });
+    }
+
     const { companyCode: COMPANY_CODE, nextCount } = await generateCompanyCode(usercode, transaction);
     const CREATED_DATE = new Date();
 
-    const request = new sql.Request(transaction);
-
-    await request
+    await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .input("USER_CODE", sql.VarChar(50), usercode)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
@@ -215,7 +231,8 @@ exports.addCompany = async (req, res) => {
         VALUES (@COMPANY_CODE, @USER_CODE, @CREATED_DATE, @SOURCE_CODE, @SOFT_DELETED, @REMARKS, @MANAGEMENT_REMARKS)
       `);
 
-    await request
+    await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .input("COMPANY_NAME", sql.NVarChar(255), name)
       .input("DIVISION", sql.NVarChar(255), name)
       .input("OLDNAME", sql.NVarChar(255), oldname)
@@ -227,12 +244,14 @@ exports.addCompany = async (req, res) => {
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
       .input("EMAIL", sql.NVarChar(255), email)
       .input("WEBSITE", sql.NVarChar(255), website)
+      .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
         INSERT INTO DEVP_COMPANY_DETAIL (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, CREATED_DATE)
         VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @CREATED_DATE)
       `);
 
-    await request
+    await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .input("SEGMENT", sql.NVarChar(255), segment)
       .input("SEG_CODE", sql.VarChar(50), segment)
       .query(`
@@ -240,15 +259,18 @@ exports.addCompany = async (req, res) => {
         VALUES (@COMPANY_CODE, @SEGMENT, @SEG_CODE)
       `);
 
-    await request
+    await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+      .input("SOURCE_CODE", sql.VarChar(50), sourcecode)
       .input("SOURCE_PERSON", sql.NVarChar(255), sourceperson)
       .input("SOURCE_TYPE", sql.NVarChar(50), sourcetype)
+      .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
         INSERT INTO DEVP_DATA_SOURCE (SOURCE_CODE, SOURCE_PERSON, SOURCE_TYPE, CREATED_DATE, COMPANY_CODE)
         VALUES (@SOURCE_CODE, @SOURCE_PERSON, @SOURCE_TYPE, @CREATED_DATE, @COMPANY_CODE)
       `);
 
-    await request
+    await new sql.Request(transaction)
       .input("USER_CODE", sql.VarChar(50), usercode)
       .input("DATA_COUNT", sql.Int, nextCount)
       .query(`
@@ -264,6 +286,7 @@ exports.addCompany = async (req, res) => {
       message: "Company saved successfully",
       companyCode: COMPANY_CODE,
     });
+
   } catch (err) {
     console.error("Error saving company:", err);
     if (transaction._aborted !== true) {
