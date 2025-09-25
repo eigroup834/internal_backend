@@ -2,10 +2,22 @@ const { poolPromise } = require("../db");
 const sql = require("mssql");
 const ExcelJS = require('exceljs');
 
-const generateCompanyCode = (name) => {
-  const prefix = name.replace(/[^A-Z0-9]/gi, "").substring(0, 4).toUpperCase();
-  const unique = Date.now().toString().slice(-6);
-  return prefix + unique;
+const generateCompanyCode = async (usercode, transaction) => {
+  const request = new sql.Request(transaction);
+  const result = await request
+    .input("USER_CODE", sql.VarChar(50), usercode)
+    .query(`
+      SELECT DATA_COUNT
+      FROM DEVP_USER
+      WHERE USER_CODE = @USER_CODE
+    `);
+
+  let nextCount = 1;
+  if (result.recordset.length > 0 && result.recordset[0].DATA_COUNT !== null) {
+    nextCount = result.recordset[0].DATA_COUNT + 1;
+  }
+  const companyCode = `${usercode}${nextCount}`;
+  return { companyCode, nextCount };
 };
 
 exports.getCompanies = async (req, res) => {
@@ -184,10 +196,10 @@ exports.addCompany = async (req, res) => {
       segment, usercode, sourcecode, sourceperson, sourcetype, oldname
     } = req.body;
 
-    const COMPANY_CODE = generateCompanyCode(name);
+    await transaction.begin();
+    const { companyCode: COMPANY_CODE, nextCount } = await generateCompanyCode(usercode, transaction);
     const CREATED_DATE = new Date();
 
-    await transaction.begin();
     const request = new sql.Request(transaction);
 
     await request
@@ -238,9 +250,10 @@ exports.addCompany = async (req, res) => {
 
     await request
       .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("DATA_COUNT", sql.Int, nextCount)
       .query(`
         UPDATE DEVP_USER
-        SET DATA_COUNT = ISNULL(DATA_COUNT, 0) + 1
+        SET DATA_COUNT = @DATA_COUNT
         WHERE USER_CODE = @USER_CODE
       `);
 
@@ -251,7 +264,6 @@ exports.addCompany = async (req, res) => {
       message: "Company saved successfully",
       companyCode: COMPANY_CODE,
     });
-    
   } catch (err) {
     console.error("Error saving company:", err);
     if (transaction._aborted !== true) {
@@ -266,10 +278,10 @@ exports.EditCompany = async (req, res) => {
 
   try {
     const {
-      companyCode, 
+      companyCode,
       name, email, website, phones, addresses, pincode,
       remarks, specialremarks, country, state, city,
-      segment, usercode, sourcecode, sourceperson, sourcetype, oldname
+      segment, sourcecode, sourceperson, sourcetype, oldname
     } = req.body;
 
     if (!companyCode) {
@@ -277,7 +289,6 @@ exports.EditCompany = async (req, res) => {
     }
 
     const UPDATED_DATE = new Date();
-
     await transaction.begin();
     const request = new sql.Request(transaction);
 
@@ -390,7 +401,7 @@ exports.GetCompanyDetail = async (req, res) => {
     }
 
     res.status(200).json(result.recordset[0]);
-    
+
   } catch (err) {
     console.error("Error fetching company details:", err);
     res.status(500).json({ success: false, error: err.message });
@@ -452,7 +463,6 @@ exports.exportCompanies = async (req, res) => {
     `;
 
     const result = await request.query(query);
-
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Companies');
 
