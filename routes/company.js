@@ -8,6 +8,7 @@ router.post("/addCompany", authenticateToken, companyController.addCompany);
 router.post("/updateHistory", authenticateToken, companyController.addCompanyHistory);
 router.get("/history", authenticateToken, companyController.getCompanyExhHistory);
 router.get("/exhibitions", authenticateToken, companyController.getExhibitionNames);
+router.delete("/history/:exhCode", authenticateToken, companyController.deleteExhibitionHistory);
 
 router.get("/industries", authenticateToken, companyController.getIndustries);
 router.get("/industries/segments", authenticateToken, companyController.getSegmentsByIndustry);

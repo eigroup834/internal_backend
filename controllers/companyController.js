@@ -769,5 +769,26 @@ exports.getExhibitionNames = async (req, res) => {
   }
 };
 
+exports.deleteExhibitionHistory = async (req, res) => {
+  const { exhCode } = req.params;
+
+  if (!exhCode) {
+    return res.status(400).json({ success: false, message: "EXH_CODE is required" });
+  }
+
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input("EXH_CODE", sql.VarChar(50), exhCode)
+      .query("DELETE FROM DEVP_EXH_HISTORY WHERE EXH_CODE = @EXH_CODE");
+
+    res.status(200).json({ success: true, message: "Exhibition history deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting exhibition history:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
 
 
