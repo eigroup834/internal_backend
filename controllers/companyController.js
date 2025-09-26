@@ -583,3 +583,82 @@ exports.exportCompanies = async (req, res) => {
     res.status(500).json({ message: 'Failed to export companies' });
   }
 };
+
+exports.addCompanyHistory = async (req, res) => {
+  const transaction = new sql.Transaction(await poolPromise);
+
+  try {
+    const {
+      companyCode,
+      usercode,
+      EXH_NAME,
+      EXH_YEAR,
+      EXH_LOCATION,
+      REVENUE,
+      AREA,
+      EXH_INFO,
+      SPONSOR,
+      EARLYBIRD_DIS,
+      FEEDBACK
+    } = req.body;
+
+    if (!companyCode || !usercode) {
+      return res.status(400).json({
+        success: false,
+        message: "Company code and user code are required"
+      });
+    }
+
+    if (!EXH_NAME || !EXH_YEAR || !EXH_LOCATION) {
+      return res.status(400).json({
+        success: false,
+        message: "Exhibition Name, Year, and Location are required"
+      });
+    }
+
+    const CREATED_DATE = new Date();
+    const UPDATED_DATE = new Date();
+
+    await transaction.begin();
+
+    await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+      .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
+      .input("EXH_YEAR", sql.Int, EXH_YEAR)
+      .input("EXH_LOCATION", sql.NVarChar(255), EXH_LOCATION)
+      .input("REVENUE", sql.Decimal(18, 2), REVENUE || 0)
+      .input("AREA", sql.Decimal(18, 2), AREA || 0)
+      .input("EXH_INFO", sql.NVarChar(sql.MAX), EXH_INFO || "")
+      .input("SPONSOR", sql.NVarChar(50), SPONSOR || "")
+      .input("EARLYBIRD_DIS", sql.NVarChar(50), EARLYBIRD_DIS || "No")
+      .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("FEEDBACK", sql.NVarChar(sql.MAX), FEEDBACK || "")
+      .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
+      .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
+      .query(`
+        INSERT INTO DEVP_EXH_HISTORY
+        (COMPANY_CODE, EXH_NAME, EXH_YEAR, EXH_LOCATION, REVENUE, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, USER_CODE, CREATED_DATE, UPDATED_DATE, FEEDBACK)
+        VALUES
+        (@COMPANY_CODE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @REVENUE, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @USER_CODE, @CREATED_DATE, @UPDATED_DATE, @FEEDBACK)
+      `);
+
+    await transaction.commit();
+
+    res.status(200).json({
+      success: true,
+      message: "Exhibition history added successfully",
+      companyCode
+    });
+
+  } catch (err) {
+    console.error("Error adding exhibition history:", err);
+    if (!transaction._aborted) {
+      await transaction.rollback();
+    }
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
+
