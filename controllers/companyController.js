@@ -617,14 +617,32 @@ exports.addCompanyHistory = async (req, res) => {
       });
     }
 
-    const CREATED_DATE = new Date();
-    const UPDATED_DATE = new Date();
-
     await transaction.begin();
     transactionStarted = true;
 
+    const companyResult = await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+      .query(`
+        SELECT COMPANY_NAME 
+        FROM DEVP_COMPANY_DETAIL
+        WHERE COMPANY_CODE = @COMPANY_CODE
+      `);
+
+    if (!companyResult.recordset.length) {
+      throw new Error("Invalid company code, company not found");
+    }
+
+    const COMPANY_NAME = companyResult.recordset[0].COMPANY_NAME;
+
+    const EXH_CODE = "HE" + Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase();
+
+    const CREATED_DATE = new Date();
+    const UPDATED_DATE = new Date();
+
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+      .input("COMPANY_NAME", sql.NVarChar(255), COMPANY_NAME)
+      .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
       .input("EXH_YEAR", sql.Int, EXH_YEAR)
       .input("EXH_LOCATION", sql.NVarChar(255), EXH_LOCATION)
@@ -639,9 +657,9 @@ exports.addCompanyHistory = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
         INSERT INTO DEVP_EXH_HISTORY
-        (COMPANY_CODE, EXH_NAME, EXH_YEAR, EXH_LOCATION, REVENUE, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, USER_CODE, CREATED_DATE, UPDATED_DATE, FEEDBACK)
+        (COMPANY_CODE, COMPANY_NAME, EXH_CODE, EXH_NAME, EXH_YEAR, EXH_LOCATION, REVENUE, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, USER_CODE, CREATED_DATE, UPDATED_DATE, FEEDBACK)
         VALUES
-        (@COMPANY_CODE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @REVENUE, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @USER_CODE, @CREATED_DATE, @UPDATED_DATE, @FEEDBACK)
+        (@COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @REVENUE, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @USER_CODE, @CREATED_DATE, @UPDATED_DATE, @FEEDBACK)
       `);
 
     await transaction.commit();
@@ -649,7 +667,8 @@ exports.addCompanyHistory = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Exhibition history added successfully",
-      companyCode: COMPANY_CODE
+      companyCode: COMPANY_CODE,
+      exhCode: EXH_CODE
     });
 
   } catch (err) {
@@ -668,4 +687,56 @@ exports.addCompanyHistory = async (req, res) => {
   }
 };
 
+exports.getCompanyExhHistory = async (req, res) => {
+  try {
+    const { companyCode, page = 1, limit = 10 } = req.query;
+
+    if (!companyCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Company code is required"
+      });
+    }
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const result = await poolPromise.request()
+      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+      .input("OFFSET", sql.Int, offset)
+      .input("LIMIT", sql.Int, parseInt(limit))
+      .query(`
+        SELECT * 
+        FROM DEVP_EXH_HISTORY
+        WHERE COMPANY_CODE = @COMPANY_CODE
+        ORDER BY CREATED_DATE DESC
+        OFFSET @OFFSET ROWS
+        FETCH NEXT @LIMIT ROWS ONLY
+      `);
+
+    const countResult = await poolPromise.request()
+      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+      .query(`
+        SELECT COUNT(*) AS total
+        FROM DEVP_EXH_HISTORY
+        WHERE COMPANY_CODE = @COMPANY_CODE
+      `);
+
+    const total = countResult.recordset[0].total;
+
+    res.status(200).json({
+      success: true,
+      data: result.recordset,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total
+    });
+
+  } catch (err) {
+    console.error("Error fetching exhibition history:", err);
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
 
