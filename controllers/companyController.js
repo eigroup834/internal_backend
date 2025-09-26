@@ -324,11 +324,14 @@ exports.EditCompany = async (req, res) => {
       companyCode,
       name, email, website, phones, addresses, pincode,
       remarks, division, specialremarks, country, state, city,
-      segment, sourcecode, sourceperson, sourcetype, oldname, usercode
+      segment, oldname, usercode
     } = req.body;
 
     if (!companyCode) {
-      return res.status(400).json({ success: false, message: "Company code is required for update" });
+      return res.status(400).json({
+        success: false,
+        message: "Company code is required for update"
+      });
     }
 
     const UPDATED_DATE = new Date();
@@ -415,15 +418,18 @@ exports.EditCompany = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Company updated successfully",
-      companyCode: companyCode,
+      companyCode
     });
 
   } catch (err) {
     console.error("Error updating company:", err);
-    if (transaction._aborted !== true) {
+    if (!transaction._aborted) {
       await transaction.rollback();
     }
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
   }
 };
 
