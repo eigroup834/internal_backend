@@ -589,8 +589,8 @@ exports.addCompanyHistory = async (req, res) => {
 
   try {
     const {
-      companyCode,
-      usercode,
+      COMPANY_CODE,
+      USER_CODE,
       EXH_NAME,
       EXH_YEAR,
       EXH_LOCATION,
@@ -602,7 +602,7 @@ exports.addCompanyHistory = async (req, res) => {
       FEEDBACK
     } = req.body;
 
-    if (!companyCode || !usercode) {
+    if (!COMPANY_CODE || !USER_CODE) {
       return res.status(400).json({
         success: false,
         message: "Company code and user code are required"
@@ -622,7 +622,7 @@ exports.addCompanyHistory = async (req, res) => {
     await transaction.begin();
 
     await new sql.Request(transaction)
-      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
       .input("EXH_YEAR", sql.Int, EXH_YEAR)
       .input("EXH_LOCATION", sql.NVarChar(255), EXH_LOCATION)
@@ -631,7 +631,7 @@ exports.addCompanyHistory = async (req, res) => {
       .input("EXH_INFO", sql.NVarChar(sql.MAX), EXH_INFO || "")
       .input("SPONSOR", sql.NVarChar(50), SPONSOR || "")
       .input("EARLYBIRD_DIS", sql.NVarChar(50), EARLYBIRD_DIS || "No")
-      .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("USER_CODE", sql.VarChar(50), USER_CODE)
       .input("FEEDBACK", sql.NVarChar(sql.MAX), FEEDBACK || "")
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)

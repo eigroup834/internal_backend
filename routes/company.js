@@ -5,7 +5,7 @@ const authenticateToken = require('../middleware/auth');
 
 router.get('/', authenticateToken, companyController.getCompanies);
 router.post("/addCompany", authenticateToken, companyController.addCompany);
-router.put("/updateHistory", authenticateToken, companyController.addCompanyHistory);
+router.post("/updateHistory", authenticateToken, companyController.addCompanyHistory);
 
 router.get("/industries", authenticateToken, companyController.getIndustries);
 router.get("/industries/segments", authenticateToken, companyController.getSegmentsByIndustry);
