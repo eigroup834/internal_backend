@@ -742,4 +742,32 @@ exports.getCompanyExhHistory = async (req, res) => {
   }
 };
 
+exports.getExhibitionNames = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    const result = await pool.request()
+      .query(`
+        SELECT DISTINCT EXH_NAME
+        FROM DEVP_EXH_HISTORY
+        ORDER BY EXH_NAME ASC
+      `);
+
+    const names = result.recordset.map(row => row.EXH_NAME);
+
+    res.status(200).json({
+      success: true,
+      data: names
+    });
+
+  } catch (err) {
+    console.error("Error fetching exhibition names:", err);
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
+
+
 
