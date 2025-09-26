@@ -586,6 +586,7 @@ exports.exportCompanies = async (req, res) => {
 
 exports.addCompanyHistory = async (req, res) => {
   const transaction = new sql.Transaction(await poolPromise);
+  let transactionStarted = false;
 
   try {
     const {
@@ -620,6 +621,7 @@ exports.addCompanyHistory = async (req, res) => {
     const UPDATED_DATE = new Date();
 
     await transaction.begin();
+    transactionStarted = true;
 
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
@@ -647,13 +649,17 @@ exports.addCompanyHistory = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Exhibition history added successfully",
-      companyCode
+      companyCode: COMPANY_CODE
     });
 
   } catch (err) {
     console.error("Error adding exhibition history:", err);
-    if (!transaction._aborted) {
-      await transaction.rollback();
+    if (transactionStarted) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackErr) {
+        console.error("Rollback failed:", rollbackErr);
+      }
     }
     res.status(500).json({
       success: false,
@@ -661,4 +667,5 @@ exports.addCompanyHistory = async (req, res) => {
     });
   }
 };
+
 
