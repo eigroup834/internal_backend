@@ -700,7 +700,9 @@ exports.getCompanyExhHistory = async (req, res) => {
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    const result = await poolPromise.request()
+    const pool = await poolPromise;
+
+    const result = await pool.request()
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .input("OFFSET", sql.Int, offset)
       .input("LIMIT", sql.Int, parseInt(limit))
@@ -713,7 +715,7 @@ exports.getCompanyExhHistory = async (req, res) => {
         FETCH NEXT @LIMIT ROWS ONLY
       `);
 
-    const countResult = await poolPromise.request()
+    const countResult = await pool.request()
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .query(`
         SELECT COUNT(*) AS total
@@ -739,4 +741,5 @@ exports.getCompanyExhHistory = async (req, res) => {
     });
   }
 };
+
 
