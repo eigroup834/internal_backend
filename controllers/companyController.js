@@ -192,7 +192,7 @@ exports.addCompany = async (req, res) => {
   try {
     const {
       name, email, website, phones, addresses, pincode,
-      remarks, specialremarks, country, state, city,
+      remarks, division, specialremarks, country, state, city,
       segment, usercode, sourcecode, sourceperson, sourcetype, oldname
     } = req.body;
 
@@ -234,7 +234,7 @@ exports.addCompany = async (req, res) => {
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .input("COMPANY_NAME", sql.NVarChar(255), name)
-      .input("DIVISION", sql.NVarChar(255), name)
+      .input("DIVISION", sql.NVarChar(255), division)
       .input("OLDNAME", sql.NVarChar(255), oldname)
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
       .input("CITY", sql.NVarChar(100), city)
@@ -253,7 +253,7 @@ exports.addCompany = async (req, res) => {
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .input("COMPANY_NAME", sql.NVarChar(255), name)
-      .input("DIVISION", sql.NVarChar(255), name)
+      .input("DIVISION", sql.NVarChar(255), division)
       .input("OLDNAME", sql.NVarChar(255), oldname)
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
       .input("CITY", sql.NVarChar(100), city)
@@ -266,8 +266,8 @@ exports.addCompany = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("USER_CODE", sql.VarChar(50), usercode)
       .query(`
-        INSERT INTO DEVP_COMPANY_UPDATE_HISTORY (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE)
-        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE)
+        INSERT INTO DEVP_COMPANY_UPDATE_HISTORY (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE)
+        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE)
       `);
 
     await new sql.Request(transaction)
