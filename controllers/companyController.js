@@ -323,8 +323,8 @@ exports.EditCompany = async (req, res) => {
     const {
       companyCode,
       name, email, website, phones, addresses, pincode,
-      remarks, specialremarks, country, state, city,
-      segment, sourcecode, sourceperson, sourcetype, oldname
+      remarks, division, specialremarks, country, state, city,
+      segment, sourcecode, sourceperson, sourcetype, oldname, usercode
     } = req.body;
 
     if (!companyCode) {
@@ -333,9 +333,8 @@ exports.EditCompany = async (req, res) => {
 
     const UPDATED_DATE = new Date();
     await transaction.begin();
-    const request = new sql.Request(transaction);
 
-    await request
+    await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
       .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
@@ -348,9 +347,10 @@ exports.EditCompany = async (req, res) => {
         WHERE COMPANY_CODE = @COMPANY_CODE
       `);
 
-    await request
+    await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .input("COMPANY_NAME", sql.NVarChar(255), name)
-      .input("DIVISION", sql.NVarChar(255), name)
+      .input("DIVISION", sql.NVarChar(255), division)
       .input("OLDNAME", sql.NVarChar(255), oldname)
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
       .input("CITY", sql.NVarChar(100), city)
@@ -378,7 +378,29 @@ exports.EditCompany = async (req, res) => {
         WHERE COMPANY_CODE = @COMPANY_CODE
       `);
 
-    await request
+    await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+      .input("COMPANY_NAME", sql.NVarChar(255), name)
+      .input("DIVISION", sql.NVarChar(255), division)
+      .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
+      .input("CITY", sql.NVarChar(100), city)
+      .input("PINCODE", sql.VarChar(20), pincode)
+      .input("STATE", sql.NVarChar(100), state)
+      .input("COUNTRY", sql.NVarChar(100), country)
+      .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
+      .input("EMAIL", sql.NVarChar(255), email)
+      .input("WEBSITE", sql.NVarChar(255), website)
+      .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
+      .input("USER_CODE", sql.VarChar(50), usercode)
+      .query(`
+        INSERT INTO DEVP_COMPANY_UPDATE_HISTORY 
+          (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE)
+        VALUES 
+          (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE)
+      `);
+
+    await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .input("SEGMENT", sql.NVarChar(255), segment)
       .input("SEG_CODE", sql.VarChar(50), segment)
       .query(`
@@ -386,18 +408,6 @@ exports.EditCompany = async (req, res) => {
         SET SEGMENT = @SEGMENT,
             SEG_CODE = @SEG_CODE
         WHERE COMPANY_CODE = @COMPANY_CODE
-      `);
-
-    await request
-      .input("SOURCE_CODE", sql.VarChar(50), sourcecode)
-      .input("SOURCE_PERSON", sql.NVarChar(255), sourceperson)
-      .input("SOURCE_TYPE", sql.NVarChar(50), sourcetype)
-      .query(`
-        UPDATE DEVP_DATA_SOURCE
-        SET SOURCE_PERSON = @SOURCE_PERSON,
-            SOURCE_TYPE = @SOURCE_TYPE
-        WHERE COMPANY_CODE = @COMPANY_CODE
-          AND SOURCE_CODE = @SOURCE_CODE
       `);
 
     await transaction.commit();
