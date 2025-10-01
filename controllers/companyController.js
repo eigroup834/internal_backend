@@ -20,6 +20,14 @@ const generateCompanyCode = async (usercode, transaction) => {
   return { companyCode, nextCount };
 };
 
+const generatePersonCode = () => {
+  const rawNumber = Date.now() + Math.floor(Math.random() * 1000);
+  const hexPart = rawNumber.toString(16).toUpperCase();
+  const personCode = `CP${hexPart}`;
+  return personCode;
+}
+
+
 exports.getCompanies = async (req, res) => {
   try {
     const {
@@ -788,6 +796,184 @@ exports.deleteExhibitionHistory = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+exports.addPerson = async (req, res) => {
+  const transaction = new sql.Transaction(await poolPromise);
+
+  try {
+    const {
+      salutation,
+      firstname,
+      lastname,
+      companycode,
+      mobiles,
+      emails,
+      designations,
+      departments,
+      dob,
+      contactdate,
+      remarks,
+      management_remarks,
+      addresses,
+      cupd_remark,
+      usercode
+    } = req.body;
+
+    await transaction.begin();
+
+    const PERSON_CODE = generatePersonCode();
+    const CREATED_DATE = new Date();
+
+    const mobileJson = JSON.stringify(mobiles?.filter(m => m?.number) || []);
+    const emailJson = JSON.stringify(emails?.filter(e => e) || []);
+    const desigJson = JSON.stringify(designations?.filter(d => d) || []);
+    const deptJson = JSON.stringify(departments?.filter(d => d) || []);
+    const addrJson = JSON.stringify(addresses?.filter(a => a) || []);
+
+    const dobDate = dob ? new Date(dob) : null;
+    const contactDate = contactdate ? new Date(contactdate) : null;
+
+    await new sql.Request(transaction)
+      .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
+      .input("COMPANY_CODE", sql.VarChar(50), companycode)
+      .input("PREFIX", sql.NVarChar(50), salutation || "")
+      .input("FNAME", sql.NVarChar(255), firstname || "")
+      .input("LNAME", sql.NVarChar(255), lastname || "")
+      .input("DESIG", sql.NVarChar(sql.MAX), desigJson)
+      .input("DEPT", sql.NVarChar(sql.MAX), deptJson)
+      .input("MOBILE", sql.NVarChar(sql.MAX), mobileJson)
+      .input("PERSON_EMAIL", sql.NVarChar(sql.MAX), emailJson)
+      .input("DOB", sql.Date, dobDate)
+      .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
+      .input("CONTACTDATE", sql.Date, contactDate)
+      .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), management_remarks || "")
+      .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("ADDRESS", sql.NVarChar(sql.MAX), addrJson)
+      .input("CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
+      .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
+      .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
+      .query(`
+        INSERT INTO DEVP_COMP_PERSON 
+        (PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL, DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, CUPD_REMARK, UPDATED_DATE, CREATED_DATE)
+        VALUES (@PERSON_CODE, @COMPANY_CODE, @PREFIX, @FNAME, @LNAME, @DESIG, @DEPT, @MOBILE, @PERSON_EMAIL, @DOB, @REMARKS, @CONTACTDATE, @MANAGEMENT_REMARKS, @USER_CODE, @ADDRESS, @CUPD_REMARK, @UPDATED_DATE, @CREATED_DATE)
+      `);
+
+    await transaction.commit();
+
+    res.status(201).json({
+      success: true,
+      message: "Person saved successfully",
+      personCode: PERSON_CODE,
+    });
+
+  } catch (err) {
+    console.error("Error saving person:", err);
+    if (transaction._aborted !== true) {
+      await transaction.rollback();
+    }
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.getPersonList = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      sortBy = "COMPANY_CODE",
+      sortOrder = "ASC",
+      filters = "{}",
+    } = req.query;
+
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
+    const offset = (pageNum - 1) * limitNum;
+
+    let filterObj = {};
+    try {
+      filterObj = JSON.parse(filters);
+    } catch {
+      return res.status(400).json({ error: "Invalid filters JSON" });
+    }
+
+    let whereClauses = [];
+    let request = (await poolPromise).request();
+
+    const filterColumns = {
+      COUNTRY: "c.COUNTRY",
+      STATE: "c.STATE",
+      CITY: "c.CITY",
+      INDUSTRY: "s.INDUSTRY",
+      SEGMENT: "m.SEG_CODE"
+    };
+
+    for (const [key, val] of Object.entries(filterObj)) {
+      if (val && val.trim() !== "" && filterColumns[key]) {
+        const col = filterColumns[key];
+
+        if (key === "SEGMENT") {
+          whereClauses.push(`UPPER(${col}) = UPPER(@${key})`);
+          request.input(key, val.trim());
+        } else {
+          whereClauses.push(`UPPER(${col}) LIKE UPPER(@${key})`);
+          request.input(key, `%${val.trim()}%`);
+        }
+      }
+    }
+
+
+    if (search) {
+      const likeClauses = [
+        "c.[COMPANY_NAME] LIKE @search1",
+        "c.[COMPANY_CODE] LIKE @search2",
+        "c.[EMAIL] LIKE @search3",
+        "c.[PHONES] LIKE @search4",
+      ];
+
+      whereClauses.push("(" + likeClauses.join(" OR ") + ")");
+      request.input("search1", `%${search}%`);
+      request.input("search2", `%${search}%`);
+      request.input("search3", `%${search}%`);
+      request.input("search4", `%${search}%`);
+    }
+
+    const whereSQL =
+      whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
+    const query = `
+      WITH CompanyData AS (
+        SELECT DISTINCT c.*, s.INDUSTRY, s.SEGMENT,
+               ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
+        FROM dbo.DEVP_COMPANY_DETAIL c
+        INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
+        INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+        ${whereSQL}
+      )
+      SELECT *
+      FROM CompanyData
+      WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
+
+      SELECT COUNT(DISTINCT c.COMPANY_CODE) AS total
+      FROM dbo.DEVP_COMPANY_DETAIL c
+      INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
+      INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+      ${whereSQL};
+    `;
+
+    const result = await request.query(query);
+
+    res.json({
+      data: result.recordsets[0],
+      total: result.recordsets[1][0].total,
+      page: pageNum,
+      limit: limitNum,
+    });
+  } catch (err) {
+    console.error("Company fetch error:", err?.originalError || err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
 
 
 
