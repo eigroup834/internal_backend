@@ -881,7 +881,7 @@ exports.getPersonList = async (req, res) => {
       page = 1,
       limit = 10,
       search = "",
-      sortBy = "COMPANY_CODE",
+      sortBy = "PERSON_CODE",
       sortOrder = "ASC",
       filters = "{}",
     } = req.query;
@@ -901,32 +901,13 @@ exports.getPersonList = async (req, res) => {
     let request = (await poolPromise).request();
 
     const filterColumns = {
-      COUNTRY: "c.COUNTRY",
-      STATE: "c.STATE",
-      CITY: "c.CITY",
-      INDUSTRY: "s.INDUSTRY",
-      SEGMENT: "m.SEG_CODE"
+      COMPANY: "c.COMPANY",
     };
-
-    for (const [key, val] of Object.entries(filterObj)) {
-      if (val && val.trim() !== "" && filterColumns[key]) {
-        const col = filterColumns[key];
-
-        if (key === "SEGMENT") {
-          whereClauses.push(`UPPER(${col}) = UPPER(@${key})`);
-          request.input(key, val.trim());
-        } else {
-          whereClauses.push(`UPPER(${col}) LIKE UPPER(@${key})`);
-          request.input(key, `%${val.trim()}%`);
-        }
-      }
-    }
-
 
     if (search) {
       const likeClauses = [
-        "c.[COMPANY_NAME] LIKE @search1",
-        "c.[COMPANY_CODE] LIKE @search2",
+        "c.[FNAME] LIKE @search1",
+        "c.[PERSON_CODE] LIKE @search2",
         "c.[EMAIL] LIKE @search3",
         "c.[PHONES] LIKE @search4",
       ];
@@ -969,7 +950,7 @@ exports.getPersonList = async (req, res) => {
       limit: limitNum,
     });
   } catch (err) {
-    console.error("Company fetch error:", err?.originalError || err);
+    console.error("Person fetch error:", err?.originalError || err);
     res.status(500).json({ error: "Server error" });
   }
 };
