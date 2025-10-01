@@ -897,47 +897,58 @@ exports.getPersonList = async (req, res) => {
       return res.status(400).json({ error: "Invalid filters JSON" });
     }
 
+    const request = (await poolPromise).request();
+
     let whereClauses = [];
-    let request = (await poolPromise).request();
+
+    if (search) {
+      const likeClauses = [
+        "p.[FNAME] LIKE @search",
+        "p.[PERSON_CODE] LIKE @search",
+        "p.[EMAIL] LIKE @search",
+        "p.[PHONES] LIKE @search",
+      ];
+      whereClauses.push("(" + likeClauses.join(" OR ") + ")");
+      request.input("search", `%${search}%`);
+    }
 
     const filterColumns = {
       COMPANY: "c.COMPANY",
     };
 
-    if (search) {
-      const likeClauses = [
-        "c.[FNAME] LIKE @search1",
-        "c.[PERSON_CODE] LIKE @search2",
-        "c.[EMAIL] LIKE @search3",
-        "c.[PHONES] LIKE @search4",
-      ];
-
-      whereClauses.push("(" + likeClauses.join(" OR ") + ")");
-      request.input("search1", `%${search}%`);
-      request.input("search2", `%${search}%`);
-      request.input("search3", `%${search}%`);
-      request.input("search4", `%${search}%`);
+    for (const [key, value] of Object.entries(filterObj)) {
+      if (filterColumns[key]) {
+        whereClauses.push(`${filterColumns[key]} = @filter_${key}`);
+        request.input(`filter_${key}`, value);
+      }
     }
 
     const whereSQL =
       whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
+
+    const validSortColumns = ["PERSON_CODE", "FNAME", "EMAIL", "PHONES"];
+    const validSortOrders = ["ASC", "DESC"];
+
+    const sortCol = validSortColumns.includes(sortBy) ? sortBy : "PERSON_CODE";
+    const sortDir = validSortOrders.includes(sortOrder.toUpperCase())
+      ? sortOrder.toUpperCase()
+      : "ASC";
+
     const query = `
-      WITH CompanyData AS (
-        SELECT DISTINCT c.*, s.INDUSTRY, s.SEGMENT,
-               ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
-        FROM dbo.DEVP_COMPANY_DETAIL c
-        INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
-        INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+      WITH PersonData AS (
+        SELECT DISTINCT p.*
+               ROW_NUMBER() OVER (ORDER BY p.[${sortCol}] ${sortDir}) AS RowNum
+        FROM dbo.DEVP_PERSON_DETAIL p
+        INNER JOIN dbo.DEVP_COMPANY_DETAIL c ON p.COMPANY_CODE = c.COMPANY_CODE
         ${whereSQL}
       )
       SELECT *
-      FROM CompanyData
+      FROM PersonData
       WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
 
-      SELECT COUNT(DISTINCT c.COMPANY_CODE) AS total
-      FROM dbo.DEVP_COMPANY_DETAIL c
-      INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
-      INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+      SELECT COUNT(DISTINCT p.PERSON_CODE) AS total
+      FROM dbo.DEVP_PERSON_DETAIL p
+      INNER JOIN dbo.DEVP_COMPANY_DETAIL c ON p.COMPANY_CODE = c.COMPANY_CODE
       ${whereSQL};
     `;
 
@@ -954,6 +965,7 @@ exports.getPersonList = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
+
 
 
 
