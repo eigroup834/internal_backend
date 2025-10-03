@@ -897,58 +897,50 @@ exports.getPersonList = async (req, res) => {
       return res.status(400).json({ error: "Invalid filters JSON" });
     }
 
-    const request = (await poolPromise).request();
+    const allowedSortColumns = ["ID", "FNAME", "PERSON_CODE", "PERSON_EMAIL", "MOBILE", "COMPANY_CODE"];
+    const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : "PERSON_CODE";
+    const sortDir = sortOrder.toUpperCase() === "DESC" ? "DESC" : "ASC";
 
-    let whereClauses = [];
+    const allowedFilterColumns = ["ID", "FNAME", "PERSON_CODE", "PERSON_EMAIL", "MOBILE", "COMPANY_CODE"];
+    const whereClauses = [];
+    const request = (await poolPromise).request();
 
     if (search) {
       const likeClauses = [
-        "p.[FNAME] LIKE @search",
-        "p.[PERSON_CODE] LIKE @search",
-        "p.[EMAIL] LIKE @search",
-        "p.[PHONES] LIKE @search",
+        "[FNAME] LIKE @search1",
+        "[PERSON_CODE] LIKE @search2",
+        "[EMAIL] LIKE @search3",
+        "[COMPANY_CODE] LIKE @search4",
       ];
       whereClauses.push("(" + likeClauses.join(" OR ") + ")");
-      request.input("search", `%${search}%`);
+      request.input("search1", `%${search}%`);
+      request.input("search2", `%${search}%`);
+      request.input("search3", `%${search}%`);
+      request.input("search4", `%${search}%`);
     }
 
-    const filterColumns = {
-      COMPANY_CODE: "c.COMPANY_CODE",
-    };
-
-    for (const [key, value] of Object.entries(filterObj)) {
-      if (filterColumns[key]) {
-        whereClauses.push(`${filterColumns[key]} = @filter_${key}`);
-        request.input(`filter_${key}`, value);
+    for (const key in filterObj) {
+      if (allowedFilterColumns.includes(key) && filterObj[key] !== "") {
+        whereClauses.push(`[${key}] = @${key}`);
+        request.input(key, filterObj[key]);
       }
     }
 
-    const whereSQL =
-      whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
-
-    const validSortColumns = ["PERSON_CODE", "FNAME", "EMAIL", "PHONES"];
-    const validSortOrders = ["ASC", "DESC"];
-
-    const sortCol = validSortColumns.includes(sortBy) ? sortBy : "PERSON_CODE";
-    const sortDir = validSortOrders.includes(sortOrder.toUpperCase())
-      ? sortOrder.toUpperCase()
-      : "ASC";
+    const whereSQL = whereClauses.length ? "WHERE " + whereClauses.join(" AND ") : "";
 
     const query = `
       WITH PersonData AS (
-        SELECT p.*,
-               ROW_NUMBER() OVER (ORDER BY p.[${sortCol}] ${sortDir}) AS RowNum
-        FROM dbo.DEVP_PERSON_DETAIL p
-        INNER JOIN dbo.DEVP_COMPANY_DETAIL c ON p.COMPANY_CODE = c.COMPANY_CODE
+        SELECT *,
+               ROW_NUMBER() OVER (ORDER BY [${sortColumn}] ${sortDir}) AS RowNum
+        FROM dbo.DEVP_COMP_PERSON
         ${whereSQL}
       )
       SELECT *
       FROM PersonData
       WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
 
-      SELECT COUNT(DISTINCT p.PERSON_CODE) AS total
-      FROM dbo.DEVP_PERSON_DETAIL p
-      INNER JOIN dbo.DEVP_COMPANY_DETAIL c ON p.COMPANY_CODE = c.COMPANY_CODE
+      SELECT COUNT(*) AS total
+      FROM dbo.DEVP_COMP_PERSON
       ${whereSQL};
     `;
 

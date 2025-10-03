@@ -3,7 +3,7 @@ const router = express.Router();
 const companyController = require('../controllers/companyController');
 const authenticateToken = require('../middleware/auth');
 
-router.get('/', authenticateToken, companyController.getCompanies);
+router.get('/getCompanies', authenticateToken, companyController.getCompanies);
 router.post("/addCompany", authenticateToken, companyController.addCompany);
 router.post("/addPerson", authenticateToken, companyController.addPerson);
 router.post("/getPersonList", authenticateToken, companyController.getPersonList);

@@ -5,5 +5,6 @@ const commonController = require('../controllers/commonController');
 router.get('/countries', commonController.getCountries);
 router.get('/states', commonController.getStates);
 router.get('/cities', commonController.getCities);
+router.get('/editor', commonController.getEditors);
 
 module.exports = router;
