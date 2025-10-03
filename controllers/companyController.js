@@ -913,7 +913,7 @@ exports.getPersonList = async (req, res) => {
     }
 
     const filterColumns = {
-      COMPANY: "c.COMPANY",
+      COMPANY_CODE: "c.COMPANY_CODE",
     };
 
     for (const [key, value] of Object.entries(filterObj)) {
@@ -936,7 +936,7 @@ exports.getPersonList = async (req, res) => {
 
     const query = `
       WITH PersonData AS (
-        SELECT DISTINCT p.*
+        SELECT p.*,
                ROW_NUMBER() OVER (ORDER BY p.[${sortCol}] ${sortDir}) AS RowNum
         FROM dbo.DEVP_PERSON_DETAIL p
         INNER JOIN dbo.DEVP_COMPANY_DETAIL c ON p.COMPANY_CODE = c.COMPANY_CODE
