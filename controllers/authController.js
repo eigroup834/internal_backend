@@ -12,20 +12,21 @@ exports.login = async (req, res) => {
     const pool = await poolPromise;
     const result = await pool.request()
       .input('username', sql.VarChar, username)
-      .query(`SELECT * FROM dbo.DEVP_USER WHERE USERNAME = @username AND ACTIVE = 1`);
+      .query(`SELECT * FROM dbo.DEVP_USER WHERE USERNAME = @username`);
 
     const user = result.recordset[0];
+  
     if (!user) {
       return res.status(401).json({ message: 'Username does not exist' });
     }
 
-    // if (user.ACTIVE !== 1) {
-    //   return res.status(403).json({ message: 'User account is inactive. Please contact admin.' });
-    // }
-
     const isMatch = (password === user.PASSWORD);
     if (!isMatch) {
       return res.status(401).json({ message: 'Incorrect password' });
+    }
+
+    if (!user.ACTIVE) {
+      return res.status(403).json({ message: 'User account is inactive. Please contact admin.' });
     }
 
     const token = jwt.sign(
