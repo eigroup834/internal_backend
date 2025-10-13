@@ -1,4 +1,4 @@
-const { getConnection, sql } = require("./db");
+const { poolPromise, sql } = require('./db');
 const useragent = require("useragent");
 
 async function logActivity({
@@ -12,7 +12,7 @@ async function logActivity({
   userAgent = "",
 }) {
   try {
-    const pool = await getConnection();
+    const pool = await poolPromise;
     const agent = useragent.parse(userAgent || "");
     const deviceInfo = `${agent.family} ${agent.major} on ${agent.os.family}`;
 
