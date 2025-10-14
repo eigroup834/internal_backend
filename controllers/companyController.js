@@ -62,9 +62,18 @@ exports.getCompanies = async (req, res) => {
     };
 
     for (const [key, val] of Object.entries(filterObj)) {
-      if (val && val.trim() !== "" && filterColumns[key]) {
-        const col = filterColumns[key];
+      const col = filterColumns[key];
+      if (!col) continue;
 
+      if (Array.isArray(val) && val.length > 0) {
+        const paramNames = val.map((_, idx) => `@${key}_${idx}`);
+        const clause = `${col} IN (${paramNames.join(", ")})`;
+        whereClauses.push(clause);
+
+        val.forEach((item, idx) => {
+          request.input(`${key}_${idx}`, item);
+        });
+      } else if (typeof val === "string" && val.trim() !== "") {
         if (key === "SEGMENT") {
           whereClauses.push(`UPPER(${col}) = UPPER(@${key})`);
           request.input(key, val.trim());
@@ -74,7 +83,6 @@ exports.getCompanies = async (req, res) => {
         }
       }
     }
-
 
     if (search) {
       const likeClauses = [
