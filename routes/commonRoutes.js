@@ -6,5 +6,6 @@ router.get('/countries', commonController.getCountries);
 router.get('/states', commonController.getStates);
 router.get('/cities', commonController.getCities);
 router.get('/editor', commonController.getEditors);
+router.get('/categories', commonController.getCategories);
 
 module.exports = router;

@@ -129,5 +129,38 @@ exports.getEditors = async (req, res) => {
   }
 };
 
+exports.getCategories = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool
+      .request()
+      .query(`
+        SELECT CATEGORY_TYPE, LABEL, VALUE 
+        FROM DEVP_CATEGORY 
+        WHERE ACTIVE = 1
+      `);
+
+    const rows = result.recordset;
+
+    const grouped = rows.reduce((acc, row) => {
+      if (!acc[row.CATEGORY_TYPE]) {
+        acc[row.CATEGORY_TYPE] = [];
+      }
+      acc[row.CATEGORY_TYPE].push({
+        label: row.LABEL,
+        value: row.VALUE,
+      });
+      return acc;
+    }, {});
+
+    res.json(grouped);
+  } catch (err) {
+    console.error("Category fetch error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+
+
 
 
