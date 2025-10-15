@@ -1,5 +1,5 @@
 const { Country, State, City } = require("country-state-city");
-const { poolPromise } = require("../db");
+const { poolPromise, sql } = require("../db");
 
 exports.getCountries = async (req, res) => {
   try {
@@ -183,14 +183,38 @@ exports.getStats = async (req, res) => {
       return res.status(400).json({ error: "user_code is required" });
     }
 
-    const companyCounts = await getCountsByUser("DEVP_COMPANY_DETAIL", "CREATED_DATE", user_code);
-    const personCounts = await getCountsByUser("DEVP_COMP_PERSON", "CREATED_DATE", user_code);
+    const pool = await poolPromise;
+
+    const companyQuery = `
+      SELECT 
+        COUNT(*) AS Total,
+        SUM(CASE WHEN CAST(c.CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Today
+      FROM DEVP_COMPANY_DETAIL c
+      INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
+      WHERE m.USER_CODE = @user_code
+    `;
+
+    const personQuery = `
+      SELECT 
+        COUNT(*) AS Total,
+        SUM(CASE WHEN CAST(CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Today
+      FROM DEVP_COMP_PERSON
+      WHERE USER_CODE = @user_code
+    `;
+
+    const [companyResult, personResult] = await Promise.all([
+      pool.request().input("user_code", sql.VarChar(10), user_code).query(companyQuery),
+      pool.request().input("user_code", sql.VarChar(10), user_code).query(personQuery),
+    ]);
+
+    const companyStats = companyResult.recordset[0];
+    const personStats = personResult.recordset[0];
 
     res.json({
-      CompaniesToday: companyCounts.Today,
-      CompaniesMonth: companyCounts.Total,
-      PersonsToday: personCounts.Today,
-      PersonsMonth: personCounts.Total
+      CompaniesToday: companyStats.Today || 0,
+      CompaniesMonth: companyStats.Total || 0,
+      PersonsToday: personStats.Today || 0,
+      PersonsMonth: personStats.Total || 0,
     });
   } catch (err) {
     console.error("getStats error:", err);
@@ -205,52 +229,61 @@ exports.getActivity = async (req, res) => {
 
     const pool = await poolPromise;
     let dateFilter = "";
+
     if (startDate && endDate) {
-      dateFilter = `AND CAST(CREATED_DATE AS DATE) BETWEEN '${startDate}' AND '${endDate}'`;
+      dateFilter = `AND CAST(c.CREATED_DATE AS DATE) BETWEEN '${startDate}' AND '${endDate}'`;
     }
 
-    const companyActivity = await pool.request()
-      .input("user_code", sql.VarChar(10), user_code)
-      .query(`
-        SELECT CAST(CREATED_DATE AS DATE) AS date, COUNT(*) AS companies
-        FROM DEVP_COMPANY_DETAIL
-        WHERE USER_CODE = @user_code ${dateFilter}
-        GROUP BY CAST(CREATED_DATE AS DATE)
-        ORDER BY date
-      `);
+    const companyQuery = `
+      SELECT 
+        CAST(c.CREATED_DATE AS DATE) AS date, 
+        COUNT(*) AS companies
+      FROM DEVP_COMPANY_DETAIL c
+      INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
+      WHERE m.USER_CODE = @user_code ${dateFilter}
+      GROUP BY CAST(c.CREATED_DATE AS DATE)
+      ORDER BY date
+    `;
 
-    const personActivity = await pool.request()
-      .input("user_code", sql.VarChar(10), user_code)
-      .query(`
-        SELECT CAST(CREATED_DATE AS DATE) AS date, COUNT(*) AS persons
-        FROM DEVP_COMP_PERSON
-        WHERE USER_CODE = @user_code ${dateFilter}
-        GROUP BY CAST(CREATED_DATE AS DATE)
-        ORDER BY date
-      `);
+    const personQuery = `
+      SELECT 
+        CAST(CREATED_DATE AS DATE) AS date, 
+        COUNT(*) AS persons
+      FROM DEVP_COMP_PERSON
+      WHERE USER_CODE = @user_code ${dateFilter}
+      GROUP BY CAST(CREATED_DATE AS DATE)
+      ORDER BY date
+    `;
+
+    const [companyRes, personRes] = await Promise.all([
+      pool.request().input("user_code", sql.VarChar(10), user_code).query(companyQuery),
+      pool.request().input("user_code", sql.VarChar(10), user_code).query(personQuery),
+    ]);
 
     const activityMap = {};
-    companyActivity.recordset.forEach(c => {
-      activityMap[c.date] = { date: c.date, companies: c.companies, persons: 0 };
+
+    companyRes.recordset.forEach((row) => {
+      activityMap[row.date] = { date: row.date, companies: row.companies, persons: 0 };
     });
-    personActivity.recordset.forEach(p => {
-      if (activityMap[p.date]) {
-        activityMap[p.date].persons = p.persons;
+
+    personRes.recordset.forEach((row) => {
+      if (activityMap[row.date]) {
+        activityMap[row.date].persons = row.persons;
       } else {
-        activityMap[p.date] = { date: p.date, companies: 0, persons: p.persons };
+        activityMap[row.date] = { date: row.date, companies: 0, persons: row.persons };
       }
     });
 
-    const mergedActivity = Object.values(activityMap).sort((a, b) => new Date(a.date) - new Date(b.date));
-    res.json(mergedActivity);
+    const merged = Object.values(activityMap).sort((a, b) => new Date(a.date) - new Date(b.date));
 
+    res.json(merged);
   } catch (err) {
-    console.error(err);
+    console.error("getActivity error:", err);
     res.status(500).json({ error: "Server Error" });
   }
 };
 
-module.exports = router;
+
 
 
 
