@@ -8,4 +8,7 @@ router.get('/cities', commonController.getCities);
 router.get('/editor', commonController.getEditors);
 router.get('/categories', commonController.getCategories);
 
+router.get('/stats', commonController.getStats);        
+router.get('/activity', commonController.getActivity);
+
 module.exports = router;
