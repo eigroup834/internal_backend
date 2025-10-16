@@ -11,4 +11,6 @@ router.get('/categories', commonController.getCategories);
 router.get('/stats', commonController.getStats);        
 router.get('/activity', commonController.getActivity);
 
+router.get('/tags', commonController.getTags);
+
 module.exports = router;
