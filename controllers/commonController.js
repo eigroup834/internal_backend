@@ -160,22 +160,6 @@ exports.getCategories = async (req, res) => {
   }
 };
 
-async function getCountsByUser(table, dateColumn, user_code) {
-  const pool = await poolPromise;
-  const today = new Date().toISOString().slice(0, 10);
-
-  const result = await pool.request()
-    .input("user_code", sql.VarChar(10), user_code)
-    .query(`
-      SELECT 
-        COUNT(*) AS Total,
-        SUM(CASE WHEN CAST(${dateColumn} AS DATE) = '${today}' THEN 1 ELSE 0 END) AS Today
-      FROM ${table} 
-      WHERE USER_CODE = @user_code
-    `);
-  return result.recordset[0];
-}
-
 exports.getStats = async (req, res) => {
   try {
     const { user_code } = req.query;
@@ -283,6 +267,64 @@ exports.getActivity = async (req, res) => {
   }
 };
 
+exports.getTags = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT TAG_CODE, TAG_NAME 
+      FROM DEVP_TAGS
+      WHERE ACTIVE = 1
+      ORDER BY TAG_NAME
+    `);
+
+    res.json(result.recordset || []);
+  } catch (err) {
+    console.error("getTags error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+exports.addTags = async (req, res) => {
+  try {
+    const { tags = [], usercode } = req.body;
+    if (!Array.isArray(tags) || tags.length === 0) {
+      return res.status(400).json({ error: "Tags array is required" });
+    }
+    if (!usercode) {
+      return res.status(400).json({ error: "User code is required" });
+    }
+
+    const pool = await poolPromise;
+    const insertedTags = [];
+
+    for (const tagName of tags) {
+      const check = await pool.request()
+        .input("TAG_NAME", sql.VarChar(100), tagName)
+        .query("SELECT TAG_CODE FROM DEVP_TAGS WHERE TAG_NAME = @TAG_NAME AND ACTIVE = 1");
+
+      if (check.recordset.length > 0) {
+        insertedTags.push({ TAG_CODE: check.recordset[0].TAG_CODE, TAG_NAME: tagName });
+        continue;
+      }
+
+      const insertResult = await pool.request()
+        .input("TAG_NAME", sql.VarChar(100), tagName)
+        .input("USER_CODE", sql.VarChar(10), usercode)
+        .query(`
+          INSERT INTO DEVP_TAGS (TAG_NAME, USER_CODE, ACTIVE)
+          OUTPUT INSERTED.TAG_CODE
+          VALUES (@TAG_NAME, @USER_CODE, 1)
+        `);
+
+      insertedTags.push({ TAG_CODE: insertResult.recordset[0].TAG_CODE, TAG_NAME: tagName });
+    }
+
+    res.json(insertedTags);
+  } catch (err) {
+    console.error("addTags error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
 
 
 
