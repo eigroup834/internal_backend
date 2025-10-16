@@ -298,6 +298,7 @@ exports.addTags = async (req, res) => {
     const insertedTags = [];
 
     for (const tagName of tags) {
+      // Check if tag exists
       const check = await pool.request()
         .input("TAG_NAME", sql.VarChar(100), tagName)
         .query("SELECT TAG_CODE FROM DEVP_TAGS WHERE TAG_NAME = @TAG_NAME AND ACTIVE = 1");
@@ -307,13 +308,26 @@ exports.addTags = async (req, res) => {
         continue;
       }
 
+      // Generate unique TAG_CODE
+      let TAG_CODE;
+      let exists = true;
+      while (exists) {
+        TAG_CODE = "HE" + Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase().padStart(6, "0");
+        const checkCode = await pool.request()
+          .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
+          .query("SELECT 1 FROM DEVP_TAGS WHERE TAG_CODE = @TAG_CODE");
+        exists = checkCode.recordset.length > 0;
+      }
+
+      // Insert new tag with TAG_CODE
       const insertResult = await pool.request()
         .input("TAG_NAME", sql.VarChar(100), tagName)
         .input("USER_CODE", sql.VarChar(10), usercode)
+        .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
         .query(`
-          INSERT INTO DEVP_TAGS (TAG_NAME, USER_CODE, ACTIVE)
+          INSERT INTO DEVP_TAGS (TAG_NAME, USER_CODE, ACTIVE, TAG_CODE)
           OUTPUT INSERTED.TAG_CODE
-          VALUES (@TAG_NAME, @USER_CODE, 1)
+          VALUES (@TAG_NAME, @USER_CODE, 1, @TAG_CODE)
         `);
 
       insertedTags.push({ TAG_CODE: insertResult.recordset[0].TAG_CODE, TAG_NAME: tagName });
@@ -325,6 +339,7 @@ exports.addTags = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
+
 
 
 

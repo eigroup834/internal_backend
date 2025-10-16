@@ -27,7 +27,6 @@ const generatePersonCode = () => {
   return personCode;
 }
 
-
 exports.getCompanies = async (req, res) => {
   try {
     const {
