@@ -271,7 +271,7 @@ exports.getTags = async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
-      SELECT TAG_CODE, TAG_NAME 
+      SELECT TAG_CODE, TAG_NAME, CREATED_DATE, USER_CODE
       FROM DEVP_TAGS
       WHERE ACTIVE = 1
       ORDER BY TAG_NAME
