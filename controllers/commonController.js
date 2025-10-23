@@ -270,14 +270,47 @@ exports.getActivity = async (req, res) => {
 exports.getTags = async (req, res) => {
   try {
     const pool = await poolPromise;
-    const result = await pool.request().query(`
+    const { search = "", page = 1, limit = 10 } = req.query;
+    const offset = (page - 1) * limit;
+    let query = `
       SELECT TAG_CODE, TAG_NAME, CREATED_DATE, USER_CODE
       FROM DEVP_TAGS
       WHERE ACTIVE = 1
-      ORDER BY TAG_NAME
-    `);
+    `;
 
-    res.json(result.recordset || []);
+    if (search.trim() !== "") {
+      query += ` AND TAG_NAME LIKE '%' + @search + '%'`;
+    }
+
+    let countQuery = `
+      SELECT COUNT(*) AS total
+      FROM DEVP_TAGS
+      WHERE ACTIVE = 1
+    `;
+    if (search.trim() !== "") {
+      countQuery += ` AND TAG_NAME LIKE '%' + @search + '%'`;
+    }
+
+    query += `
+      ORDER BY TAG_NAME
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    `;
+
+    const request = pool.request();
+    request.input("search", sql.VarChar(100), search);
+    request.input("offset", sql.Int, offset);
+    request.input("limit", sql.Int, parseInt(limit));
+
+    const [dataResult, countResult] = await Promise.all([
+      request.query(query),
+      pool.request().input("search", sql.VarChar(100), search).query(countQuery),
+    ]);
+
+    res.json({
+      data: dataResult.recordset,
+      total: countResult.recordset[0].total,
+    });
+
   } catch (err) {
     console.error("getTags error:", err);
     res.status(500).json({ error: "Server error" });
