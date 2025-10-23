@@ -286,10 +286,17 @@ exports.getTags = async (req, res) => {
 
 exports.addTags = async (req, res) => {
   try {
-    const { tags = [], usercode } = req.body;
+    let { tags, usercode, TAG_NAME } = req.body;
+
+    if (!tags) {
+      if (TAG_NAME) tags = [TAG_NAME];
+      else return res.status(400).json({ error: "Tags array is required" });
+    }
+
     if (!Array.isArray(tags) || tags.length === 0) {
       return res.status(400).json({ error: "Tags array is required" });
     }
+
     if (!usercode) {
       return res.status(400).json({ error: "User code is required" });
     }
@@ -298,7 +305,6 @@ exports.addTags = async (req, res) => {
     const insertedTags = [];
 
     for (const tagName of tags) {
-      // Check if tag exists
       const check = await pool.request()
         .input("TAG_NAME", sql.VarChar(100), tagName)
         .query("SELECT TAG_CODE FROM DEVP_TAGS WHERE TAG_NAME = @TAG_NAME AND ACTIVE = 1");
@@ -308,7 +314,6 @@ exports.addTags = async (req, res) => {
         continue;
       }
 
-      // Generate unique TAG_CODE
       let TAG_CODE;
       let exists = true;
       while (exists) {
@@ -319,7 +324,6 @@ exports.addTags = async (req, res) => {
         exists = checkCode.recordset.length > 0;
       }
 
-      // Insert new tag with TAG_CODE
       const insertResult = await pool.request()
         .input("TAG_NAME", sql.VarChar(100), tagName)
         .input("USER_CODE", sql.VarChar(10), usercode)
