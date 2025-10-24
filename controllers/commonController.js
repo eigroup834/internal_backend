@@ -377,6 +377,34 @@ exports.addTags = async (req, res) => {
   }
 };
 
+exports.updateTag = async (req, res) => {
+  try {
+    const { tagCode } = req.params;
+    const { TAG_NAME, VERIFIED } = req.body;
+
+    if (!TAG_NAME || !VERIFIED) {
+      return res.status(400).json({ error: "Tag name and verified status are required" });
+    }
+
+    const pool = await poolPromise;
+    await pool.request()
+      .input("TAG_NAME", sql.VarChar(100), TAG_NAME)
+      .input("VERIFIED", sql.VarChar(20), VERIFIED)
+      .input("TAG_CODE", sql.VarChar(10), tagCode)
+      .query(`
+        UPDATE DEVP_TAGS
+        SET TAG_NAME = @TAG_NAME, VERIFIED = @VERIFIED
+        WHERE TAG_CODE = @TAG_CODE AND ACTIVE = 1
+      `);
+
+    res.json({ message: "Tag updated successfully" });
+  } catch (err) {
+    console.error("updateTag error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+
 
 
 
