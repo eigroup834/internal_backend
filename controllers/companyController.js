@@ -1066,7 +1066,7 @@ exports.EditPerson = async (req, res) => {
     if (!personCode) {
       return res.status(400).json({
         success: false,
-        message: "Person code is required for update"
+        message: "Person code is required for update",
       });
     }
 
@@ -1076,20 +1076,20 @@ exports.EditPerson = async (req, res) => {
     await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), personCode)
       .input("COMPANY_CODE", sql.VarChar(50), companycode)
-      .input("PREFIX", sql.NVarChar(50), salutation || "")
-      .input("FNAME", sql.NVarChar(255), firstname || "")
-      .input("LNAME", sql.NVarChar(255), lastname || "")
+      .input("PREFIX", sql.VarChar(20), salutation || "")
+      .input("FNAME", sql.VarChar(40), firstname || "")
+      .input("LNAME", sql.VarChar(40), lastname || "")
       .input("DESIG", sql.NVarChar(sql.MAX), JSON.stringify(designations || []))
       .input("DEPT", sql.NVarChar(sql.MAX), JSON.stringify(departments || []))
-      .input("MOBILE", sql.NVarChar(sql.MAX), JSON.stringify(mobiles || []))
-      .input("PERSON_EMAIL", sql.NVarChar(sql.MAX), JSON.stringify(emails || []))
-      .input("DOB", sql.Date, dob || null)
-      .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
-      .input("CONTACTDATE", sql.Date, contactdate || null)
-      .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), management_remarks || "")
-      .input("USER_CODE", sql.VarChar(50), usercode)
-      .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses || []))
-      .input("CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
+      .input("MOBILE", sql.VarChar(35), JSON.stringify(mobiles || []))
+      .input("PERSON_EMAIL", sql.VarChar(60), JSON.stringify(emails || []))
+      .input("DOB", sql.SmallDateTime, dob || null)
+      .input("REMARKS", sql.VarChar(75), remarks || "")
+      .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
+      .input("MANAGEMENT_REMARKS", sql.VarChar(75), management_remarks || "")
+      .input("USER_CODE", sql.VarChar(10), usercode)
+      .input("ADDRESS", sql.VarChar(75), JSON.stringify(addresses || []))
+      .input("CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
         UPDATE DEVP_COMP_PERSON
@@ -1116,17 +1116,59 @@ exports.EditPerson = async (req, res) => {
     await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), personCode)
       .input("COMPANY_CODE", sql.VarChar(50), companycode)
-      .input("COMPANY_NAME", sql.NVarChar(255), firstname + " " + lastname)
-      .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("PREFIX", sql.VarChar(20), salutation || "")
+      .input("FNAME", sql.VarChar(40), firstname || "")
+      .input("LNAME", sql.VarChar(40), lastname || "")
+      .input("DESIG", sql.NVarChar(sql.MAX), JSON.stringify(designations || []))
+      .input("DEPT", sql.NVarChar(sql.MAX), JSON.stringify(departments || []))
+      .input("MOBILE", sql.VarChar(35), JSON.stringify(mobiles || []))
+      .input("PERSON_EMAIL", sql.VarChar(60), JSON.stringify(emails || []))
+      .input("DOB", sql.SmallDateTime, dob || null)
+      .input("REMARKS", sql.VarChar(75), remarks || "")
+      .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
+      .input("MANAGEMENT_REMARKS", sql.VarChar(75), management_remarks || "")
+      .input("USER_CODE", sql.VarChar(10), usercode)
+      .input("ADDRESS", sql.VarChar(75), JSON.stringify(addresses || []))
+      .input("CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
-        INSERT INTO DEVP_COMP_PERSON_HISTORY (
-          PERSON_CODE, COMPANY_CODE, COMPANY_NAME,
-          USER_CODE, UPDATED_DATE
+        INSERT INTO DEVP_COMP_PERSON_UPDATE_HISTORY (
+          PERSON_CODE,
+          COMPANY_CODE,
+          PREFIX,
+          FNAME,
+          LNAME,
+          DESIG,
+          DEPT,
+          MOBILE,
+          PERSON_EMAIL,
+          DOB,
+          REMARKS,
+          CONTACTDATE,
+          MANAGEMENT_REMARKS,
+          USER_CODE,
+          ADDRESS,
+          CUPD_REMARK,
+          UPDATED_DATE
         )
         VALUES (
-          @PERSON_CODE, @COMPANY_CODE, @COMPANY_NAME,
-          @USER_CODE, @UPDATED_DATE
+          @PERSON_CODE,
+          @COMPANY_CODE,
+          @PREFIX,
+          @FNAME,
+          @LNAME,
+          @DESIG,
+          @DEPT,
+          @MOBILE,
+          @PERSON_EMAIL,
+          @DOB,
+          @REMARKS,
+          @CONTACTDATE,
+          @MANAGEMENT_REMARKS,
+          @USER_CODE,
+          @ADDRESS,
+          @CUPD_REMARK,
+          @UPDATED_DATE
         )
       `);
 
@@ -1135,9 +1177,8 @@ exports.EditPerson = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Person updated successfully",
-      personCode
+      personCode,
     });
-
   } catch (err) {
     console.error("Error updating person:", err);
     if (!transaction._aborted) {
@@ -1145,7 +1186,7 @@ exports.EditPerson = async (req, res) => {
     }
     res.status(500).json({
       success: false,
-      error: err.message
+      error: err.message,
     });
   }
 };
