@@ -1010,6 +1010,36 @@ exports.getPersonList = async (req, res) => {
   }
 };
 
+exports.GetPersonDetail = async (req, res) => {
+  try {
+    const { personCode } = req.params;
+
+    if (!personCode) {
+      return res.status(400).json({ success: false, message: "Person code is required" });
+    }
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input("PERSON_CODE", sql.VarChar(50), personCode)
+      .query(`
+        SELECT PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL,
+        DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, CUPD_REMARK
+        FROM DEVP_COMP_PERSON
+        WHERE PERSON_CODE = @PERSON_CODE
+    `);
+
+    if (result.recordset.length === 0) {
+      return res.status(404).json({ success: false, message: "Person not found" });
+    }
+
+    res.status(200).json(result.recordset[0]);
+
+  } catch (err) {
+    console.error("Error fetching person details:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 
 
 
