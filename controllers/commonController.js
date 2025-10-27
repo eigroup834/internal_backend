@@ -380,21 +380,22 @@ exports.addTags = async (req, res) => {
 exports.updateTag = async (req, res) => {
   try {
     const { tagCode } = req.params;
-    const { TAG_NAME, VERIFIED } = req.body;
+    const { TAG_NAME, ACTIVE, usercode } = req.body;
 
-    if (!TAG_NAME || !VERIFIED) {
-      return res.status(400).json({ error: "Tag name and verified status are required" });
+    if (!TAG_NAME) {
+      return res.status(400).json({ error: "Tag name is required" });
     }
 
     const pool = await poolPromise;
     await pool.request()
       .input("TAG_NAME", sql.VarChar(100), TAG_NAME)
-      .input("VERIFIED", sql.VarChar(20), VERIFIED)
-      .input("TAG_CODE", sql.VarChar(10), tagCode)
+      .input("ACTIVE", sql.Bit, ACTIVE) 
+      .input("TAG_CODE", sql.VarChar(50), tagCode)
+      .input("USER_CODE", sql.VarChar(50), usercode)
       .query(`
         UPDATE DEVP_TAGS
-        SET TAG_NAME = @TAG_NAME, VERIFIED = @VERIFIED
-        WHERE TAG_CODE = @TAG_CODE AND ACTIVE = 1
+        SET TAG_NAME = @TAG_NAME, ACTIVE = @ACTIVE, USER_CODE = @USER_CODE, UPDATED_DATE = GETDATE()
+        WHERE TAG_CODE = @TAG_CODE
       `);
 
     res.json({ message: "Tag updated successfully" });
@@ -403,6 +404,7 @@ exports.updateTag = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
+
 
 
 
