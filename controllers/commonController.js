@@ -273,7 +273,7 @@ exports.getTags = async (req, res) => {
     const { search = "", page = 1, limit = 10 } = req.query;
     const offset = (page - 1) * limit;
     let query = `
-      SELECT TAG_CODE, TAG_NAME, CREATED_DATE, USER_CODE
+      SELECT TAG_CODE, TAG_NAME, CREATED_DATE, USER_CODE, ACTIVE
       FROM DEVP_TAGS
       WHERE ACTIVE = 1
     `;
