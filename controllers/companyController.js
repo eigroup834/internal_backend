@@ -208,7 +208,7 @@ exports.addCompany = async (req, res) => {
     const {
       name, email, website, phones, addresses, pincode,
       remarks, division, specialremarks, country, state, city,
-      segment, usercode, sourcecode, sourceperson, sourcetype, oldname
+      segment, usercode, sourcecode, sourceperson, sourcetype, oldname, tags = []
     } = req.body;
 
     await transaction.begin();
@@ -313,6 +313,37 @@ exports.addCompany = async (req, res) => {
         SET DATA_COUNT = @DATA_COUNT
         WHERE USER_CODE = @USER_CODE
       `);
+    
+      if (Array.isArray(tags) && tags.length > 0) {
+        for (const tagCode of tags) {
+          if (!tagCode) continue; 
+
+          const tagResult = await new sql.Request(transaction)
+            .input("TAG_CODE", sql.VarChar(50), tagCode)
+            .query(`
+              SELECT TOP 1 TAG_NAME 
+              FROM DEVP_TAGS 
+              WHERE TAG_CODE = @TAG_CODE
+            `);
+
+          const tagName = tagResult.recordset.length > 0
+            ? tagResult.recordset[0].TAG_NAME
+            : tagCode;
+            
+          await new sql.Request(transaction)
+            .input("TAG_NAME", sql.NVarChar(255), tagName)
+            .input("TAG_CODE", sql.VarChar(50), tagCode)
+            .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+            .input("PERSON_CODE", sql.VarChar(50), null)
+            .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
+            .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
+            .query(`
+              INSERT INTO DEVP_TAGS_MAPPING 
+              (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
+              VALUES (@TAG_NAME, @TAG_CODE, @COMPANY_CODE, @PERSON_CODE, @CREATED_DATE, @UPDATED_DATE)
+            `);
+        }
+      }
 
     await transaction.commit();
 
@@ -896,7 +927,6 @@ exports.getPersonList = async (req, res) => {
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;
     const offset = (pageNum - 1) * limitNum;
-
     let filterObj = {};
     try {
       filterObj = JSON.parse(filters);
@@ -904,30 +934,41 @@ exports.getPersonList = async (req, res) => {
       return res.status(400).json({ error: "Invalid filters JSON" });
     }
 
-    const allowedSortColumns = ["ID", "FNAME", "PERSON_CODE", "PERSON_EMAIL", "MOBILE", "COMPANY_CODE"];
-    const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : "PERSON_CODE";
+    const allowedColumns = [
+      "PERSON_CODE",
+      "FNAME",
+      "LNAME",
+      "PERSON_EMAIL",
+      "MOBILE",
+      "COMPANY_CODE",
+      "DESIG",
+      "DEPT",
+    ];
+    const sortColumn = allowedColumns.includes(sortBy) ? sortBy : "PERSON_CODE";
     const sortDir = sortOrder.toUpperCase() === "DESC" ? "DESC" : "ASC";
 
-    const allowedFilterColumns = ["ID", "FNAME", "PERSON_CODE", "PERSON_EMAIL", "MOBILE", "COMPANY_CODE"];
     const whereClauses = [];
     const request = (await poolPromise).request();
 
+    // 🔍 Search support (FNAME, LNAME, EMAIL, MOBILE, COMPANY_CODE)
     if (search) {
       const likeClauses = [
         "[FNAME] LIKE @search1",
-        "[PERSON_CODE] LIKE @search2",
-        "[EMAIL] LIKE @search3",
-        "[COMPANY_CODE] LIKE @search4",
+        "[LNAME] LIKE @search2",
+        "[PERSON_EMAIL] LIKE @search3",
+        "[MOBILE] LIKE @search4",
+        "[COMPANY_CODE] LIKE @search5",
       ];
       whereClauses.push("(" + likeClauses.join(" OR ") + ")");
       request.input("search1", `%${search}%`);
       request.input("search2", `%${search}%`);
       request.input("search3", `%${search}%`);
       request.input("search4", `%${search}%`);
+      request.input("search5", `%${search}%`);
     }
 
     for (const key in filterObj) {
-      if (allowedFilterColumns.includes(key) && filterObj[key] !== "") {
+      if (allowedColumns.includes(key) && filterObj[key] !== "") {
         whereClauses.push(`[${key}] = @${key}`);
         request.input(key, filterObj[key]);
       }
@@ -935,27 +976,31 @@ exports.getPersonList = async (req, res) => {
 
     const whereSQL = whereClauses.length ? "WHERE " + whereClauses.join(" AND ") : "";
 
-    const query = `
+    const dataQuery = `
       WITH PersonData AS (
         SELECT *,
                ROW_NUMBER() OVER (ORDER BY [${sortColumn}] ${sortDir}) AS RowNum
         FROM dbo.DEVP_COMP_PERSON
         ${whereSQL}
       )
-      SELECT *
+      SELECT PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL,
+             DOB, REMARKS, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, UPDATED_DATE, CREATED_DATE
       FROM PersonData
       WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
+    `;
 
+    const countQuery = `
       SELECT COUNT(*) AS total
       FROM dbo.DEVP_COMP_PERSON
       ${whereSQL};
     `;
 
-    const result = await request.query(query);
+    const dataResult = await request.query(dataQuery);
+    const countResult = await request.query(countQuery);
 
     res.json({
-      data: result.recordsets[0],
-      total: result.recordsets[1][0].total,
+      data: dataResult.recordset,
+      total: countResult.recordset[0].total,
       page: pageNum,
       limit: limitNum,
     });
