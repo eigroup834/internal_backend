@@ -8,6 +8,7 @@ router.post("/addCompany", authenticateToken, companyController.addCompany);
 router.post("/addPerson", authenticateToken, companyController.addPerson);
 router.get("/getPersonList", authenticateToken, companyController.getPersonList);
 router.get("/getPersonDetails/:personCode", authenticateToken, companyController.GetPersonDetail);
+router.put("/updatePerson/:personCode", authenticateToken, companyController.EditPerson);
 
 router.post("/updateHistory", authenticateToken, companyController.addCompanyHistory);
 router.get("/history", authenticateToken, companyController.getCompanyExhHistory);

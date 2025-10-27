@@ -1040,6 +1040,117 @@ exports.GetPersonDetail = async (req, res) => {
   }
 };
 
+exports.EditPerson = async (req, res) => {
+  const transaction = new sql.Transaction(await poolPromise);
+
+  try {
+    const {
+      personCode,
+      companycode,
+      salutation,
+      firstname,
+      lastname,
+      designations,
+      departments,
+      mobiles,
+      emails,
+      dob,
+      remarks,
+      management_remarks,
+      contactdate,
+      addresses,
+      cupd_remark,
+      usercode
+    } = req.body;
+
+    if (!personCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Person code is required for update"
+      });
+    }
+
+    const UPDATED_DATE = new Date();
+    await transaction.begin();
+
+    await new sql.Request(transaction)
+      .input("PERSON_CODE", sql.VarChar(50), personCode)
+      .input("COMPANY_CODE", sql.VarChar(50), companycode)
+      .input("PREFIX", sql.NVarChar(50), salutation || "")
+      .input("FNAME", sql.NVarChar(255), firstname || "")
+      .input("LNAME", sql.NVarChar(255), lastname || "")
+      .input("DESIG", sql.NVarChar(sql.MAX), JSON.stringify(designations || []))
+      .input("DEPT", sql.NVarChar(sql.MAX), JSON.stringify(departments || []))
+      .input("MOBILE", sql.NVarChar(sql.MAX), JSON.stringify(mobiles || []))
+      .input("PERSON_EMAIL", sql.NVarChar(sql.MAX), JSON.stringify(emails || []))
+      .input("DOB", sql.Date, dob || null)
+      .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
+      .input("CONTACTDATE", sql.Date, contactdate || null)
+      .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), management_remarks || "")
+      .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses || []))
+      .input("CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
+      .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
+      .query(`
+        UPDATE DEVP_COMP_PERSON
+        SET
+          COMPANY_CODE = @COMPANY_CODE,
+          PREFIX = @PREFIX,
+          FNAME = @FNAME,
+          LNAME = @LNAME,
+          DESIG = @DESIG,
+          DEPT = @DEPT,
+          MOBILE = @MOBILE,
+          PERSON_EMAIL = @PERSON_EMAIL,
+          DOB = @DOB,
+          REMARKS = @REMARKS,
+          CONTACTDATE = @CONTACTDATE,
+          MANAGEMENT_REMARKS = @MANAGEMENT_REMARKS,
+          USER_CODE = @USER_CODE,
+          ADDRESS = @ADDRESS,
+          CUPD_REMARK = @CUPD_REMARK,
+          UPDATED_DATE = @UPDATED_DATE
+        WHERE PERSON_CODE = @PERSON_CODE
+      `);
+
+    await new sql.Request(transaction)
+      .input("PERSON_CODE", sql.VarChar(50), personCode)
+      .input("COMPANY_CODE", sql.VarChar(50), companycode)
+      .input("COMPANY_NAME", sql.NVarChar(255), firstname + " " + lastname)
+      .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
+      .query(`
+        INSERT INTO DEVP_COMP_PERSON_HISTORY (
+          PERSON_CODE, COMPANY_CODE, COMPANY_NAME,
+          USER_CODE, UPDATED_DATE
+        )
+        VALUES (
+          @PERSON_CODE, @COMPANY_CODE, @COMPANY_NAME,
+          @USER_CODE, @UPDATED_DATE
+        )
+      `);
+
+    await transaction.commit();
+
+    res.status(200).json({
+      success: true,
+      message: "Person updated successfully",
+      personCode
+    });
+
+  } catch (err) {
+    console.error("Error updating person:", err);
+    if (!transaction._aborted) {
+      await transaction.rollback();
+    }
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
+
+
 
 
 
