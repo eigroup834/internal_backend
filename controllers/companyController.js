@@ -854,7 +854,8 @@ exports.addPerson = async (req, res) => {
       management_remarks,
       addresses,
       cupd_remark,
-      usercode
+      usercode,
+      tags = []
     } = req.body;
 
     await transaction.begin();
@@ -955,7 +956,37 @@ exports.addPerson = async (req, res) => {
         )
       `);
 
+         
+      if (Array.isArray(tags) && tags.length > 0) {
+        for (const tagCode of tags) {
+          if (!tagCode) continue; 
 
+          const tagResult = await new sql.Request(transaction)
+            .input("TAG_CODE", sql.VarChar(50), tagCode)
+            .query(`
+              SELECT TOP 1 TAG_NAME 
+              FROM DEVP_TAGS 
+              WHERE TAG_CODE = @TAG_CODE
+            `);
+
+          const tagName = tagResult.recordset.length > 0
+            ? tagResult.recordset[0].TAG_NAME
+            : tagCode;
+            
+          await new sql.Request(transaction)
+            .input("TAG_NAME", sql.NVarChar(255), tagName)
+            .input("TAG_CODE", sql.VarChar(50), tagCode)
+            .input("COMPANY_CODE", sql.VarChar(50), null)
+            .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
+            .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
+            .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
+            .query(`
+              INSERT INTO DEVP_TAGS_MAPPING 
+              (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
+              VALUES (@TAG_NAME, @TAG_CODE, @COMPANY_CODE, @PERSON_CODE, @CREATED_DATE, @UPDATED_DATE)
+            `);
+        }
+      }
     await transaction.commit();
 
     res.status(201).json({
