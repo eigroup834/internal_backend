@@ -12,6 +12,9 @@ router.get('/categories', commonController.getCategories);
 router.get('/stats', commonController.getStats);        
 router.get('/activity', commonController.getActivity);
 
+router.get('/events', commonController.getEvents);
+router.post('/addevent', authenticateToken, commonController.addEvent);
+
 router.get('/tags', commonController.getTags);
 router.post('/addtags', authenticateToken, commonController.addTags);
 router.put('/tags/:tagCode', authenticateToken, commonController.updateTag);

@@ -15,10 +15,10 @@ router.get("/history", authenticateToken, companyController.getCompanyExhHistory
 router.get("/exhibitions", authenticateToken, companyController.getExhibitionNames);
 router.delete("/history/:exhCode", authenticateToken, companyController.deleteExhibitionHistory);
 
-router.post("/updatePersonHistory", authenticateToken, companyController.addPersonHistory);
-router.get("/personHistory", authenticateToken, companyController.getPersonExhHistory);
-router.get("/personExhibitions", authenticateToken, companyController.getPersonExhibitionNames);
-router.delete("/personHistory/:exhCode", authenticateToken, companyController.deletePersonExhibitionHistory);
+// router.post("/updatePersonHistory", authenticateToken, companyController.addPersonHistory);
+// router.get("/personHistory", authenticateToken, companyController.getPersonExhHistory);
+// router.get("/personExhibitions", authenticateToken, companyController.getPersonExhibitionNames);
+// router.delete("/personHistory/:exhCode", authenticateToken, companyController.deletePersonExhibitionHistory);
 
 router.get("/industries", authenticateToken, companyController.getIndustries);
 router.get("/industries/segments", authenticateToken, companyController.getSegmentsByIndustry);

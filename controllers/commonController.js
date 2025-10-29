@@ -1,6 +1,13 @@
 const { Country, State, City } = require("country-state-city");
 const { poolPromise, sql } = require("../db");
 
+const generateEventCode = () => {
+  const rawNumber = Date.now() + Math.floor(Math.random() * 1000);
+  const hexPart = rawNumber.toString(16).toUpperCase();
+  const eventCode = `EV${hexPart}`;
+  return eventCode;
+}
+
 exports.getCountries = async (req, res) => {
   try {
     const countries = Country.getAllCountries().map(c => ({
@@ -264,6 +271,100 @@ exports.getActivity = async (req, res) => {
   } catch (err) {
     console.error("getActivity error:", err);
     res.status(500).json({ error: "Server Error" });
+  }
+};
+
+exports.getEvents = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { search = "", page = 1, limit = 10 } = req.query;
+    const offset = (page - 1) * limit;
+
+    let query = `
+      SELECT EVENT_NAME, EVENT_YEAR, EVENT_CODE, EVENT_LOCATION, CREATED_DATE, USER_CODE
+      FROM DEVP_EVENTS
+    `;
+
+    let countQuery = `
+      SELECT COUNT(*) AS total
+      FROM DEVP_EVENTS
+    `;
+
+    if (search.trim() !== "") {
+      query += ` WHERE EVENT_NAME LIKE '%' + @search + '%'`;
+      countQuery += ` WHERE EVENT_NAME LIKE '%' + @search + '%'`;
+    }
+
+    query += `
+      ORDER BY EVENT_NAME
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    `;
+
+    const request = pool.request();
+    request.input("search", sql.VarChar(100), search);
+    request.input("offset", sql.Int, offset);
+    request.input("limit", sql.Int, parseInt(limit));
+
+    const [dataResult, countResult] = await Promise.all([
+      request.query(query),
+      pool.request().input("search", sql.VarChar(100), search).query(countQuery),
+    ]);
+
+    res.json({
+      data: dataResult.recordset,
+      total: countResult.recordset[0].total,
+    });
+  } catch (err) {
+    console.error("getEvents error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+exports.addEvent = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    const {
+      EVENT_NAME,
+      EVENT_YEAR,
+      EVENT_LOCATION,
+      USER_CODE
+    } = req.body;
+
+    if (!EVENT_NAME  || !EVENT_YEAR || !EVENT_LOCATION || !USER_CODE) {
+      return res.status(400).json({ error: "All fields are required." });
+    }
+
+    const EVENT_CODE = generateEventCode();
+
+    const query = `
+      INSERT INTO DEVP_EVENTS
+        (EVENT_NAME, EVENT_CODE, EVENT_YEAR, EVENT_LOCATION,
+        CREATED_DATE, UPDATED_DATE, USER_CODE)
+      VALUES
+        (@EVENT_NAME, @EVENT_CODE, @EVENT_YEAR, @EVENT_LOCATION,
+         GETDATE(), GETDATE(), @USER_CODE);
+
+      SELECT SCOPE_IDENTITY() AS newId;
+    `;
+
+    const request = pool.request();
+    request.input("EVENT_NAME", sql.VarChar(255), EVENT_NAME);
+    request.input("EVENT_CODE", sql.VarChar(100), EVENT_CODE);
+    request.input("EVENT_YEAR", sql.Int, EVENT_YEAR);
+    request.input("EVENT_LOCATION", sql.VarChar(255), EVENT_LOCATION);
+    request.input("USER_CODE", sql.VarChar(100), USER_CODE);
+
+    const result = await request.query(query);
+
+    res.status(201).json({
+      message: "Event added successfully",
+      eventId: result.recordset[0].newId,
+    });
+
+  } catch (err) {
+    console.error("addEvent error:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
 
