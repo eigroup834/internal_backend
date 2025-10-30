@@ -1297,6 +1297,60 @@ exports.EditPerson = async (req, res) => {
   }
 };
 
+exports.getPersonExhHistory = async (req, res) => {
+  try {
+    const { personCode, page = 1, limit = 10 } = req.query;
+
+    if (!personCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Person code is required"
+      });
+    }
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const pool = await poolPromise;
+
+    const result = await pool.request()
+      .input("PERSON_CODE", sql.VarChar(50), personCode)
+      .input("OFFSET", sql.Int, offset)
+      .input("LIMIT", sql.Int, parseInt(limit))
+      .query(`
+        SELECT * 
+        FROM DEVP_COMP_PERSON_EXH_HISTORY
+        WHERE PERSON_CODE = @PERSON_CODE
+        ORDER BY CREATED_DATE DESC
+        OFFSET @OFFSET ROWS
+        FETCH NEXT @LIMIT ROWS ONLY
+      `);
+
+    const countResult = await pool.request()
+      .input("PERSON_CODE", sql.VarChar(50), personCode)
+      .query(`
+        SELECT COUNT(*) AS total
+        FROM DEVP_COMP_PERSON_EXH_HISTORY
+        WHERE PERSON_CODE = @PERSON_CODE
+      `);
+
+    const total = countResult.recordset[0].total;
+
+    res.status(200).json({
+      success: true,
+      data: result.recordset,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total
+    });
+
+  } catch (err) {
+    console.error("Error fetching exhibition history:", err);
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
 
 
 
