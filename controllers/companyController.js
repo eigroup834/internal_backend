@@ -313,37 +313,37 @@ exports.addCompany = async (req, res) => {
         SET DATA_COUNT = @DATA_COUNT
         WHERE USER_CODE = @USER_CODE
       `);
-    
-      if (Array.isArray(tags) && tags.length > 0) {
-        for (const tagCode of tags) {
-          if (!tagCode) continue; 
 
-          const tagResult = await new sql.Request(transaction)
-            .input("TAG_CODE", sql.VarChar(50), tagCode)
-            .query(`
+    if (Array.isArray(tags) && tags.length > 0) {
+      for (const tagCode of tags) {
+        if (!tagCode) continue;
+
+        const tagResult = await new sql.Request(transaction)
+          .input("TAG_CODE", sql.VarChar(50), tagCode)
+          .query(`
               SELECT TOP 1 TAG_NAME 
               FROM DEVP_TAGS 
               WHERE TAG_CODE = @TAG_CODE
             `);
 
-          const tagName = tagResult.recordset.length > 0
-            ? tagResult.recordset[0].TAG_NAME
-            : tagCode;
-            
-          await new sql.Request(transaction)
-            .input("TAG_NAME", sql.NVarChar(255), tagName)
-            .input("TAG_CODE", sql.VarChar(50), tagCode)
-            .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-            .input("PERSON_CODE", sql.VarChar(50), null)
-            .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
-            .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
-            .query(`
+        const tagName = tagResult.recordset.length > 0
+          ? tagResult.recordset[0].TAG_NAME
+          : tagCode;
+
+        await new sql.Request(transaction)
+          .input("TAG_NAME", sql.NVarChar(255), tagName)
+          .input("TAG_CODE", sql.VarChar(50), tagCode)
+          .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+          .input("PERSON_CODE", sql.VarChar(50), null)
+          .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
+          .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
+          .query(`
               INSERT INTO DEVP_TAGS_MAPPING 
               (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
               VALUES (@TAG_NAME, @TAG_CODE, @COMPANY_CODE, @PERSON_CODE, @CREATED_DATE, @UPDATED_DATE)
             `);
-        }
       }
+    }
 
     await transaction.commit();
 
@@ -638,6 +638,7 @@ exports.addCompanyHistory = async (req, res) => {
     const {
       COMPANY_CODE,
       USER_CODE,
+      EXH_CODE,
       EXH_NAME,
       EXH_YEAR,
       EXH_LOCATION,
@@ -678,10 +679,24 @@ exports.addCompanyHistory = async (req, res) => {
       throw new Error("Invalid company code, company not found");
     }
 
+    const existingRecord = await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+      .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
+      .query(`
+    SELECT 1 AS found
+    FROM DEVP_COMP_EXH_HISTORY
+    WHERE COMPANY_CODE = @COMPANY_CODE
+      AND EXH_CODE = @EXH_CODE
+  `);
+
+    if (existingRecord.recordset.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: "A record already exists for this Company Code and Exhibition Code"
+      });
+    }
+
     const COMPANY_NAME = companyResult.recordset[0].COMPANY_NAME;
-
-    const EXH_CODE = "HE" + Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase();
-
     const CREATED_DATE = new Date();
     const UPDATED_DATE = new Date();
 
@@ -690,7 +705,7 @@ exports.addCompanyHistory = async (req, res) => {
       .input("COMPANY_NAME", sql.NVarChar(255), COMPANY_NAME)
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
-      .input("EXH_YEAR", sql.Int, EXH_YEAR)
+      .input("EXH_YEAR", sql.VarChar(50), EXH_YEAR)
       .input("EXH_LOCATION", sql.NVarChar(255), EXH_LOCATION)
       .input("REVENUE", sql.Decimal(18, 2), REVENUE || 0)
       .input("AREA", sql.Decimal(18, 2), AREA || 0)
@@ -702,7 +717,7 @@ exports.addCompanyHistory = async (req, res) => {
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
-        INSERT INTO DEVP_EXH_HISTORY
+        INSERT INTO DEVP_COMP_EXH_HISTORY
         (COMPANY_CODE, COMPANY_NAME, EXH_CODE, EXH_NAME, EXH_YEAR, EXH_LOCATION, REVENUE, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, USER_CODE, CREATED_DATE, UPDATED_DATE, FEEDBACK)
         VALUES
         (@COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @REVENUE, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @USER_CODE, @CREATED_DATE, @UPDATED_DATE, @FEEDBACK)
@@ -754,7 +769,7 @@ exports.getCompanyExhHistory = async (req, res) => {
       .input("LIMIT", sql.Int, parseInt(limit))
       .query(`
         SELECT * 
-        FROM DEVP_EXH_HISTORY
+        FROM DEVP_COMP_EXH_HISTORY
         WHERE COMPANY_CODE = @COMPANY_CODE
         ORDER BY CREATED_DATE DESC
         OFFSET @OFFSET ROWS
@@ -765,7 +780,7 @@ exports.getCompanyExhHistory = async (req, res) => {
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .query(`
         SELECT COUNT(*) AS total
-        FROM DEVP_EXH_HISTORY
+        FROM DEVP_COMP_EXH_HISTORY
         WHERE COMPANY_CODE = @COMPANY_CODE
       `);
 
@@ -795,7 +810,7 @@ exports.getExhibitionNames = async (req, res) => {
     const result = await pool.request()
       .query(`
         SELECT DISTINCT EXH_NAME
-        FROM DEVP_EXH_HISTORY
+        FROM DEVP_COMP_EXH_HISTORY
         ORDER BY EXH_NAME ASC
       `);
 
@@ -826,7 +841,7 @@ exports.deleteExhibitionHistory = async (req, res) => {
     const pool = await poolPromise;
     await pool.request()
       .input("EXH_CODE", sql.VarChar(50), exhCode)
-      .query("DELETE FROM DEVP_EXH_HISTORY WHERE EXH_CODE = @EXH_CODE");
+      .query("DELETE FROM DEVP_COMP_EXH_HISTORY WHERE EXH_CODE = @EXH_CODE");
 
     res.status(200).json({ success: true, message: "Exhibition history deleted successfully" });
   } catch (err) {
@@ -897,7 +912,7 @@ exports.addPerson = async (req, res) => {
         VALUES (@PERSON_CODE, @COMPANY_CODE, @PREFIX, @FNAME, @LNAME, @DESIG, @DEPT, @MOBILE, @PERSON_EMAIL, @DOB, @REMARKS, @CONTACTDATE, @MANAGEMENT_REMARKS, @USER_CODE, @ADDRESS, @CUPD_REMARK, @UPDATED_DATE, @CREATED_DATE)
       `);
 
-      await new sql.Request(transaction)
+    await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
       .input("COMPANY_CODE", sql.VarChar(50), companycode)
       .input("PREFIX", sql.VarChar(20), salutation || "")
@@ -956,37 +971,37 @@ exports.addPerson = async (req, res) => {
         )
       `);
 
-         
-      if (Array.isArray(tags) && tags.length > 0) {
-        for (const tagCode of tags) {
-          if (!tagCode) continue; 
 
-          const tagResult = await new sql.Request(transaction)
-            .input("TAG_CODE", sql.VarChar(50), tagCode)
-            .query(`
+    if (Array.isArray(tags) && tags.length > 0) {
+      for (const tagCode of tags) {
+        if (!tagCode) continue;
+
+        const tagResult = await new sql.Request(transaction)
+          .input("TAG_CODE", sql.VarChar(50), tagCode)
+          .query(`
               SELECT TOP 1 TAG_NAME 
               FROM DEVP_TAGS 
               WHERE TAG_CODE = @TAG_CODE
             `);
 
-          const tagName = tagResult.recordset.length > 0
-            ? tagResult.recordset[0].TAG_NAME
-            : tagCode;
-            
-          await new sql.Request(transaction)
-            .input("TAG_NAME", sql.NVarChar(255), tagName)
-            .input("TAG_CODE", sql.VarChar(50), tagCode)
-            .input("COMPANY_CODE", sql.VarChar(50), null)
-            .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
-            .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
-            .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
-            .query(`
+        const tagName = tagResult.recordset.length > 0
+          ? tagResult.recordset[0].TAG_NAME
+          : tagCode;
+
+        await new sql.Request(transaction)
+          .input("TAG_NAME", sql.NVarChar(255), tagName)
+          .input("TAG_CODE", sql.VarChar(50), tagCode)
+          .input("COMPANY_CODE", sql.VarChar(50), null)
+          .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
+          .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
+          .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
+          .query(`
               INSERT INTO DEVP_TAGS_MAPPING 
               (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
               VALUES (@TAG_NAME, @TAG_CODE, @COMPANY_CODE, @PERSON_CODE, @CREATED_DATE, @UPDATED_DATE)
             `);
-        }
       }
+    }
     await transaction.commit();
 
     res.status(201).json({
