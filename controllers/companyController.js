@@ -214,8 +214,8 @@ exports.addCompany = async (req, res) => {
     await transaction.begin();
 
     const duplicateCheck = await new sql.Request(transaction)
-      .input("COMPANY_NAME", sql.NVarChar(255), name)
-      .input("EMAIL", sql.NVarChar(255), email)
+      .input("COMPANY_NAME", sql.NVarChar, name)
+      .input("EMAIL", sql.NVarChar, email)
       .query(`
         SELECT TOP 1 COMPANY_CODE 
         FROM DEVP_COMPANY_DETAIL 
@@ -234,10 +234,10 @@ exports.addCompany = async (req, res) => {
     const CREATED_DATE = new Date();
 
     await new sql.Request(transaction)
-      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-      .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
+      .input("USER_CODE", sql.VarChar, usercode)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
-      .input("SOURCE_CODE", sql.VarChar(50), sourcecode)
+      .input("SOURCE_CODE", sql.VarChar, sourcecode)
       .input("ACTIVE", sql.Bit, 0)
       .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
       .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
@@ -247,18 +247,18 @@ exports.addCompany = async (req, res) => {
       `);
 
     await new sql.Request(transaction)
-      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-      .input("COMPANY_NAME", sql.NVarChar(255), name)
-      .input("DIVISION", sql.NVarChar(255), division)
-      .input("OLDNAME", sql.NVarChar(255), oldname)
+      .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
+      .input("COMPANY_NAME", sql.NVarChar, name)
+      .input("DIVISION", sql.NVarChar, division)
+      .input("OLDNAME", sql.NVarChar, oldname)
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
-      .input("CITY", sql.NVarChar(100), city)
+      .input("CITY", sql.NVarChar, city)
       .input("PINCODE", sql.VarChar(20), pincode)
-      .input("STATE", sql.NVarChar(100), state)
-      .input("COUNTRY", sql.NVarChar(100), country)
+      .input("STATE", sql.NVarChar, state)
+      .input("COUNTRY", sql.NVarChar, country)
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
-      .input("EMAIL", sql.NVarChar(255), email)
-      .input("WEBSITE", sql.NVarChar(255), website)
+      .input("EMAIL", sql.NVarChar, email)
+      .input("WEBSITE", sql.NVarChar, website)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
         INSERT INTO DEVP_COMPANY_DETAIL (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, CREATED_DATE)
@@ -266,39 +266,39 @@ exports.addCompany = async (req, res) => {
       `);
 
     await new sql.Request(transaction)
-      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-      .input("COMPANY_NAME", sql.NVarChar(255), name)
-      .input("DIVISION", sql.NVarChar(255), division)
-      .input("OLDNAME", sql.NVarChar(255), oldname)
+      .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
+      .input("COMPANY_NAME", sql.NVarChar, name)
+      .input("DIVISION", sql.NVarChar, division)
+      .input("OLDNAME", sql.NVarChar, oldname)
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
-      .input("CITY", sql.NVarChar(100), city)
-      .input("PINCODE", sql.VarChar(20), pincode)
-      .input("STATE", sql.NVarChar(100), state)
-      .input("COUNTRY", sql.NVarChar(100), country)
+      .input("CITY", sql.NVarChar, city)
+      .input("PINCODE", sql.VarChar, pincode)
+      .input("STATE", sql.NVarChar, state)
+      .input("COUNTRY", sql.NVarChar, country)
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
-      .input("EMAIL", sql.NVarChar(255), email)
-      .input("WEBSITE", sql.NVarChar(255), website)
+      .input("EMAIL", sql.NVarChar, email)
+      .input("WEBSITE", sql.NVarChar, website)
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
-      .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("USER_CODE", sql.VarChar, usercode)
       .query(`
         INSERT INTO DEVP_COMPANY_UPDATE_HISTORY (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE)
         VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE)
       `);
 
     await new sql.Request(transaction)
-      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-      .input("SEGMENT", sql.NVarChar(255), segment)
-      .input("SEG_CODE", sql.VarChar(50), segment)
+      .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
+      .input("SEGMENT", sql.NVarChar, segment)
+      .input("SEG_CODE", sql.VarChar, segment)
       .query(`
         INSERT INTO DEVP_COMP_SEGMENT_MAP (COMPANY_CODE, SEGMENT, SEG_CODE)
         VALUES (@COMPANY_CODE, @SEGMENT, @SEG_CODE)
       `);
 
     await new sql.Request(transaction)
-      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-      .input("SOURCE_CODE", sql.VarChar(50), sourcecode)
-      .input("SOURCE_PERSON", sql.NVarChar(255), sourceperson)
-      .input("SOURCE_TYPE", sql.NVarChar(50), sourcetype)
+      .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
+      .input("SOURCE_CODE", sql.VarChar, sourcecode)
+      .input("SOURCE_PERSON", sql.NVarChar, sourceperson)
+      .input("SOURCE_TYPE", sql.NVarChar, sourcetype)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
         INSERT INTO DEVP_DATA_SOURCE (SOURCE_CODE, SOURCE_PERSON, SOURCE_TYPE, CREATED_DATE, COMPANY_CODE)
@@ -306,7 +306,7 @@ exports.addCompany = async (req, res) => {
       `);
 
     await new sql.Request(transaction)
-      .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("USER_CODE", sql.VarChar, usercode)
       .input("DATA_COUNT", sql.Int, nextCount)
       .query(`
         UPDATE DEVP_USER
@@ -319,7 +319,7 @@ exports.addCompany = async (req, res) => {
         if (!tagCode) continue;
 
         const tagResult = await new sql.Request(transaction)
-          .input("TAG_CODE", sql.VarChar(50), tagCode)
+          .input("TAG_CODE", sql.VarChar, tagCode)
           .query(`
               SELECT TOP 1 TAG_NAME 
               FROM DEVP_TAGS 
@@ -331,10 +331,10 @@ exports.addCompany = async (req, res) => {
           : tagCode;
 
         await new sql.Request(transaction)
-          .input("TAG_NAME", sql.NVarChar(255), tagName)
-          .input("TAG_CODE", sql.VarChar(50), tagCode)
-          .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-          .input("PERSON_CODE", sql.VarChar(50), null)
+          .input("TAG_NAME", sql.NVarChar, tagName)
+          .input("TAG_CODE", sql.VarChar, tagCode)
+          .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
+          .input("PERSON_CODE", sql.VarChar, null)
           .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
           .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
           .query(`
