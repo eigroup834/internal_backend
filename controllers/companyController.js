@@ -206,7 +206,7 @@ exports.addCompany = async (req, res) => {
 
   try {
     const {
-      name, email, website, phones, addresses, pincode,
+      name, emails, website, phones, addresses, pincode,
       remarks, division, specialremarks, country, state, city,
       segment, usercode, sourcecode, sourceperson, sourcetype, oldname, tags = []
     } = req.body;
@@ -215,11 +215,10 @@ exports.addCompany = async (req, res) => {
 
     const duplicateCheck = await new sql.Request(transaction)
       .input("COMPANY_NAME", sql.NVarChar, name)
-      .input("EMAIL", sql.NVarChar, email)
       .query(`
         SELECT TOP 1 COMPANY_CODE 
         FROM DEVP_COMPANY_DETAIL 
-        WHERE COMPANY_NAME = @COMPANY_NAME AND EMAIL = @EMAIL
+        WHERE COMPANY_NAME = @COMPANY_NAME
       `);
 
     if (duplicateCheck.recordset.length > 0) {
@@ -257,7 +256,7 @@ exports.addCompany = async (req, res) => {
       .input("STATE", sql.NVarChar, state)
       .input("COUNTRY", sql.NVarChar, country)
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
-      .input("EMAIL", sql.NVarChar, email)
+      .input("EMAIL", sql.VarChar(sql.MAX), JSON.stringify(emails))
       .input("WEBSITE", sql.NVarChar, website)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
@@ -276,7 +275,7 @@ exports.addCompany = async (req, res) => {
       .input("STATE", sql.NVarChar, state)
       .input("COUNTRY", sql.NVarChar, country)
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
-      .input("EMAIL", sql.NVarChar, email)
+      .input("EMAIL", sql.VarChar(sql.MAX), JSON.stringify(emails))
       .input("WEBSITE", sql.NVarChar, website)
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("USER_CODE", sql.VarChar, usercode)
