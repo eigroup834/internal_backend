@@ -238,12 +238,12 @@ exports.addCompany = async (req, res) => {
       .input("USER_CODE", sql.VarChar(50), usercode)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("SOURCE_CODE", sql.VarChar(50), sourcecode)
-      .input("SOFT_DELETED", sql.Bit, 0)
+      .input("ACTIVE", sql.Bit, 0)
       .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
       .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
       .query(`
-        INSERT INTO DEVP_MASTER (COMPANY_CODE, USER_CODE, CREATED_DATE, SOURCE_CODE, SOFT_DELETED, REMARKS, MANAGEMENT_REMARKS)
-        VALUES (@COMPANY_CODE, @USER_CODE, @CREATED_DATE, @SOURCE_CODE, @SOFT_DELETED, @REMARKS, @MANAGEMENT_REMARKS)
+        INSERT INTO DEVP_MASTER (COMPANY_CODE, USER_CODE, CREATED_DATE, SOURCE_CODE, ACTIVE, REMARKS, MANAGEMENT_REMARKS)
+        VALUES (@COMPANY_CODE, @USER_CODE, @CREATED_DATE, @SOURCE_CODE, @ACTIVE, @REMARKS, @MANAGEMENT_REMARKS)
       `);
 
     await new sql.Request(transaction)
