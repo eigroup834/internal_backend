@@ -1380,7 +1380,7 @@ exports.addPersonHistory = async (req, res) => {
       });
     }
 
-    if (!EXH_NAME || !EXH_YEAR || !EXH_LOCATION) {
+    if (!EXH_NAME || !EXH_YEAR) {
       return res.status(400).json({
         success: false,
         message: "Exhibition Name, Year, and Location are required"
@@ -1393,8 +1393,8 @@ exports.addPersonHistory = async (req, res) => {
     const personResult = await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
       .query(`
-        SELECT PERSON_NAME
-        FROM DEVP_PERSON_DETAIL
+        SELECT FNAME
+        FROM DEVP_COMP_PERSON
         WHERE PERSON_CODE = @PERSON_CODE
       `);
 
@@ -1407,7 +1407,7 @@ exports.addPersonHistory = async (req, res) => {
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .query(`
         SELECT 1 AS found
-        FROM DEVP_PERSON_EXH_HISTORY
+        FROM DEVP_COMP_PERSON_EXH_HISTORY
         WHERE PERSON_CODE = @PERSON_CODE
           AND EXH_CODE = @EXH_CODE
       `);
@@ -1419,17 +1419,14 @@ exports.addPersonHistory = async (req, res) => {
       });
     }
 
-    const PERSON_NAME = personResult.recordset[0].PERSON_NAME;
     const CREATED_DATE = new Date();
     const UPDATED_DATE = new Date();
 
     await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
-      .input("PERSON_NAME", sql.NVarChar(255), PERSON_NAME)
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
       .input("EXH_YEAR", sql.VarChar(50), EXH_YEAR)
-      .input("EXH_LOCATION", sql.NVarChar(255), EXH_LOCATION)
       .input("EVENT", sql.NVarChar(255), EVENT || "")
       .input("SPEAKER", sql.NVarChar(10), SPEAKER || "No")
       .input("VISITOR", sql.NVarChar(10), VISITOR || "No")
@@ -1443,13 +1440,13 @@ exports.addPersonHistory = async (req, res) => {
       .query(`
         INSERT INTO DEVP_COMP_PERSON_EXH_HISTORY
         (
-          PERSON_CODE, PERSON_NAME, EXH_CODE, EXH_NAME, EXH_YEAR, EXH_LOCATION,
+          PERSON_CODE, EXH_CODE, EXH_NAME, EXH_YEAR,
           EVENT, SPEAKER, VISITOR, DELEGATE, INVITEE, MARKETING, PROSPECT,
           USER_CODE, CREATED_DATE, UPDATED_DATE
         )
         VALUES
         (
-          @PERSON_CODE, @PERSON_NAME, @EXH_CODE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION,
+          @PERSON_CODE, @EXH_CODE, @EXH_NAME, @EXH_YEAR,
           @EVENT, @SPEAKER, @VISITOR, @DELEGATE, @INVITEE, @MARKETING, @PROSPECT,
           @USER_CODE, @CREATED_DATE, @UPDATED_DATE
         )
