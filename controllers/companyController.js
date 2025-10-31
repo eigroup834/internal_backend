@@ -1352,6 +1352,135 @@ exports.getPersonExhHistory = async (req, res) => {
   }
 };
 
+exports.addPersonHistory = async (req, res) => {
+  const transaction = new sql.Transaction(await poolPromise);
+  let transactionStarted = false;
+
+  try {
+    const {
+      PERSON_CODE,
+      USER_CODE,
+      EXH_CODE,
+      EXH_NAME,
+      EXH_YEAR,
+      EXH_LOCATION,
+      EVENT,
+      SPEAKER,
+      VISITOR,
+      DELEGATE,
+      INVITEE,
+      MARKETING,
+      PROSPECT
+    } = req.body;
+
+    if (!PERSON_CODE || !USER_CODE) {
+      return res.status(400).json({
+        success: false,
+        message: "Person code and user code are required"
+      });
+    }
+
+    if (!EXH_NAME || !EXH_YEAR || !EXH_LOCATION) {
+      return res.status(400).json({
+        success: false,
+        message: "Exhibition Name, Year, and Location are required"
+      });
+    }
+
+    await transaction.begin();
+    transactionStarted = true;
+
+    const personResult = await new sql.Request(transaction)
+      .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
+      .query(`
+        SELECT PERSON_NAME
+        FROM DEVP_PERSON_DETAIL
+        WHERE PERSON_CODE = @PERSON_CODE
+      `);
+
+    if (!personResult.recordset.length) {
+      throw new Error("Invalid person code, person not found");
+    }
+
+    const existingRecord = await new sql.Request(transaction)
+      .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
+      .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
+      .query(`
+        SELECT 1 AS found
+        FROM DEVP_PERSON_EXH_HISTORY
+        WHERE PERSON_CODE = @PERSON_CODE
+          AND EXH_CODE = @EXH_CODE
+      `);
+
+    if (existingRecord.recordset.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: "A record already exists for this Person Code and Exhibition Code"
+      });
+    }
+
+    const PERSON_NAME = personResult.recordset[0].PERSON_NAME;
+    const CREATED_DATE = new Date();
+    const UPDATED_DATE = new Date();
+
+    await new sql.Request(transaction)
+      .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
+      .input("PERSON_NAME", sql.NVarChar(255), PERSON_NAME)
+      .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
+      .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
+      .input("EXH_YEAR", sql.VarChar(50), EXH_YEAR)
+      .input("EXH_LOCATION", sql.NVarChar(255), EXH_LOCATION)
+      .input("EVENT", sql.NVarChar(255), EVENT || "")
+      .input("SPEAKER", sql.NVarChar(10), SPEAKER || "No")
+      .input("VISITOR", sql.NVarChar(10), VISITOR || "No")
+      .input("DELEGATE", sql.NVarChar(10), DELEGATE || "No")
+      .input("INVITEE", sql.NVarChar(10), INVITEE || "No")
+      .input("MARKETING", sql.NVarChar(10), MARKETING || "No")
+      .input("PROSPECT", sql.NVarChar(10), PROSPECT || "No")
+      .input("USER_CODE", sql.VarChar(50), USER_CODE)
+      .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
+      .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
+      .query(`
+        INSERT INTO DEVP_COMP_PERSON_EXH_HISTORY
+        (
+          PERSON_CODE, PERSON_NAME, EXH_CODE, EXH_NAME, EXH_YEAR, EXH_LOCATION,
+          EVENT, SPEAKER, VISITOR, DELEGATE, INVITEE, MARKETING, PROSPECT,
+          USER_CODE, CREATED_DATE, UPDATED_DATE
+        )
+        VALUES
+        (
+          @PERSON_CODE, @PERSON_NAME, @EXH_CODE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION,
+          @EVENT, @SPEAKER, @VISITOR, @DELEGATE, @INVITEE, @MARKETING, @PROSPECT,
+          @USER_CODE, @CREATED_DATE, @UPDATED_DATE
+        )
+      `);
+
+    await transaction.commit();
+
+    res.status(200).json({
+      success: true,
+      message: "Person exhibition history added successfully",
+      personCode: PERSON_CODE,
+      exhCode: EXH_CODE
+    });
+
+  } catch (err) {
+    console.error("Error adding person exhibition history:", err);
+    if (transactionStarted) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackErr) {
+        console.error("Rollback failed:", rollbackErr);
+      }
+    }
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
+
+
 
 
 

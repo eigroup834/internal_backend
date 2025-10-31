@@ -16,7 +16,7 @@ router.get("/exhibitions", authenticateToken, companyController.getExhibitionNam
 router.delete("/history/:exhCode", authenticateToken, companyController.deleteExhibitionHistory);
 
 router.get("/personHistory", authenticateToken, companyController.getPersonExhHistory);
-// router.post("/updatePersonHistory", authenticateToken, companyController.addPersonHistory);
+router.post("/updatePersonHistory", authenticateToken, companyController.addPersonHistory);
 
 router.get("/industries", authenticateToken, companyController.getIndustries);
 router.get("/industries/segments", authenticateToken, companyController.getSegmentsByIndustry);
