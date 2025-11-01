@@ -378,7 +378,7 @@ exports.EditCompany = async (req, res) => {
   try {
     const {
       companyCode,
-      name, email, website, phones, addresses, pincode,
+      name, emails, website, phones, addresses, pincode,
       remarks, division, specialremarks, country, state, city,
       segment, oldname, usercode
     } = req.body;
@@ -417,7 +417,7 @@ exports.EditCompany = async (req, res) => {
       .input("STATE", sql.NVarChar(100), state)
       .input("COUNTRY", sql.NVarChar(100), country)
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
-      .input("EMAIL", sql.NVarChar(255), email)
+      .input("EMAIL", sql.NVarChar(sql.MAX), JSON.stringify(emails))
       .input("WEBSITE", sql.NVarChar(255), website)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
@@ -447,7 +447,7 @@ exports.EditCompany = async (req, res) => {
       .input("STATE", sql.NVarChar(100), state)
       .input("COUNTRY", sql.NVarChar(100), country)
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
-      .input("EMAIL", sql.NVarChar(255), email)
+      .input("EMAIL", sql.NVarChar(sql.MAX), JSON.stringify(emails))
       .input("WEBSITE", sql.NVarChar(255), website)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("USER_CODE", sql.VarChar(50), usercode)
