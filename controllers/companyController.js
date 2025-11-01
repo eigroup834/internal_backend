@@ -306,12 +306,11 @@ exports.addCompany = async (req, res) => {
 
     await new sql.Request(transaction)
       .input("USER_CODE", sql.VarChar, usercode)
-      .input("DATA_COUNT", sql.Int, nextCount)
       .query(`
-        UPDATE DEVP_USER
-        SET DATA_COUNT = @DATA_COUNT
-        WHERE USER_CODE = @USER_CODE
-      `);
+    UPDATE DEVP_USER
+    SET DATA_COUNT = ISNULL(DATA_COUNT, 0) + 1
+    WHERE USER_CODE = @USER_CODE
+  `);
 
     if (Array.isArray(tags) && tags.length > 0) {
       for (const tagCode of tags) {
