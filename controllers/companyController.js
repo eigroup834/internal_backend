@@ -2,23 +2,35 @@ const { poolPromise } = require("../db");
 const sql = require("mssql");
 const ExcelJS = require('exceljs');
 
-const generateCompanyCode = async (usercode, transaction) => {
+async function generateCompanyCode(usercode, transaction) {
   const request = new sql.Request(transaction);
   const result = await request
-    .input("USER_CODE", sql.VarChar(50), usercode)
+    .input("USER_CODE", sql.VarChar, usercode)
     .query(`
-      SELECT DATA_COUNT
-      FROM DEVP_USER
+      SELECT ISNULL(DATA_COUNT, 0) AS DATA_COUNT 
+      FROM DEVP_USER 
       WHERE USER_CODE = @USER_CODE
     `);
 
   let nextCount = 1;
-  if (result.recordset.length > 0 && result.recordset[0].DATA_COUNT !== null) {
+  if (result.recordset.length > 0) {
     nextCount = result.recordset[0].DATA_COUNT + 1;
   }
-  const companyCode = `${usercode}${nextCount}`;
+
+  const companyCode = `${usercode.toLowerCase()}${nextCount}`;
+
+  await request
+    .input("USER_CODE", sql.VarChar, usercode)
+    .input("DATA_COUNT", sql.Int, nextCount)
+    .query(`
+      UPDATE DEVP_USER
+      SET DATA_COUNT = @DATA_COUNT
+      WHERE USER_CODE = @USER_CODE
+    `);
+
   return { companyCode, nextCount };
-};
+}
+
 
 const generatePersonCode = () => {
   const rawNumber = Date.now() + Math.floor(Math.random() * 1000);
