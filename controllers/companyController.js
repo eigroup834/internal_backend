@@ -2,36 +2,6 @@ const { poolPromise } = require("../db");
 const sql = require("mssql");
 const ExcelJS = require('exceljs');
 
-async function generateCompanyCode(usercode, transaction) {
-  const request = new sql.Request(transaction);
-  const result = await request
-    .input("USER_CODE", sql.VarChar, usercode)
-    .query(`
-      SELECT ISNULL(DATA_COUNT, 0) AS DATA_COUNT 
-      FROM DEVP_USER 
-      WHERE USER_CODE = @USER_CODE
-    `);
-
-  let nextCount = 1;
-  if (result.recordset.length > 0) {
-    nextCount = result.recordset[0].DATA_COUNT + 1;
-  }
-
-  const companyCode = `${usercode.toLowerCase()}${nextCount}`;
-
-  await request
-    .input("USER_CODE", sql.VarChar, usercode)
-    .input("DATA_COUNT", sql.Int, nextCount)
-    .query(`
-      UPDATE DEVP_USER
-      SET DATA_COUNT = @DATA_COUNT
-      WHERE USER_CODE = @USER_CODE
-    `);
-
-  return { companyCode, nextCount };
-}
-
-
 const generatePersonCode = () => {
   const rawNumber = Date.now() + Math.floor(Math.random() * 1000);
   const hexPart = rawNumber.toString(16).toUpperCase();
@@ -237,11 +207,29 @@ exports.addCompany = async (req, res) => {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: "Duplicate company found with same name and email.",
+        message: "Duplicate company found with same name.",
       });
     }
 
-    const { companyCode: COMPANY_CODE, nextCount } = await generateCompanyCode(usercode, transaction);
+    const userResult = await new sql.Request(transaction)
+      .input("USER_CODE", sql.VarChar, usercode)
+      .query(`
+        SELECT ISNULL(DATA_COUNT, 0) AS DATA_COUNT 
+        FROM DEVP_USER 
+        WHERE USER_CODE = @USER_CODE
+      `);
+
+    if (userResult.recordset.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user code. User not found.",
+      });
+    }
+
+    const currentCount = userResult.recordset[0].DATA_COUNT || 0;
+    const nextCount = currentCount + 1;
+    const COMPANY_CODE = `${usercode}${nextCount}`;
     const CREATED_DATE = new Date();
 
     await new sql.Request(transaction)
@@ -292,8 +280,10 @@ exports.addCompany = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("USER_CODE", sql.VarChar, usercode)
       .query(`
-        INSERT INTO DEVP_COMPANY_UPDATE_HISTORY (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE)
-        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE)
+        INSERT INTO DEVP_COMPANY_UPDATE_HISTORY 
+        (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE)
+        VALUES 
+        (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE)
       `);
 
     await new sql.Request(transaction)
@@ -317,12 +307,12 @@ exports.addCompany = async (req, res) => {
       `);
 
     await new sql.Request(transaction)
-        .input("USER_CODE", sql.VarChar, usercode)
-        .query(`
-      UPDATE DEVP_USER
-      SET DATA_COUNT = ISNULL(DATA_COUNT, 0) + 1
-      WHERE USER_CODE = @USER_CODE
-    `);
+      .input("USER_CODE", sql.VarChar, usercode)
+      .query(`
+        UPDATE DEVP_USER
+        SET DATA_COUNT = ISNULL(DATA_COUNT, 0) + 1
+        WHERE USER_CODE = @USER_CODE
+      `);
 
     if (Array.isArray(tags) && tags.length > 0) {
       for (const tagCode of tags) {
@@ -331,10 +321,10 @@ exports.addCompany = async (req, res) => {
         const tagResult = await new sql.Request(transaction)
           .input("TAG_CODE", sql.VarChar, tagCode)
           .query(`
-              SELECT TOP 1 TAG_NAME 
-              FROM DEVP_TAGS 
-              WHERE TAG_CODE = @TAG_CODE
-            `);
+            SELECT TOP 1 TAG_NAME 
+            FROM DEVP_TAGS 
+            WHERE TAG_CODE = @TAG_CODE
+          `);
 
         const tagName = tagResult.recordset.length > 0
           ? tagResult.recordset[0].TAG_NAME
@@ -348,10 +338,10 @@ exports.addCompany = async (req, res) => {
           .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
           .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
           .query(`
-              INSERT INTO DEVP_TAGS_MAPPING 
-              (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
-              VALUES (@TAG_NAME, @TAG_CODE, @COMPANY_CODE, @PERSON_CODE, @CREATED_DATE, @UPDATED_DATE)
-            `);
+            INSERT INTO DEVP_TAGS_MAPPING 
+            (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
+            VALUES (@TAG_NAME, @TAG_CODE, @COMPANY_CODE, @PERSON_CODE, @CREATED_DATE, @UPDATED_DATE)
+          `);
       }
     }
 

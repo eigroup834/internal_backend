@@ -5,7 +5,6 @@ require('dotenv').config({ path: __dirname + '/.env' });
 const authRoutes = require('./routes/auth');
 const companyRoutes = require('./routes/company');
 const commonRoutes = require('./routes/commonRoutes');
-const { activityLogger } = require('./middleware/activityLogger');
 
 const app = express();
 
@@ -15,8 +14,6 @@ app.use(express.json());
 app.use((req, res, next) => {
   next();
 });
-
-app.use(activityLogger);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/companies', companyRoutes);
