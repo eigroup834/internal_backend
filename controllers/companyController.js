@@ -859,7 +859,7 @@ exports.addPerson = async (req, res) => {
       firstname,
       lastname,
       companycode,
-      mobiles,
+      phones,
       emails,
       designations,
       departments,
@@ -878,7 +878,7 @@ exports.addPerson = async (req, res) => {
     const PERSON_CODE = generatePersonCode();
     const CREATED_DATE = new Date();
 
-    const mobileJson = JSON.stringify(mobiles?.filter(m => m?.number) || []);
+    const mobileJson = JSON.stringify(phones?.filter(m => m?.number) || []);
     const emailJson = JSON.stringify(emails?.filter(e => e) || []);
     const desigJson = JSON.stringify(designations?.filter(d => d) || []);
     const deptJson = JSON.stringify(departments?.filter(d => d) || []);
@@ -920,7 +920,7 @@ exports.addPerson = async (req, res) => {
       .input("LNAME", sql.VarChar(40), lastname || "")
       .input("DESIG", sql.NVarChar(sql.MAX), JSON.stringify(designations || []))
       .input("DEPT", sql.NVarChar(sql.MAX), JSON.stringify(departments || []))
-      .input("MOBILE", sql.VarChar(35), JSON.stringify(mobiles || []))
+      .input("MOBILE", sql.VarChar(35), JSON.stringify(phones || []))
       .input("PERSON_EMAIL", sql.VarChar(60), JSON.stringify(emails || []))
       .input("DOB", sql.SmallDateTime, dob || null)
       .input("REMARKS", sql.VarChar(75), remarks || "")
@@ -1158,7 +1158,7 @@ exports.EditPerson = async (req, res) => {
       lastname,
       designations,
       departments,
-      mobiles,
+      phones,
       emails,
       dob,
       remarks,
@@ -1187,7 +1187,7 @@ exports.EditPerson = async (req, res) => {
       .input("LNAME", sql.VarChar(40), lastname || "")
       .input("DESIG", sql.NVarChar(sql.MAX), JSON.stringify(designations || []))
       .input("DEPT", sql.NVarChar(sql.MAX), JSON.stringify(departments || []))
-      .input("MOBILE", sql.VarChar(35), JSON.stringify(mobiles || []))
+      .input("MOBILE", sql.VarChar(35), JSON.stringify(phones || []))
       .input("PERSON_EMAIL", sql.VarChar(60), JSON.stringify(emails || []))
       .input("DOB", sql.SmallDateTime, dob || null)
       .input("REMARKS", sql.VarChar(75), remarks || "")
@@ -1227,7 +1227,7 @@ exports.EditPerson = async (req, res) => {
       .input("LNAME", sql.VarChar(40), lastname || "")
       .input("DESIG", sql.NVarChar(sql.MAX), JSON.stringify(designations || []))
       .input("DEPT", sql.NVarChar(sql.MAX), JSON.stringify(departments || []))
-      .input("MOBILE", sql.VarChar(35), JSON.stringify(mobiles || []))
+      .input("MOBILE", sql.VarChar(35), JSON.stringify(phones || []))
       .input("PERSON_EMAIL", sql.VarChar(60), JSON.stringify(emails || []))
       .input("DOB", sql.SmallDateTime, dob || null)
       .input("REMARKS", sql.VarChar(75), remarks || "")
