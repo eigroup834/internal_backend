@@ -19,5 +19,8 @@ router.get('/tags', commonController.getTags);
 router.post('/addtags', authenticateToken, commonController.addTags);
 router.put('/tags/:tagCode', authenticateToken, commonController.updateTag);
 
+router.post('/addEditor', authenticateToken, commonController.addEditor);
+router.post('/editEditor', authenticateToken, commonController.editEditor);
+
 
 module.exports = router;

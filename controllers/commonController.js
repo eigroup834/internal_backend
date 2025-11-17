@@ -506,6 +506,146 @@ exports.updateTag = async (req, res) => {
   }
 };
 
+exports.addEditor = async (req, res) => {
+  try {
+    let {
+      name,
+      password,
+      department,
+      role,
+      user_code,
+      data_count = 0,
+      email,
+      phone,
+    } = req.body;
+
+    if (!name || !password) {
+      return res.status(400).json({ error: "USERNAME and PASSWORD are required" });
+    }
+
+    const pool = await poolPromise;
+    const idResult = await pool.request().query(`
+      SELECT ISNULL(MAX(ID), 0) + 1 AS NextID FROM DEVP_USER
+    `);
+
+    const ID = idResult.recordset[0].NextID;
+
+   const existingCode = await pool.request()
+        .input("USER_CODE", sql.VarChar(10), user_code)
+        .query("SELECT 1 FROM DEVP_USER WHERE USER_CODE = @USER_CODE");
+
+    if (existingCode.recordset.length > 0) {
+        return res.status(400).json({ error: "User already exists" });
+    }
+    
+    const insert = await pool.request()
+      .input("ID", sql.SmallInt, ID)
+      .input("USERNAME", sql.VarChar(100), name)
+      .input("PASSWORD", sql.VarChar(255), password)
+      .input("DEPARTMENT", sql.VarChar(50), department)
+      .input("ACCESS_LEVEL", sql.Char(1), role)
+      .input("USER_CODE", sql.VarChar(10), user_code)
+      .input("DATA_COUNT", sql.Decimal(18, 0), data_count)
+      .input("EMAIL", sql.VarChar(100), email)
+      .input("PHONE", sql.VarChar(50), phone)
+      .input("ACTIVE", sql.Bit, 1)
+      .query(`
+        INSERT INTO DEVP_USER (
+          ID, USERNAME, PASSWORD, DEPARTMENT,
+          ACCESS_LEVEL, USER_CODE, DATA_COUNT, EMAIL, PHONE,
+          ACTIVE, UPDATED_DATE, CREATED_DATE
+        )
+        VALUES (
+          @ID, @USERNAME, @PASSWORD, @DEPARTMENT,
+          @ACCESS_LEVEL, @USER_CODE, @DATA_COUNT, @EMAIL, @PHONE,
+          @ACTIVE, GETDATE(), GETDATE()
+        );
+      `);
+
+    return res.json({
+      message: "User created successfully",
+      ID
+    });
+
+  } catch (err) {
+    console.error("addUser error:", err);
+    return res.status(500).json({ error: "Server error", details: err.message });
+  }
+};
+
+exports.editEditor = async (req, res) => {
+  try {
+    let {
+      USERNAME,
+      PASSWORD,
+      DEPARTMENT,
+      DEPARTMENT_HEAD,
+      ACCESS_LEVEL,
+      USER_CODE,
+      DATA_COUNT,
+      EMAIL,
+      PHONE,
+      ACTIVE
+    } = req.body;
+
+    if (!USERNAME || !PASSWORD) {
+      return res.status(400).json({ error: "USERNAME and PASSWORD are required" });
+    }
+
+    const pool = await poolPromise;
+    const idResult = await pool.request().query(`
+      SELECT ISNULL(MAX(ID), 0) + 1 AS NextID FROM DEVP_USER
+    `);
+
+    const ID = idResult.recordset[0].NextID;
+
+   const existingCode = await pool.request()
+        .input("USER_CODE", sql.VarChar(10), USER_CODE)
+        .query("SELECT 1 FROM DEVP_USER WHERE USER_CODE = @USER_CODE");
+
+    if (existingCode.recordset.length > 0) {
+        return res.status(400).json({ error: "USER_CODE already exists" });
+    }
+    
+    const insert = await pool.request()
+      .input("ID", sql.SmallInt, ID)
+      .input("USERNAME", sql.VarChar(100), USERNAME)
+      .input("PASSWORD", sql.VarChar(255), PASSWORD)
+      .input("DEPARTMENT", sql.VarChar(50), DEPARTMENT)
+      .input("DEPARTMENT_HEAD", sql.VarChar(50), DEPARTMENT_HEAD)
+      .input("ACCESS_LEVEL", sql.Char(1), ACCESS_LEVEL)
+      .input("USER_CODE", sql.VarChar(10), USER_CODE)
+      .input("DATA_COUNT", sql.Decimal(18, 0), DATA_COUNT)
+      .input("EMAIL", sql.VarChar(100), EMAIL)
+      .input("PHONE", sql.VarChar(50), PHONE)
+      .input("ACTIVE", sql.Bit, ACTIVE ?? 1)
+      .query(`
+        INSERT INTO DEVP_USER (
+          ID, USERNAME, PASSWORD, DEPARTMENT, DEPARTMENT_HEAD,
+          ACCESS_LEVEL, USER_CODE, DATA_COUNT, EMAIL, PHONE,
+          ACTIVE, UPDATED_DATE, CREATED_DATE
+        )
+        VALUES (
+          @ID, @USERNAME, @PASSWORD, @DEPARTMENT, @DEPARTMENT_HEAD,
+          @ACCESS_LEVEL, @USER_CODE, @DATA_COUNT, @EMAIL, @PHONE,
+          @ACTIVE, GETDATE(), GETDATE()
+        );
+      `);
+
+    return res.json({
+      message: "User created successfully",
+      USER_CODE,
+      ID
+    });
+
+  } catch (err) {
+    console.error("addUser error:", err);
+    return res.status(500).json({ error: "Server error", details: err.message });
+  }
+};
+
+
+
 
 
 
