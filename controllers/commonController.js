@@ -513,7 +513,7 @@ exports.addEditor = async (req, res) => {
       password,
       department,
       role,
-      user_code,
+      usercode,
       data_count = 0,
       email,
       phone,
@@ -531,7 +531,7 @@ exports.addEditor = async (req, res) => {
     const ID = idResult.recordset[0].NextID;
 
    const existingCode = await pool.request()
-        .input("USER_CODE", sql.VarChar(10), user_code)
+        .input("USER_CODE", sql.VarChar(10), usercode)
         .query("SELECT 1 FROM DEVP_USER WHERE USER_CODE = @USER_CODE");
 
     if (existingCode.recordset.length > 0) {
@@ -544,7 +544,7 @@ exports.addEditor = async (req, res) => {
       .input("PASSWORD", sql.VarChar(255), password)
       .input("DEPARTMENT", sql.VarChar(50), department)
       .input("ACCESS_LEVEL", sql.Char(1), role)
-      .input("USER_CODE", sql.VarChar(10), user_code)
+      .input("USER_CODE", sql.VarChar(10), usercode)
       .input("DATA_COUNT", sql.Decimal(18, 0), data_count)
       .input("EMAIL", sql.VarChar(100), email)
       .input("PHONE", sql.VarChar(50), phone)
