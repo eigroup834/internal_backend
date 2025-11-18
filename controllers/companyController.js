@@ -20,11 +20,16 @@ exports.getCompanies = async (req, res) => {
       filters = "{}",
     } = req.query;
 
+    const user = req.user;
+    const userLevel = Number(user.access_level);
+    const userCode = user.user_code;
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;
     const offset = (pageNum - 1) * limitNum;
 
     let filterObj = {};
+    let masterJoin = "";
+
     try {
       filterObj = JSON.parse(filters);
     } catch {
@@ -80,15 +85,25 @@ exports.getCompanies = async (req, res) => {
       request.input("search4", `%${search}%`);
     }
 
+    if (userLevel > 1) {
+      masterJoin = `
+        INNER JOIN dbo.DEVP_MASTER u
+          ON c.COMPANY_CODE = u.COMPANY_CODE
+      `;
+      whereClauses.push("u.USER_CODE = @userCode");
+      request.input("userCode", userCode);
+    }
+
     const whereSQL =
       whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
     const query = `
       WITH CompanyData AS (
         SELECT DISTINCT c.*, s.INDUSTRY, s.SEGMENT,
-               ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
+              ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
         FROM dbo.DEVP_COMPANY_DETAIL c
         INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
         INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+        ${masterJoin}
         ${whereSQL}
       )
       SELECT *
@@ -99,9 +114,9 @@ exports.getCompanies = async (req, res) => {
       FROM dbo.DEVP_COMPANY_DETAIL c
       INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
       INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+      ${masterJoin}
       ${whereSQL};
     `;
-
     const result = await request.query(query);
 
     res.json({
@@ -1030,6 +1045,10 @@ exports.getPersonList = async (req, res) => {
       filters = "{}",
     } = req.query;
 
+    const user = req.user;
+    const userLevel = Number(user.access_level);
+    const userCode = user.user_code;
+
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;
     const offset = (pageNum - 1) * limitNum;
@@ -1056,7 +1075,6 @@ exports.getPersonList = async (req, res) => {
     const whereClauses = [];
     const request = (await poolPromise).request();
 
-    // 🔍 Search support (FNAME, LNAME, EMAIL, MOBILE, COMPANY_CODE)
     if (search) {
       const likeClauses = [
         "[FNAME] LIKE @search1",
@@ -1071,6 +1089,11 @@ exports.getPersonList = async (req, res) => {
       request.input("search3", `%${search}%`);
       request.input("search4", `%${search}%`);
       request.input("search5", `%${search}%`);
+    }
+
+    if (userLevel > 1) {
+      whereClauses.push("u.USER_CODE = @userCode");
+      request.input("userCode", userCode);
     }
 
     for (const key in filterObj) {
