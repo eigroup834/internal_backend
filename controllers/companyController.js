@@ -1092,7 +1092,7 @@ exports.getPersonList = async (req, res) => {
     }
 
     if (userLevel > 1) {
-      whereClauses.push("u.USER_CODE = @userCode");
+      whereClauses.push("p.USER_CODE = @userCode");
       request.input("userCode", userCode);
     }
 
@@ -1109,7 +1109,7 @@ exports.getPersonList = async (req, res) => {
       WITH PersonData AS (
         SELECT *,
                ROW_NUMBER() OVER (ORDER BY [${sortColumn}] ${sortDir}) AS RowNum
-        FROM dbo.DEVP_COMP_PERSON
+        FROM dbo.DEVP_COMP_PERSON p
         ${whereSQL}
       )
       SELECT PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL,
@@ -1120,7 +1120,7 @@ exports.getPersonList = async (req, res) => {
 
     const countQuery = `
       SELECT COUNT(*) AS total
-      FROM dbo.DEVP_COMP_PERSON
+      FROM dbo.DEVP_COMP_PERSON p
       ${whereSQL};
     `;
 
