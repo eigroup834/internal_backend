@@ -670,22 +670,31 @@ exports.getDashboardStats = async (req, res) => {
       FROM DEVP_EVENTS
     `;
 
-    const [companyResult, personResult, exhibitionResult] = await Promise.all([
+     const tagsQuery = `
+      SELECT 
+        COUNT(*) AS totalTags
+      FROM DEVP_TAGS
+    `;
+
+    const [companyResult, personResult, exhibitionResult, tagResult] = await Promise.all([
       pool.request().query(companyQuery),
       pool.request().query(personQuery),
       pool.request().query(exhibitionQuery),
+      pool.request().query(tagsQuery),
     ]);
 
     const company = companyResult.recordset[0];
     const person = personResult.recordset[0];
     const exhibition = exhibitionResult.recordset[0];
+    const tag = tagResult.recordset[0];
 
     res.json({
       totalCompanies: company.totalCompanies || 0,
       totalPersons: person.totalPersons || 0,
       totalExhibitions: exhibition.totalExhibitions || 0,
       todayCompanies: company.todayCompanies || 0,
-      todayPersons: person.todayPersons || 0
+      todayPersons: person.todayPersons || 0,
+      totalTags: tag.totalTags || 0
     });
 
   } catch (err) {
@@ -693,7 +702,6 @@ exports.getDashboardStats = async (req, res) => {
     res.status(500).json({ error: "Server Error" });
   }
 };
-
 
 exports.getDashboardActivity = async (req, res) => {
   try {
