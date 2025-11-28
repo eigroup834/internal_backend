@@ -698,69 +698,62 @@ exports.getDashboardStats = async (req, res) => {
 exports.getDashboardActivity = async (req, res) => {
   try {
     const { user_code, startDate, endDate } = req.query;
-
-    if (!user_code) {
-      return res.status(400).json({ error: "user_code is required" });
-    }
+    if (!user_code) return res.status(400).json({ error: "user_code is required" });
 
     const pool = await poolPromise;
 
-    let userFilterCompanies = "";
-    let userFilterPersons = "";
-
-    if (user_code !== "ALL") {
-      userFilterCompanies = "AND m.USER_CODE = @user_code";
-      userFilterPersons = "AND USER_CODE = @user_code";
-    }
-
-    let dateFilter = "";
-    if (startDate && endDate) {
-      dateFilter = `AND CAST(c.CREATED_DATE AS DATE) BETWEEN '${startDate}' AND '${endDate}'`;
-    }
-
-    const companyQuery = `
-      SELECT 
-        CAST(c.CREATED_DATE AS DATE) AS date,
-        COUNT(*) AS companies
+    // Base queries
+    let companyQuery = `
+      SELECT CAST(c.CREATED_DATE AS DATE) AS date, COUNT(*) AS companies
       FROM DEVP_COMPANY_DETAIL c
       INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
-      WHERE 1 = 1
-        ${userFilterCompanies}
-        ${dateFilter}
-      GROUP BY CAST(c.CREATED_DATE AS DATE)
-      ORDER BY date
+      WHERE 1=1
     `;
-
-    const personQuery = `
-      SELECT 
-        CAST(CREATED_DATE AS DATE) AS date,
-        COUNT(*) AS persons
+    let personQuery = `
+      SELECT CAST(CREATED_DATE AS DATE) AS date, COUNT(*) AS persons
       FROM DEVP_COMP_PERSON
-      WHERE 1 = 1
-        ${userFilterPersons}
-        ${dateFilter}
-      GROUP BY CAST(CREATED_DATE AS DATE)
-      ORDER BY date
+      WHERE 1=1
     `;
 
-    const request = pool.request();
+    // Requests for parameters
+    const companyReq = pool.request();
+    const personReq = pool.request();
+
+    // User filter
     if (user_code !== "ALL") {
-      request.input("user_code", sql.VarChar(10), user_code);
+      companyReq.input("user_code", sql.VarChar(50), user_code);
+      personReq.input("user_code", sql.VarChar(10), user_code);
+      companyQuery += " AND m.USER_CODE = @user_code";
+      personQuery += " AND USER_CODE = @user_code";
     }
 
+    // Date filter
+    if (startDate && endDate) {
+      companyReq.input("startDate", sql.Date, startDate);
+      companyReq.input("endDate", sql.Date, endDate);
+      personReq.input("startDate", sql.Date, startDate);
+      personReq.input("endDate", sql.Date, endDate);
+      companyQuery += " AND CAST(c.CREATED_DATE AS DATE) BETWEEN @startDate AND @endDate";
+      personQuery += " AND CAST(CREATED_DATE AS DATE) BETWEEN @startDate AND @endDate";
+    }
+
+    // Grouping & ordering
+    companyQuery += " GROUP BY CAST(c.CREATED_DATE AS DATE) ORDER BY date";
+    personQuery += " GROUP BY CAST(CREATED_DATE AS DATE) ORDER BY date";
+
+    // Execute
     const [companyRes, personRes] = await Promise.all([
-      request.query(companyQuery),
-      request.query(personQuery),
+      companyReq.query(companyQuery),
+      personReq.query(personQuery),
     ]);
 
+    // Merge results
     const activityMap = {};
-
-    companyRes.recordset.forEach((row) => {
+    companyRes.recordset.forEach(row => {
       const key = row.date.toISOString().split("T")[0];
       activityMap[key] = { date: key, companies: row.companies, persons: 0 };
     });
-
-    personRes.recordset.forEach((row) => {
+    personRes.recordset.forEach(row => {
       const key = row.date.toISOString().split("T")[0];
       if (activityMap[key]) {
         activityMap[key].persons = row.persons;
@@ -769,17 +762,13 @@ exports.getDashboardActivity = async (req, res) => {
       }
     });
 
-    const merged = Object.values(activityMap).sort(
-      (a, b) => new Date(a.date) - new Date(b.date)
-    );
-
-    res.json(merged);
-
+    res.json(Object.values(activityMap).sort((a, b) => new Date(a.date) - new Date(b.date)));
   } catch (err) {
     console.error("getDashboardActivity error:", err);
     res.status(500).json({ error: "Server Error" });
   }
 };
+
 
 
 
