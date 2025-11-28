@@ -646,52 +646,46 @@ exports.editEditor = async (req, res) => {
 
 exports.getDashboardStats = async (req, res) => {
   try {
-    const { user_code } = req.query;
-
-    if (!user_code) {
-      return res.status(400).json({ error: "user_code is required" });
-    }
-
     const pool = await poolPromise;
-    const filter = user_code === "ALL" ? "" : "AND m.USER_CODE = @user_code";
 
     const companyQuery = `
       SELECT 
-        COUNT(*) AS Total,
-        SUM(CASE WHEN CAST(c.CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE) 
-            THEN 1 ELSE 0 END) AS Today
-      FROM DEVP_COMPANY_DETAIL c
-      INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
-      WHERE 1 = 1 ${filter}
+        COUNT(*) AS totalCompanies,
+        SUM(CASE WHEN CAST(CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE) 
+            THEN 1 ELSE 0 END) AS todayCompanies
+      FROM DEVP_COMPANY_DETAIL
     `;
 
     const personQuery = `
       SELECT 
-        COUNT(*) AS Total,
+        COUNT(*) AS totalPersons,
         SUM(CASE WHEN CAST(CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE)
-            THEN 1 ELSE 0 END) AS Today
+            THEN 1 ELSE 0 END) AS todayPersons
       FROM DEVP_COMP_PERSON
-      WHERE 1 = 1 ${user_code === "ALL" ? "" : "AND USER_CODE = @user_code"}
     `;
 
-    const request = pool.request();
-    if (user_code !== "ALL") {
-      request.input("user_code", sql.VarChar(10), user_code);
-    }
+    const exhibitionQuery = `
+      SELECT 
+        COUNT(*) AS totalExhibitions
+      FROM DEVP_EVENTS
+    `;
 
-    const [companyResult, personResult] = await Promise.all([
-      request.query(companyQuery),
-      request.query(personQuery),
+    const [companyResult, personResult, exhibitionResult] = await Promise.all([
+      pool.request().query(companyQuery),
+      pool.request().query(personQuery),
+      pool.request().query(exhibitionQuery),
     ]);
 
     const company = companyResult.recordset[0];
     const person = personResult.recordset[0];
+    const exhibition = exhibitionResult.recordset[0];
 
     res.json({
-      CompaniesToday: company.Today || 0,
-      CompaniesMonth: company.Total || 0,
-      PersonsToday: person.Today || 0,
-      PersonsMonth: person.Total || 0
+      totalCompanies: company.totalCompanies || 0,
+      totalPersons: person.totalPersons || 0,
+      totalExhibitions: exhibition.totalExhibitions || 0,
+      todayCompanies: company.todayCompanies || 0,
+      todayPersons: person.todayPersons || 0
     });
 
   } catch (err) {
@@ -699,6 +693,7 @@ exports.getDashboardStats = async (req, res) => {
     res.status(500).json({ error: "Server Error" });
   }
 };
+
 
 exports.getDashboardActivity = async (req, res) => {
   try {
