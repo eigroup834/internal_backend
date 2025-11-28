@@ -644,6 +644,148 @@ exports.editEditor = async (req, res) => {
   }
 };
 
+exports.getDashboardStats = async (req, res) => {
+  try {
+    const { user_code } = req.query;
+
+    if (!user_code) {
+      return res.status(400).json({ error: "user_code is required" });
+    }
+
+    const pool = await poolPromise;
+    const filter = user_code === "ALL" ? "" : "AND m.USER_CODE = @user_code";
+
+    const companyQuery = `
+      SELECT 
+        COUNT(*) AS Total,
+        SUM(CASE WHEN CAST(c.CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE) 
+            THEN 1 ELSE 0 END) AS Today
+      FROM DEVP_COMPANY_DETAIL c
+      INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
+      WHERE 1 = 1 ${filter}
+    `;
+
+    const personQuery = `
+      SELECT 
+        COUNT(*) AS Total,
+        SUM(CASE WHEN CAST(CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE)
+            THEN 1 ELSE 0 END) AS Today
+      FROM DEVP_COMP_PERSON
+      WHERE 1 = 1 ${user_code === "ALL" ? "" : "AND USER_CODE = @user_code"}
+    `;
+
+    const request = pool.request();
+    if (user_code !== "ALL") {
+      request.input("user_code", sql.VarChar(10), user_code);
+    }
+
+    const [companyResult, personResult] = await Promise.all([
+      request.query(companyQuery),
+      request.query(personQuery),
+    ]);
+
+    const company = companyResult.recordset[0];
+    const person = personResult.recordset[0];
+
+    res.json({
+      CompaniesToday: company.Today || 0,
+      CompaniesMonth: company.Total || 0,
+      PersonsToday: person.Today || 0,
+      PersonsMonth: person.Total || 0
+    });
+
+  } catch (err) {
+    console.error("getDashboardStats error:", err);
+    res.status(500).json({ error: "Server Error" });
+  }
+};
+
+exports.getDashboardActivity = async (req, res) => {
+  try {
+    const { user_code, startDate, endDate } = req.query;
+
+    if (!user_code) {
+      return res.status(400).json({ error: "user_code is required" });
+    }
+
+    const pool = await poolPromise;
+
+    let userFilterCompanies = "";
+    let userFilterPersons = "";
+
+    if (user_code !== "ALL") {
+      userFilterCompanies = "AND m.USER_CODE = @user_code";
+      userFilterPersons = "AND USER_CODE = @user_code";
+    }
+
+    let dateFilter = "";
+    if (startDate && endDate) {
+      dateFilter = `AND CAST(c.CREATED_DATE AS DATE) BETWEEN '${startDate}' AND '${endDate}'`;
+    }
+
+    const companyQuery = `
+      SELECT 
+        CAST(c.CREATED_DATE AS DATE) AS date,
+        COUNT(*) AS companies
+      FROM DEVP_COMPANY_DETAIL c
+      INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
+      WHERE 1 = 1
+        ${userFilterCompanies}
+        ${dateFilter}
+      GROUP BY CAST(c.CREATED_DATE AS DATE)
+      ORDER BY date
+    `;
+
+    const personQuery = `
+      SELECT 
+        CAST(CREATED_DATE AS DATE) AS date,
+        COUNT(*) AS persons
+      FROM DEVP_COMP_PERSON
+      WHERE 1 = 1
+        ${userFilterPersons}
+        ${dateFilter}
+      GROUP BY CAST(CREATED_DATE AS DATE)
+      ORDER BY date
+    `;
+
+    const request = pool.request();
+    if (user_code !== "ALL") {
+      request.input("user_code", sql.VarChar(10), user_code);
+    }
+
+    const [companyRes, personRes] = await Promise.all([
+      request.query(companyQuery),
+      request.query(personQuery),
+    ]);
+
+    const activityMap = {};
+
+    companyRes.recordset.forEach((row) => {
+      const key = row.date.toISOString().split("T")[0];
+      activityMap[key] = { date: key, companies: row.companies, persons: 0 };
+    });
+
+    personRes.recordset.forEach((row) => {
+      const key = row.date.toISOString().split("T")[0];
+      if (activityMap[key]) {
+        activityMap[key].persons = row.persons;
+      } else {
+        activityMap[key] = { date: key, companies: 0, persons: row.persons };
+      }
+    });
+
+    const merged = Object.values(activityMap).sort(
+      (a, b) => new Date(a.date) - new Date(b.date)
+    );
+
+    res.json(merged);
+
+  } catch (err) {
+    console.error("getDashboardActivity error:", err);
+    res.status(500).json({ error: "Server Error" });
+  }
+};
+
 
 
 

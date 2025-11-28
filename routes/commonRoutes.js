@@ -22,5 +22,7 @@ router.put('/tags/:tagCode', authenticateToken, commonController.updateTag);
 router.post('/addEditor', authenticateToken, commonController.addEditor);
 router.post('/editEditor', authenticateToken, commonController.editEditor);
 
+router.get('/dashboard/stats', authenticateToken, commonController.getDashboardStats);
+router.get('/dashboard/activity', authenticateToken, commonController.getDashboardActivity);
 
 module.exports = router;
