@@ -83,6 +83,9 @@ exports.getEditors = async (req, res) => {
     const allowedFilterColumns = ["ID", "USERNAME", "USER_CODE", "EMAIL", "PHONE", "DEPARTMENT", "ACCESS_LEVEL", "ACTIVE"];
     const whereClauses = [];
     const request = (await poolPromise).request();
+    if (!("ACTIVE" in filterObj)) {
+        whereClauses.push("[ACTIVE] = 1");
+    }
 
     if (search) {
       const likeClauses = [
