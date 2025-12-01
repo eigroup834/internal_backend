@@ -6,8 +6,8 @@ const authenticateToken = require('../middleware/auth');
 router.get('/countries', commonController.getCountries);
 router.get('/states', commonController.getStates);
 router.get('/cities', commonController.getCities);
-router.get('/editor', commonController.getEditors);
-router.get('/categories', commonController.getCategories);
+router.get('/editor', authenticateToken, commonController.getEditors);
+router.get('/categories', authenticateToken, commonController.getCategories);
 
 router.get('/stats', commonController.getStats);        
 router.get('/activity', commonController.getActivity);
