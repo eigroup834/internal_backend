@@ -185,7 +185,7 @@ exports.getStats = async (req, res) => {
         COUNT(*) AS Total,
         SUM(CASE WHEN CAST(c.CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Today
       FROM dbo.[${TABLES.COMPANY_DETAIL}] c
-      INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
+      INNER JOIN dbo.[${TABLES.COMP_MASTER}] m ON c.COMPANY_CODE = m.COMPANY_CODE
       WHERE m.USER_CODE = @user_code
     `;
 
@@ -234,7 +234,7 @@ exports.getActivity = async (req, res) => {
         CAST(c.CREATED_DATE AS DATE) AS date, 
         COUNT(*) AS companies
       FROM dbo.[${TABLES.COMPANY_DETAIL}] c
-      INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
+      INNER JOIN dbo.[${TABLES.COMP_MASTER}] m ON c.COMPANY_CODE = m.COMPANY_CODE
       WHERE m.USER_CODE = @user_code ${dateFilter}
       GROUP BY CAST(c.CREATED_DATE AS DATE)
       ORDER BY date
@@ -342,7 +342,7 @@ exports.addEvent = async (req, res) => {
     const EVENT_CODE = generateEventCode();
 
     const query = `
-      INSERT INTO DEVP_EVENTS
+      INSERT INTO dbo.[${TABLES.EVENTS}]
         (EVENT_NAME, EVENT_CODE, EVENT_YEAR, EVENT_LOCATION,
         CREATED_DATE, UPDATED_DATE, USER_CODE)
       VALUES
@@ -467,7 +467,7 @@ exports.addTags = async (req, res) => {
         .input("USER_CODE", sql.VarChar(10), usercode)
         .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
         .query(`
-          INSERT INTO DEVP_TAGS (TAG_NAME, USER_CODE, ACTIVE, TAG_CODE)
+          INSERT INTO dbo.[${TABLES.TAGS}] (TAG_NAME, USER_CODE, ACTIVE, TAG_CODE)
           OUTPUT INSERTED.TAG_CODE
           VALUES (@TAG_NAME, @USER_CODE, 1, @TAG_CODE)
         `);
@@ -498,7 +498,7 @@ exports.updateTag = async (req, res) => {
       .input("TAG_CODE", sql.VarChar(50), tagCode)
       .input("USER_CODE", sql.VarChar(50), usercode)
       .query(`
-        UPDATE DEVP_TAGS
+        UPDATE dbo.[${TABLES.TAGS}]
         SET TAG_NAME = @TAG_NAME, ACTIVE = @ACTIVE, USER_CODE = @USER_CODE, UPDATED_DATE = GETDATE()
         WHERE TAG_CODE = @TAG_CODE
       `);
@@ -554,7 +554,7 @@ exports.addEditor = async (req, res) => {
       .input("PHONE", sql.VarChar(50), phone)
       .input("ACTIVE", sql.Bit, 1)
       .query(`
-        INSERT INTO DEVP_USER (
+        INSERT INTO dbo.[${TABLES.USER}] (
           ID, USERNAME, PASSWORD, DEPARTMENT,
           ACCESS_LEVEL, USER_CODE, DATA_COUNT, EMAIL, PHONE,
           ACTIVE, UPDATED_DATE, CREATED_DATE
@@ -624,7 +624,7 @@ exports.editEditor = async (req, res) => {
       .input("PHONE", sql.VarChar(50), PHONE)
       .input("ACTIVE", sql.Bit, ACTIVE ?? 1)
       .query(`
-        INSERT INTO DEVP_USER (
+        INSERT INTO dbo.[${TABLES.USER}] (
           ID, USERNAME, PASSWORD, DEPARTMENT, DEPARTMENT_HEAD,
           ACCESS_LEVEL, USER_CODE, DATA_COUNT, EMAIL, PHONE,
           ACTIVE, UPDATED_DATE, CREATED_DATE
@@ -717,7 +717,7 @@ exports.getDashboardActivity = async (req, res) => {
     let companyQuery = `
       SELECT CAST(c.CREATED_DATE AS DATE) AS date, COUNT(*) AS companies
       FROM dbo.[${TABLES.COMPANY_DETAIL}] c
-      INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
+      INNER JOIN dbo.[${TABLES.COMP_MASTER}] m ON c.COMPANY_CODE = m.COMPANY_CODE
       WHERE 1=1
     `;
     let personQuery = `

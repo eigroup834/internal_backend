@@ -102,7 +102,7 @@ exports.getCompanies = async (req, res) => {
         SELECT DISTINCT c.*, s.INDUSTRY, s.SEGMENT,
               ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
         FROM dbo.[${TABLES.COMPANY_DETAIL}] c
-        INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
+        INNER JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] m ON c.COMPANY_CODE = m.COMPANY_CODE
         INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
         ${masterJoin}
         ${whereSQL}
@@ -113,7 +113,7 @@ exports.getCompanies = async (req, res) => {
 
       SELECT COUNT(DISTINCT c.COMPANY_CODE) AS total
       FROM dbo.[${TABLES.COMPANY_DETAIL}] c
-      INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
+      INNER JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] m ON c.COMPANY_CODE = m.COMPANY_CODE
       INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
       ${masterJoin}
       ${whereSQL};
@@ -307,7 +307,7 @@ exports.addCompany = async (req, res) => {
       .input("SEGMENT", sql.NVarChar, segment)
       .input("SEG_CODE", sql.VarChar, segment)
       .query(`
-        INSERT INTO DEVP_COMP_SEGMENT_MAP (COMPANY_CODE, SEGMENT, SEG_CODE)
+        INSERT INTO dbo.[${TABLES.COMP_SEGMENT_MAP}] (COMPANY_CODE, SEGMENT, SEG_CODE)
         VALUES (@COMPANY_CODE, @SEGMENT, @SEG_CODE)
       `);
 
@@ -469,7 +469,7 @@ exports.EditCompany = async (req, res) => {
       .input("SEGMENT", sql.NVarChar(255), segment)
       .input("SEG_CODE", sql.VarChar(50), segment)
       .query(`
-        UPDATE DEVP_COMP_SEGMENT_MAP
+        UPDATE dbo.[${TABLES.COMP_SEGMENT_MAP}]
         SET SEGMENT = @SEGMENT,
             SEG_CODE = @SEG_CODE
         WHERE COMPANY_CODE = @COMPANY_CODE
@@ -512,7 +512,7 @@ exports.GetCompanyDetail = async (req, res) => {
                m.REMARKS, m.MANAGEMENT_REMARKS
         FROM dbo.[${TABLES.COMP_MASTER}] m
         LEFT JOIN DEVP_COMPANY_DETAIL d ON m.COMPANY_CODE = d.COMPANY_CODE
-        LEFT JOIN DEVP_COMP_SEGMENT_MAP s ON m.COMPANY_CODE = s.COMPANY_CODE
+        LEFT JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] s ON m.COMPANY_CODE = s.COMPANY_CODE
         LEFT JOIN DEVP_DATA_SOURCE ds ON m.COMPANY_CODE = ds.COMPANY_CODE
         LEFT JOIN DEVP_INDSEGMENT i ON s.SEG_CODE = i.SEG_CODE
         WHERE m.COMPANY_CODE = @COMPANY_CODE
