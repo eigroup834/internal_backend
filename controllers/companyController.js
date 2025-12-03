@@ -101,7 +101,7 @@ exports.getCompanies = async (req, res) => {
       WITH CompanyData AS (
         SELECT DISTINCT c.*, s.INDUSTRY, s.SEGMENT,
               ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
-        FROM dbo.DEVP_COMPANY_DETAIL c
+        FROM dbo.[${TABLES.COMPANY_DETAIL}] c
         INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
         INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
         ${masterJoin}
@@ -112,7 +112,7 @@ exports.getCompanies = async (req, res) => {
       WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
 
       SELECT COUNT(DISTINCT c.COMPANY_CODE) AS total
-      FROM dbo.DEVP_COMPANY_DETAIL c
+      FROM dbo.[${TABLES.COMPANY_DETAIL}] c
       INNER JOIN dbo.DEVP_COMP_SEGMENT_MAP m ON c.COMPANY_CODE = m.COMPANY_CODE
       INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
       ${masterJoin}
@@ -137,7 +137,7 @@ exports.getIndustries = async (req, res) => {
     const request = (await poolPromise).request();
     const query = `
       SELECT DISTINCT INDUSTRY
-      FROM dbo.DEVP_INDSEGMENT
+      FROM dbo.[${TABLES.INDSEGMENT}]
       ORDER BY INDUSTRY;
     `;
     const result = await request.query(query);
@@ -160,7 +160,7 @@ exports.getSegmentsByIndustry = async (req, res) => {
 
     const query = `
       SELECT SEGMENT, SEG_CODE
-      FROM dbo.DEVP_INDSEGMENT
+      FROM dbo.[${TABLES.INDSEGMENT}]
       WHERE INDUSTRY = @industry
       ORDER BY SEGMENT;
     `;
@@ -178,7 +178,7 @@ exports.getIndustriesWithSegments = async (req, res) => {
     const request = (await poolPromise).request();
     const query = `
       SELECT INDUSTRY, SEGMENT, SEG_CODE
-      FROM dbo.DEVP_INDSEGMENT
+      FROM dbo.[${TABLES.INDSEGMENT}]
       ORDER BY INDUSTRY, SEGMENT;
     `;
     const result = await request.query(query);
@@ -215,7 +215,7 @@ exports.addCompany = async (req, res) => {
       .input("COMPANY_NAME", sql.NVarChar, name)
       .query(`
         SELECT TOP 1 COMPANY_CODE 
-        FROM DEVP_COMPANY_DETAIL 
+        FROM dbo.[${TABLES.COMPANY_DETAIL}] 
         WHERE COMPANY_NAME = @COMPANY_NAME
       `);
 
@@ -231,7 +231,7 @@ exports.addCompany = async (req, res) => {
       .input("USER_CODE", sql.VarChar, usercode)
       .query(`
         SELECT ISNULL(DATA_COUNT, 0) AS DATA_COUNT 
-        FROM DEVP_USER 
+        FROM dbo.[${TABLES.USER}] 
         WHERE USER_CODE = @USER_CODE
       `);
 
@@ -338,7 +338,7 @@ exports.addCompany = async (req, res) => {
           .input("TAG_CODE", sql.VarChar, tagCode)
           .query(`
             SELECT TOP 1 TAG_NAME 
-            FROM DEVP_TAGS 
+            FROM dbo.[${TABLES.TAGS}] 
             WHERE TAG_CODE = @TAG_CODE
           `);
 
@@ -510,7 +510,7 @@ exports.GetCompanyDetail = async (req, res) => {
         SELECT m.COMPANY_CODE, i.INDUSTRY, d.COMPANY_NAME, d.DIVISION, d.OLDNAME, d.ADDRESS, d.CITY, d.STATE, d.COUNTRY, d.PINCODE,
                d.PHONES, d.EMAIL, d.WEBSITE, s.SEGMENT, s.SEG_CODE, ds.SOURCE_CODE, ds.SOURCE_PERSON, ds.SOURCE_TYPE,
                m.REMARKS, m.MANAGEMENT_REMARKS
-        FROM DEVP_MASTER m
+        FROM dbo.[${TABLES.COMP_MASTER}] m
         LEFT JOIN DEVP_COMPANY_DETAIL d ON m.COMPANY_CODE = d.COMPANY_CODE
         LEFT JOIN DEVP_COMP_SEGMENT_MAP s ON m.COMPANY_CODE = s.COMPANY_CODE
         LEFT JOIN DEVP_DATA_SOURCE ds ON m.COMPANY_CODE = ds.COMPANY_CODE
@@ -571,13 +571,13 @@ exports.exportCompanies = async (req, res) => {
         COALESCE(seg.SEGMENT, 'N/A') AS SEGMENT,
         c.OLDNAME,
         c.UPDATED_DATE
-      FROM DEVP_COMPANY_DETAIL c
+      FROM dbo.[${TABLES.COMPANY_DETAIL}] c
       LEFT JOIN (
         SELECT 
           m.COMPANY_CODE,
           STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRY,
           STRING_AGG(s.SEGMENT, ', ') AS SEGMENT
-        FROM DEVP_COMP_SEGMENT_MAP m
+        FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m
         LEFT JOIN DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
         GROUP BY m.COMPANY_CODE
       ) seg ON c.COMPANY_CODE = seg.COMPANY_CODE
@@ -687,7 +687,7 @@ exports.addCompanyHistory = async (req, res) => {
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .query(`
         SELECT COMPANY_NAME 
-        FROM DEVP_COMPANY_DETAIL
+        FROM dbo.[${TABLES.COMPANY_DETAIL}]
         WHERE COMPANY_CODE = @COMPANY_CODE
       `);
 
@@ -700,7 +700,7 @@ exports.addCompanyHistory = async (req, res) => {
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .query(`
     SELECT 1 AS found
-    FROM DEVP_COMP_EXH_HISTORY
+    FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
     WHERE COMPANY_CODE = @COMPANY_CODE
       AND EXH_CODE = @EXH_CODE
   `);
@@ -785,7 +785,7 @@ exports.getCompanyExhHistory = async (req, res) => {
       .input("LIMIT", sql.Int, parseInt(limit))
       .query(`
         SELECT * 
-        FROM DEVP_COMP_EXH_HISTORY
+        FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
         WHERE COMPANY_CODE = @COMPANY_CODE
         ORDER BY CREATED_DATE DESC
         OFFSET @OFFSET ROWS
@@ -796,7 +796,7 @@ exports.getCompanyExhHistory = async (req, res) => {
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .query(`
         SELECT COUNT(*) AS total
-        FROM DEVP_COMP_EXH_HISTORY
+        FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
         WHERE COMPANY_CODE = @COMPANY_CODE
       `);
 
@@ -826,7 +826,7 @@ exports.getExhibitionNames = async (req, res) => {
     const result = await pool.request()
       .query(`
         SELECT DISTINCT EXH_NAME
-        FROM DEVP_COMP_EXH_HISTORY
+        FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
         ORDER BY EXH_NAME ASC
       `);
 
@@ -857,7 +857,7 @@ exports.deleteExhibitionHistory = async (req, res) => {
     const pool = await poolPromise;
     await pool.request()
       .input("EXH_CODE", sql.VarChar(50), exhCode)
-      .query("DELETE FROM DEVP_COMP_EXH_HISTORY WHERE EXH_CODE = @EXH_CODE");
+      .query(`DELETE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] WHERE EXH_CODE = @EXH_CODE`);
 
     res.status(200).json({ success: true, message: "Exhibition history deleted successfully" });
   } catch (err) {
@@ -996,7 +996,7 @@ exports.addPerson = async (req, res) => {
           .input("TAG_CODE", sql.VarChar(50), tagCode)
           .query(`
               SELECT TOP 1 TAG_NAME 
-              FROM DEVP_TAGS 
+              FROM dbo.[${TABLES.TAGS}] 
               WHERE TAG_CODE = @TAG_CODE
             `);
 
@@ -1110,7 +1110,7 @@ exports.getPersonList = async (req, res) => {
       WITH PersonData AS (
         SELECT *,
                ROW_NUMBER() OVER (ORDER BY [${sortColumn}] ${sortDir}) AS RowNum
-        FROM dbo.DEVP_COMP_PERSON p
+        FROM dbo.[${TABLES.PERSON}] p
         ${whereSQL}
       )
       SELECT PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL,
@@ -1121,7 +1121,7 @@ exports.getPersonList = async (req, res) => {
 
     const countQuery = `
       SELECT COUNT(*) AS total
-      FROM dbo.DEVP_COMP_PERSON p
+      FROM dbo.[${TABLES.PERSON}] p
       ${whereSQL};
     `;
 
@@ -1154,7 +1154,7 @@ exports.GetPersonDetail = async (req, res) => {
       .query(`
         SELECT PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL,
         DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, CUPD_REMARK
-        FROM DEVP_COMP_PERSON
+        FROM dbo.[${TABLES.PERSON}]
         WHERE PERSON_CODE = @PERSON_CODE
     `);
 
@@ -1342,7 +1342,7 @@ exports.getPersonExhHistory = async (req, res) => {
       .input("LIMIT", sql.Int, parseInt(limit))
       .query(`
         SELECT * 
-        FROM DEVP_COMP_PERSON_EXH_HISTORY
+        FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         WHERE PERSON_CODE = @PERSON_CODE
         ORDER BY CREATED_DATE DESC
         OFFSET @OFFSET ROWS
@@ -1353,7 +1353,7 @@ exports.getPersonExhHistory = async (req, res) => {
       .input("PERSON_CODE", sql.VarChar(50), personCode)
       .query(`
         SELECT COUNT(*) AS total
-        FROM DEVP_COMP_PERSON_EXH_HISTORY
+        FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         WHERE PERSON_CODE = @PERSON_CODE
       `);
 
@@ -1418,7 +1418,7 @@ exports.addPersonHistory = async (req, res) => {
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
       .query(`
         SELECT FNAME
-        FROM DEVP_COMP_PERSON
+        FROM dbo.[${TABLES.PERSON}]
         WHERE PERSON_CODE = @PERSON_CODE
       `);
 
@@ -1431,7 +1431,7 @@ exports.addPersonHistory = async (req, res) => {
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .query(`
         SELECT 1 AS found
-        FROM DEVP_COMP_PERSON_EXH_HISTORY
+        FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         WHERE PERSON_CODE = @PERSON_CODE
           AND EXH_CODE = @EXH_CODE
       `);
