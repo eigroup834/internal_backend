@@ -1,6 +1,6 @@
 const { poolPromise, sql } = require('../db');
 const jwt = require('jsonwebtoken');
-const { TABLES } = require('../constant');
+const { TABLES } = require('../helper');
 
 exports.login = async (req, res) => {
   const { username, password } = req.body;

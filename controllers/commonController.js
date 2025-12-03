@@ -1,6 +1,6 @@
 const { Country, State, City } = require("country-state-city");
 const { poolPromise, sql } = require("../db");
-const { TABLES } = require('../constant');
+const { TABLES } = require('../helper');
 
 const generateEventCode = () => {
   const rawNumber = Date.now() + Math.floor(Math.random() * 1000);
