@@ -511,10 +511,10 @@ exports.GetCompanyDetail = async (req, res) => {
                d.PHONES, d.EMAIL, d.WEBSITE, s.SEGMENT, s.SEG_CODE, ds.SOURCE_CODE, ds.SOURCE_PERSON, ds.SOURCE_TYPE,
                m.REMARKS, m.MANAGEMENT_REMARKS
         FROM dbo.[${TABLES.COMP_MASTER}] m
-        LEFT JOIN DEVP_COMPANY_DETAIL d ON m.COMPANY_CODE = d.COMPANY_CODE
+        LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] d ON m.COMPANY_CODE = d.COMPANY_CODE
         LEFT JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] s ON m.COMPANY_CODE = s.COMPANY_CODE
-        LEFT JOIN DEVP_DATA_SOURCE ds ON m.COMPANY_CODE = ds.COMPANY_CODE
-        LEFT JOIN DEVP_INDSEGMENT i ON s.SEG_CODE = i.SEG_CODE
+        LEFT JOIN dbo.[${TABLES.DATA_SOURCE}] ds ON m.COMPANY_CODE = ds.COMPANY_CODE
+        LEFT JOIN dbo.[${TABLES.INDSEGMENT }] i ON s.SEG_CODE = i.SEG_CODE
         WHERE m.COMPANY_CODE = @COMPANY_CODE
       `);
 
@@ -578,7 +578,7 @@ exports.exportCompanies = async (req, res) => {
           STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRY,
           STRING_AGG(s.SEGMENT, ', ') AS SEGMENT
         FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m
-        LEFT JOIN DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+        LEFT JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
         GROUP BY m.COMPANY_CODE
       ) seg ON c.COMPANY_CODE = seg.COMPANY_CODE
       ${whereSQL};
@@ -733,7 +733,7 @@ exports.addCompanyHistory = async (req, res) => {
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
-        INSERT INTO DEVP_COMP_EXH_HISTORY
+        INSERT INTO dbo.[${TABLES.COMP_EXH_HISTORY}]
         (COMPANY_CODE, COMPANY_NAME, EXH_CODE, EXH_NAME, EXH_YEAR, EXH_LOCATION, REVENUE, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, USER_CODE, CREATED_DATE, UPDATED_DATE, FEEDBACK)
         VALUES
         (@COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @REVENUE, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @USER_CODE, @CREATED_DATE, @UPDATED_DATE, @FEEDBACK)
@@ -923,7 +923,7 @@ exports.addPerson = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
-        INSERT INTO DEVP_COMP_PERSON 
+        INSERT INTO dbo.[${TABLES.COMP_PERSON}] 
         (PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL, DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, CUPD_REMARK, UPDATED_DATE, CREATED_DATE)
         VALUES (@PERSON_CODE, @COMPANY_CODE, @PREFIX, @FNAME, @LNAME, @DESIG, @DEPT, @MOBILE, @PERSON_EMAIL, @DOB, @REMARKS, @CONTACTDATE, @MANAGEMENT_REMARKS, @USER_CODE, @ADDRESS, @CUPD_REMARK, @UPDATED_DATE, @CREATED_DATE)
       `);
@@ -947,7 +947,7 @@ exports.addPerson = async (req, res) => {
       .input("CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
-        INSERT INTO DEVP_COMP_PERSON_UPDATE_HISTORY (
+        INSERT INTO dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}] (
           PERSON_CODE,
           COMPANY_CODE,
           PREFIX,
@@ -1012,7 +1012,7 @@ exports.addPerson = async (req, res) => {
           .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
           .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
           .query(`
-              INSERT INTO DEVP_TAGS_MAPPING 
+              INSERT INTO dbo.[${TABLES.TAGS_MAPPING}] 
               (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
               VALUES (@TAG_NAME, @TAG_CODE, @COMPANY_CODE, @PERSON_CODE, @CREATED_DATE, @UPDATED_DATE)
             `);
@@ -1222,7 +1222,7 @@ exports.EditPerson = async (req, res) => {
       .input("CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
-        UPDATE DEVP_COMP_PERSON
+        UPDATE dbo.[${TABLES.COMP_PERSON}]
         SET
           COMPANY_CODE = @COMPANY_CODE,
           PREFIX = @PREFIX,
@@ -1262,7 +1262,7 @@ exports.EditPerson = async (req, res) => {
       .input("CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
-        INSERT INTO DEVP_COMP_PERSON_UPDATE_HISTORY (
+        INSERT INTO dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}] (
           PERSON_CODE,
           COMPANY_CODE,
           PREFIX,
@@ -1462,7 +1462,7 @@ exports.addPersonHistory = async (req, res) => {
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
-        INSERT INTO DEVP_COMP_PERSON_EXH_HISTORY
+        INSERT INTO dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         (
           PERSON_CODE, EXH_CODE, EXH_NAME, EXH_YEAR,
           EVENT, SPEAKER, VISITOR, DELEGATE, INVITEE, MARKETING, PROSPECT,
