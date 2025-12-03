@@ -88,7 +88,7 @@ exports.getCompanies = async (req, res) => {
 
     if (userLevel > 1) {
       masterJoin = `
-        INNER JOIN dbo.DEVP_MASTER u
+        INNER JOIN dbo.[${TABLES.COMP_MASTER}] u
           ON c.COMPANY_CODE = u.COMPANY_CODE
       `;
       whereClauses.push("u.USER_CODE = @userCode");
@@ -103,7 +103,7 @@ exports.getCompanies = async (req, res) => {
               ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
         FROM dbo.[${TABLES.COMPANY_DETAIL}] c
         INNER JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] m ON c.COMPANY_CODE = m.COMPANY_CODE
-        INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+        INNER JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
         ${masterJoin}
         ${whereSQL}
       )
@@ -114,7 +114,7 @@ exports.getCompanies = async (req, res) => {
       SELECT COUNT(DISTINCT c.COMPANY_CODE) AS total
       FROM dbo.[${TABLES.COMPANY_DETAIL}] c
       INNER JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] m ON c.COMPANY_CODE = m.COMPANY_CODE
-      INNER JOIN dbo.DEVP_INDSEGMENT s ON m.SEG_CODE = s.SEG_CODE
+      INNER JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
       ${masterJoin}
       ${whereSQL};
     `;
@@ -257,7 +257,7 @@ exports.addCompany = async (req, res) => {
       .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
       .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
       .query(`
-        INSERT INTO DEVP_MASTER (COMPANY_CODE, USER_CODE, CREATED_DATE, SOURCE_CODE, ACTIVE, REMARKS, MANAGEMENT_REMARKS)
+        INSERT INTO dbo.[${TABLES.COMP_MASTER}] (COMPANY_CODE, USER_CODE, CREATED_DATE, SOURCE_CODE, ACTIVE, REMARKS, MANAGEMENT_REMARKS)
         VALUES (@COMPANY_CODE, @USER_CODE, @CREATED_DATE, @SOURCE_CODE, @ACTIVE, @REMARKS, @MANAGEMENT_REMARKS)
       `);
 
@@ -276,7 +276,7 @@ exports.addCompany = async (req, res) => {
       .input("WEBSITE", sql.NVarChar, website)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
-        INSERT INTO DEVP_COMPANY_DETAIL (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, CREATED_DATE)
+        INSERT INTO dbo.[${TABLES.COMPANY_DETAIL}] (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, CREATED_DATE)
         VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @CREATED_DATE)
       `);
 
@@ -296,7 +296,7 @@ exports.addCompany = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("USER_CODE", sql.VarChar, usercode)
       .query(`
-        INSERT INTO DEVP_COMPANY_UPDATE_HISTORY 
+        INSERT INTO dbo.[${TABLES.COMPANY_UPDATE_HISTORY}] 
         (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE)
         VALUES 
         (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE)
@@ -318,14 +318,14 @@ exports.addCompany = async (req, res) => {
       .input("SOURCE_TYPE", sql.NVarChar, sourcetype)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
-        INSERT INTO DEVP_DATA_SOURCE (SOURCE_CODE, SOURCE_PERSON, SOURCE_TYPE, CREATED_DATE, COMPANY_CODE)
+        INSERT INTO dbo.[${TABLES.DATA_SOURCE}]  (SOURCE_CODE, SOURCE_PERSON, SOURCE_TYPE, CREATED_DATE, COMPANY_CODE)
         VALUES (@SOURCE_CODE, @SOURCE_PERSON, @SOURCE_TYPE, @CREATED_DATE, @COMPANY_CODE)
       `);
 
     await new sql.Request(transaction)
       .input("USER_CODE", sql.VarChar, usercode)
       .query(`
-        UPDATE DEVP_USER
+        UPDATE dbo.[${TABLES.USER}] 
         SET DATA_COUNT = ISNULL(DATA_COUNT, 0) + 1
         WHERE USER_CODE = @USER_CODE
       `);
@@ -354,7 +354,7 @@ exports.addCompany = async (req, res) => {
           .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
           .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
           .query(`
-            INSERT INTO DEVP_TAGS_MAPPING 
+            INSERT INTO dbo.[${TABLES.TAGS_MAPPING}]  
             (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
             VALUES (@TAG_NAME, @TAG_CODE, @COMPANY_CODE, @PERSON_CODE, @CREATED_DATE, @UPDATED_DATE)
           `);
@@ -405,7 +405,7 @@ exports.EditCompany = async (req, res) => {
       .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
-        UPDATE DEVP_MASTER
+        UPDATE dbo.[${TABLES.COMP_MASTER}] 
         SET REMARKS = @REMARKS,
             MANAGEMENT_REMARKS = @MANAGEMENT_REMARKS,
             UPDATED_DATE = @UPDATED_DATE
@@ -427,7 +427,7 @@ exports.EditCompany = async (req, res) => {
       .input("WEBSITE", sql.NVarChar(255), website)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
-        UPDATE DEVP_COMPANY_DETAIL
+        UPDATE dbo.[${TABLES.COMPANY_DETAIL}] 
         SET COMPANY_NAME = @COMPANY_NAME,
             DIVISION = @DIVISION,
             OLDNAME = @OLDNAME,
@@ -458,7 +458,7 @@ exports.EditCompany = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("USER_CODE", sql.VarChar(50), usercode)
       .query(`
-        INSERT INTO DEVP_COMPANY_UPDATE_HISTORY 
+        INSERT INTO dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]  
           (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE)
         VALUES 
           (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE)
