@@ -1,5 +1,6 @@
 const { poolPromise, sql } = require('../db');
 const jwt = require('jsonwebtoken');
+const { TABLES } = require('../constant');
 
 exports.login = async (req, res) => {
   const { username, password } = req.body;
@@ -10,12 +11,16 @@ exports.login = async (req, res) => {
 
   try {
     const pool = await poolPromise;
+
     const result = await pool.request()
       .input('username', sql.VarChar, username)
-      .query(`SELECT * FROM dbo.DEVP_USER WHERE USERNAME = @username`);
+      .query(`
+        SELECT * FROM dbo.[${TABLES.USER}]
+        WHERE USERNAME = @username
+      `);
 
     const user = result.recordset[0];
-  
+
     if (!user) {
       return res.status(401).json({ message: 'Username does not exist' });
     }
@@ -30,13 +35,24 @@ exports.login = async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user.ID, username: user.USERNAME, user_code: user.USER_CODE, access_level: user.ACCESS_LEVEL, department: user.DEPARTMENT },
+      {
+        id: user.ID,
+        username: user.USERNAME,
+        user_code: user.USER_CODE,
+        access_level: user.ACCESS_LEVEL,
+        department: user.DEPARTMENT,
+      },
       process.env.JWT_SECRET,
       { expiresIn: '4h' }
     );
 
     const { PASSWORD, ...userData } = user;
-    res.json({ message: 'Login successful', token, user: userData });
+
+    res.json({
+      message: 'Login successful',
+      token,
+      user: userData
+    });
 
   } catch (err) {
     console.error('Login error:', err);

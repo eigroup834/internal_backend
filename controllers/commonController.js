@@ -1,5 +1,6 @@
 const { Country, State, City } = require("country-state-city");
 const { poolPromise, sql } = require("../db");
+const { TABLES } = require('../constant');
 
 const generateEventCode = () => {
   const rawNumber = Date.now() + Math.floor(Math.random() * 1000);
@@ -114,14 +115,14 @@ exports.getEditors = async (req, res) => {
       WITH UserData AS (
         SELECT *,
                ROW_NUMBER() OVER (ORDER BY [${sortColumn}] ${sortDir}) AS RowNum
-        FROM dbo.DEVP_USER
+        FROM dbo.[${TABLES.USER}]
         ${whereSQL}
       )
       SELECT *
       FROM UserData
       WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
       SELECT COUNT(*) AS total
-      FROM dbo.DEVP_USER
+      FROM dbo.[${TABLES.USER}]
       ${whereSQL};
     `;
 
@@ -146,7 +147,7 @@ exports.getCategories = async (req, res) => {
       .request()
       .query(`
         SELECT CATEGORY_TYPE, LABEL, VALUE 
-        FROM DEVP_CATEGORY 
+        FROM dbo.[${TABLES.CATEGORY}] 
         WHERE ACTIVE = 1
       `);
 
@@ -183,7 +184,7 @@ exports.getStats = async (req, res) => {
       SELECT 
         COUNT(*) AS Total,
         SUM(CASE WHEN CAST(c.CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Today
-      FROM DEVP_COMPANY_DETAIL c
+      FROM dbo.[${TABLES.COMPANY_DETAIL}] c
       INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
       WHERE m.USER_CODE = @user_code
     `;
@@ -192,7 +193,7 @@ exports.getStats = async (req, res) => {
       SELECT 
         COUNT(*) AS Total,
         SUM(CASE WHEN CAST(CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Today
-      FROM DEVP_COMP_PERSON
+      FROM dbo.[${TABLES.PERSON}]
       WHERE USER_CODE = @user_code
     `;
 
@@ -232,7 +233,7 @@ exports.getActivity = async (req, res) => {
       SELECT 
         CAST(c.CREATED_DATE AS DATE) AS date, 
         COUNT(*) AS companies
-      FROM DEVP_COMPANY_DETAIL c
+      FROM dbo.[${TABLES.COMPANY_DETAIL}] c
       INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
       WHERE m.USER_CODE = @user_code ${dateFilter}
       GROUP BY CAST(c.CREATED_DATE AS DATE)
@@ -243,7 +244,7 @@ exports.getActivity = async (req, res) => {
       SELECT 
         CAST(CREATED_DATE AS DATE) AS date, 
         COUNT(*) AS persons
-      FROM DEVP_COMP_PERSON
+      FROM dbo.[${TABLES.PERSON}]
       WHERE USER_CODE = @user_code ${dateFilter}
       GROUP BY CAST(CREATED_DATE AS DATE)
       ORDER BY date
@@ -285,12 +286,12 @@ exports.getEvents = async (req, res) => {
 
     let query = `
       SELECT EVENT_NAME, EVENT_YEAR, EVENT_CODE, EVENT_LOCATION, CREATED_DATE, USER_CODE
-      FROM DEVP_EVENTS
+      FROM dbo.[${TABLES.EVENTS}]
     `;
 
     let countQuery = `
       SELECT COUNT(*) AS total
-      FROM DEVP_EVENTS
+      FROM dbo.[${TABLES.EVENTS}]
     `;
 
     if (search.trim() !== "") {
@@ -378,7 +379,7 @@ exports.getTags = async (req, res) => {
     const offset = (page - 1) * limit;
     let query = `
       SELECT TAG_CODE, TAG_NAME, CREATED_DATE, USER_CODE, ACTIVE
-      FROM DEVP_TAGS
+      FROM dbo.[${TABLES.TAGS}]
       WHERE ACTIVE = 1
     `;
 
@@ -388,7 +389,7 @@ exports.getTags = async (req, res) => {
 
     let countQuery = `
       SELECT COUNT(*) AS total
-      FROM DEVP_TAGS
+      FROM dbo.[${TABLES.TAGS}]
       WHERE ACTIVE = 1
     `;
     if (search.trim() !== "") {
@@ -444,7 +445,7 @@ exports.addTags = async (req, res) => {
     for (const tagName of tags) {
       const check = await pool.request()
         .input("TAG_NAME", sql.VarChar(100), tagName)
-        .query("SELECT TAG_CODE FROM DEVP_TAGS WHERE TAG_NAME = @TAG_NAME AND ACTIVE = 1");
+        .query(`SELECT TAG_CODE FROM dbo.[${TABLES.TAGS}] WHERE TAG_NAME = @TAG_NAME AND ACTIVE = 1`);
 
       if (check.recordset.length > 0) {
         insertedTags.push({ TAG_CODE: check.recordset[0].TAG_CODE, TAG_NAME: tagName });
@@ -457,7 +458,7 @@ exports.addTags = async (req, res) => {
         TAG_CODE = "HE" + Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase().padStart(6, "0");
         const checkCode = await pool.request()
           .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
-          .query("SELECT 1 FROM DEVP_TAGS WHERE TAG_CODE = @TAG_CODE");
+          .query(`SELECT 1 FROM dbo.[${TABLES.TAGS}] WHERE TAG_CODE = @TAG_CODE`);
         exists = checkCode.recordset.length > 0;
       }
 
@@ -528,14 +529,14 @@ exports.addEditor = async (req, res) => {
 
     const pool = await poolPromise;
     const idResult = await pool.request().query(`
-      SELECT ISNULL(MAX(ID), 0) + 1 AS NextID FROM DEVP_USER
+      SELECT ISNULL(MAX(ID), 0) + 1 AS NextID FROM dbo.[${TABLES.USER}]
     `);
 
     const ID = idResult.recordset[0].NextID;
 
    const existingCode = await pool.request()
         .input("USER_CODE", sql.VarChar(10), usercode)
-        .query("SELECT 1 FROM DEVP_USER WHERE USER_CODE = @USER_CODE");
+        .query(`SELECT 1 FROM dbo.[${TABLES.USER}] WHERE USER_CODE = @USER_CODE`);
 
     if (existingCode.recordset.length > 0) {
         return res.status(400).json({ error: "User already exists" });
@@ -597,14 +598,14 @@ exports.editEditor = async (req, res) => {
 
     const pool = await poolPromise;
     const idResult = await pool.request().query(`
-      SELECT ISNULL(MAX(ID), 0) + 1 AS NextID FROM DEVP_USER
+      SELECT ISNULL(MAX(ID), 0) + 1 AS NextID FROM dbo.[${TABLES.USER}]
     `);
 
     const ID = idResult.recordset[0].NextID;
 
    const existingCode = await pool.request()
         .input("USER_CODE", sql.VarChar(10), USER_CODE)
-        .query("SELECT 1 FROM DEVP_USER WHERE USER_CODE = @USER_CODE");
+        .query(`SELECT 1 FROM dbo.[${TABLES.USER}] WHERE USER_CODE = @USER_CODE`);
 
     if (existingCode.recordset.length > 0) {
         return res.status(400).json({ error: "USER_CODE already exists" });
@@ -656,7 +657,7 @@ exports.getDashboardStats = async (req, res) => {
         COUNT(*) AS totalCompanies,
         SUM(CASE WHEN CAST(CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE) 
             THEN 1 ELSE 0 END) AS todayCompanies
-      FROM DEVP_COMPANY_DETAIL
+      FROM dbo.[${TABLES.COMPANY_DETAIL}]
     `;
 
     const personQuery = `
@@ -664,19 +665,19 @@ exports.getDashboardStats = async (req, res) => {
         COUNT(*) AS totalPersons,
         SUM(CASE WHEN CAST(CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE)
             THEN 1 ELSE 0 END) AS todayPersons
-      FROM DEVP_COMP_PERSON
+      FROM dbo.[${TABLES.PERSON}]
     `;
 
     const exhibitionQuery = `
       SELECT 
         COUNT(*) AS totalExhibitions
-      FROM DEVP_EVENTS
+      FROM dbo.[${TABLES.EVENTS}]
     `;
 
      const tagsQuery = `
       SELECT 
         COUNT(*) AS totalTags
-      FROM DEVP_TAGS
+      FROM dbo.[${TABLES.TAGS}]
     `;
 
     const [companyResult, personResult, exhibitionResult, tagResult] = await Promise.all([
@@ -713,20 +714,18 @@ exports.getDashboardActivity = async (req, res) => {
 
     const pool = await poolPromise;
 
-    // Base queries
     let companyQuery = `
       SELECT CAST(c.CREATED_DATE AS DATE) AS date, COUNT(*) AS companies
-      FROM DEVP_COMPANY_DETAIL c
+      FROM dbo.[${TABLES.COMPANY_DETAIL}] c
       INNER JOIN DEVP_MASTER m ON c.COMPANY_CODE = m.COMPANY_CODE
       WHERE 1=1
     `;
     let personQuery = `
       SELECT CAST(CREATED_DATE AS DATE) AS date, COUNT(*) AS persons
-      FROM DEVP_COMP_PERSON
+      FROM dbo.[${TABLES.PERSON}]
       WHERE 1=1
     `;
 
-    // Requests for parameters
     const companyReq = pool.request();
     const personReq = pool.request();
 
