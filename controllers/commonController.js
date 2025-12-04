@@ -339,7 +339,25 @@ exports.addEvent = async (req, res) => {
       return res.status(400).json({ error: "All fields are required." });
     }
 
+    const duplicateCheckQuery = `
+      SELECT COUNT(*) AS count
+      FROM dbo.[${TABLES.EVENTS}]
+      WHERE EVENT_NAME = @EVENT_NAME AND EVENT_YEAR = @EVENT_YEAR
+    `;
+
+    const dupCheck = await pool.request()
+      .input("EVENT_NAME", sql.VarChar(255), EVENT_NAME)
+      .input("EVENT_YEAR", sql.VarChar(255), EVENT_YEAR)
+      .query(duplicateCheckQuery);
+
+    if (dupCheck.recordset[0].count > 0) {
+      return res.status(409).json({
+        error: "An event with name and year already exists."
+      });
+    }
+
     const EVENT_CODE = generateEventCode();
+
 
     const query = `
       INSERT INTO dbo.[${TABLES.EVENTS}]
@@ -364,10 +382,18 @@ exports.addEvent = async (req, res) => {
     res.status(201).json({
       message: "Event added successfully",
       eventId: result.recordset[0].newId,
+      EVENT_CODE
     });
 
   } catch (err) {
     console.error("addEvent error:", err);
+    if (err?.originalError?.info?.message) {
+      return res.status(500).json({
+        error: "Database Error",
+        details: err.originalError.info.message
+      });
+    }
+
     res.status(500).json({ error: "Server error" });
   }
 };
