@@ -193,7 +193,7 @@ exports.getStats = async (req, res) => {
       SELECT 
         COUNT(*) AS Total,
         SUM(CASE WHEN CAST(CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS Today
-      FROM dbo.[${TABLES.PERSON}]
+      FROM dbo.[${TABLES.COMP_PERSON}]
       WHERE USER_CODE = @user_code
     `;
 
@@ -244,7 +244,7 @@ exports.getActivity = async (req, res) => {
       SELECT 
         CAST(CREATED_DATE AS DATE) AS date, 
         COUNT(*) AS persons
-      FROM dbo.[${TABLES.PERSON}]
+      FROM dbo.[${TABLES.COMP_PERSON}]
       WHERE USER_CODE = @user_code ${dateFilter}
       GROUP BY CAST(CREATED_DATE AS DATE)
       ORDER BY date
@@ -722,7 +722,7 @@ exports.getDashboardStats = async (req, res) => {
         COUNT(*) AS totalPersons,
         SUM(CASE WHEN CAST(CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE)
             THEN 1 ELSE 0 END) AS todayPersons
-      FROM dbo.[${TABLES.PERSON}]
+      FROM dbo.[${TABLES.COMP_PERSON}]
     `;
 
     const exhibitionQuery = `
@@ -779,7 +779,7 @@ exports.getDashboardActivity = async (req, res) => {
     `;
     let personQuery = `
       SELECT CAST(CREATED_DATE AS DATE) AS date, COUNT(*) AS persons
-      FROM dbo.[${TABLES.PERSON}]
+      FROM dbo.[${TABLES.COMP_PERSON}]
       WHERE 1=1
     `;
 

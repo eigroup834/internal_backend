@@ -1150,7 +1150,7 @@ exports.getPersonList = async (req, res) => {
       WITH PersonData AS (
         SELECT *,
                ROW_NUMBER() OVER (ORDER BY [${sortColumn}] ${sortDir}) AS RowNum
-        FROM dbo.[${TABLES.PERSON}] p
+        FROM dbo.[${TABLES.COMP_PERSON}] p
         ${whereSQL}
       )
       SELECT PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL,
@@ -1161,7 +1161,7 @@ exports.getPersonList = async (req, res) => {
 
     const countQuery = `
       SELECT COUNT(*) AS total
-      FROM dbo.[${TABLES.PERSON}] p
+      FROM dbo.[${TABLES.COMP_PERSON}] p
       ${whereSQL};
     `;
 
@@ -1194,7 +1194,7 @@ exports.GetPersonDetail = async (req, res) => {
       .query(`
         SELECT PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL,
         DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, CUPD_REMARK
-        FROM dbo.[${TABLES.PERSON}]
+        FROM dbo.[${TABLES.COMP_PERSON}]
         WHERE PERSON_CODE = @PERSON_CODE
     `);
 
@@ -1458,7 +1458,7 @@ exports.addPersonHistory = async (req, res) => {
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
       .query(`
         SELECT FNAME
-        FROM dbo.[${TABLES.PERSON}]
+        FROM dbo.[${TABLES.COMP_PERSON}]
         WHERE PERSON_CODE = @PERSON_CODE
       `);
 
