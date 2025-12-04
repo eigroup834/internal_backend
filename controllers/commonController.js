@@ -377,20 +377,21 @@ exports.getTags = async (req, res) => {
     const pool = await poolPromise;
     const { search = "", page = 1, limit = 10 } = req.query;
     const offset = (page - 1) * limit;
+
     let query = `
       SELECT TAG_CODE, TAG_NAME, CREATED_DATE, USER_CODE, ACTIVE
       FROM dbo.[${TABLES.TAGS}]
+      WHERE 1=1
     `;
-
-    if (search.trim() !== "") {
-      query += ` AND TAG_NAME LIKE '%' + @search + '%'`;
-    }
 
     let countQuery = `
       SELECT COUNT(*) AS total
       FROM dbo.[${TABLES.TAGS}]
+      WHERE 1=1
     `;
+
     if (search.trim() !== "") {
+      query += ` AND TAG_NAME LIKE '%' + @search + '%'`;
       countQuery += ` AND TAG_NAME LIKE '%' + @search + '%'`;
     }
 
@@ -406,7 +407,9 @@ exports.getTags = async (req, res) => {
 
     const [dataResult, countResult] = await Promise.all([
       request.query(query),
-      pool.request().input("search", sql.VarChar(100), search).query(countQuery),
+      pool.request()
+        .input("search", sql.VarChar(100), search)
+        .query(countQuery)
     ]);
 
     res.json({
@@ -422,15 +425,10 @@ exports.getTags = async (req, res) => {
 
 exports.addTags = async (req, res) => {
   try {
-    let { tags, usercode, TAG_NAME } = req.body;
+    const { TAG_NAME, usercode } = req.body;
 
-    if (!tags) {
-      if (TAG_NAME) tags = [TAG_NAME];
-      else return res.status(400).json({ error: "Tags array is required" });
-    }
-
-    if (!Array.isArray(tags) || tags.length === 0) {
-      return res.status(400).json({ error: "Tags array is required" });
+    if (!TAG_NAME) {
+      return res.status(400).json({ error: "Tagname is required" });
     }
 
     if (!usercode) {
@@ -438,58 +436,48 @@ exports.addTags = async (req, res) => {
     }
 
     const pool = await poolPromise;
-    const results = [];
 
-    for (const tagName of tags) {
-      const existing = await pool.request()
-        .input("TAG_NAME", sql.VarChar(100), tagName)
-        .query(`SELECT TAG_CODE FROM dbo.[${TABLES.TAGS}] WHERE TAG_NAME = @TAG_NAME AND ACTIVE = 1`);
+    const existing = await pool.request()
+      .input("TAG_NAME", sql.VarChar(100), TAG_NAME)
+      .query(`
+        SELECT TAG_CODE, ACTIVE 
+        FROM dbo.${TABLES.TAGS}
+        WHERE TAG_NAME = @TAG_NAME
+      `);
 
-      if (existing.recordset.length > 0) {
-        results.push({
-          TAG_NAME: tagName,
-          TAG_CODE: existing.recordset[0].TAG_CODE,
-          status: "exists",
-          message: "Tag already exists"
-        });
-        continue;
-      }
-
-      let TAG_CODE;
-      let exists = true;
-
-      while (exists) {
-        TAG_CODE = "HE" + Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase().padStart(6, "0");
-
-        const chk = await pool.request()
-          .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
-          .query(`SELECT 1 FROM dbo.[${TABLES.TAGS}] WHERE TAG_CODE = @TAG_CODE`);
-
-        exists = chk.recordset.length > 0;
-      }
-
-      const insert = await pool.request()
-        .input("TAG_NAME", sql.VarChar(100), tagName)
-        .input("USER_CODE", sql.VarChar(10), usercode)
-        .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
-        .query(`
-          INSERT INTO dbo.[${TABLES.TAGS}] (TAG_NAME, USER_CODE, ACTIVE, TAG_CODE)
-          OUTPUT INSERTED.TAG_CODE
-          VALUES (@TAG_NAME, @USER_CODE, 1, @TAG_CODE)
-        `);
-
-      results.push({
-        TAG_NAME: tagName,
-        TAG_CODE: insert.recordset[0].TAG_CODE,
-        status: "created",
-        message: "Tag created successfully"
-      });
+    if (existing.recordset.length > 0) {
+      const row = existing.recordset[0];
+      return res.status(409).json({ error: "Tagname already exists" }); 
     }
 
-    return res.json({
+    let TAG_CODE;
+    let exists = true;
+
+    while (exists) {
+      TAG_CODE = "HE" + Math.floor(Math.random() * 0xffffff)
+        .toString(16)
+        .toUpperCase()
+        .padStart(6, "0");
+
+      const chk = await pool.request()
+        .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
+        .query(`SELECT 1 FROM dbo.${TABLES.TAGS} WHERE TAG_CODE = @TAG_CODE`);
+
+      exists = chk.recordset.length > 0;
+    }
+
+    await pool.request()
+      .input("TAG_NAME", sql.VarChar(100), TAG_NAME)
+      .input("USER_CODE", sql.VarChar(10), usercode)
+      .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
+      .query(`
+        INSERT INTO dbo.${TABLES.TAGS} (TAG_NAME, USER_CODE, ACTIVE, TAG_CODE)
+        VALUES (@TAG_NAME, @USER_CODE, 1, @TAG_CODE)
+      `);
+
+    return res.status(200).json({
       success: true,
-      message: "Tag processing complete",
-      results
+      message: "Tag created successfully"
     });
 
   } catch (err) {
