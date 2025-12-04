@@ -85,7 +85,7 @@ exports.getEditors = async (req, res) => {
     const whereClauses = [];
     const request = (await poolPromise).request();
     if (!("ACTIVE" in filterObj)) {
-        whereClauses.push("[ACTIVE] = 1");
+      whereClauses.push("[ACTIVE] = 1");
     }
 
     if (search) {
@@ -335,7 +335,7 @@ exports.addEvent = async (req, res) => {
       USER_CODE
     } = req.body;
 
-    if (!EVENT_NAME  || !EVENT_YEAR || !EVENT_LOCATION || !USER_CODE) {
+    if (!EVENT_NAME || !EVENT_YEAR || !EVENT_LOCATION || !USER_CODE) {
       return res.status(400).json({ error: "All fields are required." });
     }
 
@@ -438,29 +438,37 @@ exports.addTags = async (req, res) => {
     }
 
     const pool = await poolPromise;
-    const insertedTags = [];
+    const results = [];
 
     for (const tagName of tags) {
-      const check = await pool.request()
+      const existing = await pool.request()
         .input("TAG_NAME", sql.VarChar(100), tagName)
         .query(`SELECT TAG_CODE FROM dbo.[${TABLES.TAGS}] WHERE TAG_NAME = @TAG_NAME AND ACTIVE = 1`);
 
-      if (check.recordset.length > 0) {
-        insertedTags.push({ TAG_CODE: check.recordset[0].TAG_CODE, TAG_NAME: tagName });
+      if (existing.recordset.length > 0) {
+        results.push({
+          TAG_NAME: tagName,
+          TAG_CODE: existing.recordset[0].TAG_CODE,
+          status: "exists",
+          message: "Tag already exists"
+        });
         continue;
       }
 
       let TAG_CODE;
       let exists = true;
+
       while (exists) {
         TAG_CODE = "HE" + Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase().padStart(6, "0");
-        const checkCode = await pool.request()
+
+        const chk = await pool.request()
           .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
           .query(`SELECT 1 FROM dbo.[${TABLES.TAGS}] WHERE TAG_CODE = @TAG_CODE`);
-        exists = checkCode.recordset.length > 0;
+
+        exists = chk.recordset.length > 0;
       }
 
-      const insertResult = await pool.request()
+      const insert = await pool.request()
         .input("TAG_NAME", sql.VarChar(100), tagName)
         .input("USER_CODE", sql.VarChar(10), usercode)
         .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
@@ -470,15 +478,26 @@ exports.addTags = async (req, res) => {
           VALUES (@TAG_NAME, @USER_CODE, 1, @TAG_CODE)
         `);
 
-      insertedTags.push({ TAG_CODE: insertResult.recordset[0].TAG_CODE, TAG_NAME: tagName });
+      results.push({
+        TAG_NAME: tagName,
+        TAG_CODE: insert.recordset[0].TAG_CODE,
+        status: "created",
+        message: "Tag created successfully"
+      });
     }
 
-    res.json(insertedTags);
+    return res.json({
+      success: true,
+      message: "Tag processing complete",
+      results
+    });
+
   } catch (err) {
     console.error("addTags error:", err);
-    res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 };
+
 
 exports.updateTag = async (req, res) => {
   try {
@@ -492,7 +511,7 @@ exports.updateTag = async (req, res) => {
     const pool = await poolPromise;
     await pool.request()
       .input("TAG_NAME", sql.VarChar(100), TAG_NAME)
-      .input("ACTIVE", sql.Bit, ACTIVE) 
+      .input("ACTIVE", sql.Bit, ACTIVE)
       .input("TAG_CODE", sql.VarChar(50), tagCode)
       .input("USER_CODE", sql.VarChar(50), usercode)
       .query(`
@@ -626,14 +645,14 @@ exports.editEditor = async (req, res) => {
 
     const ID = idResult.recordset[0].NextID;
 
-   const existingCode = await pool.request()
-        .input("USER_CODE", sql.VarChar(10), USER_CODE)
-        .query(`SELECT 1 FROM dbo.[${TABLES.USER}] WHERE USER_CODE = @USER_CODE`);
+    const existingCode = await pool.request()
+      .input("USER_CODE", sql.VarChar(10), USER_CODE)
+      .query(`SELECT 1 FROM dbo.[${TABLES.USER}] WHERE USER_CODE = @USER_CODE`);
 
     if (existingCode.recordset.length > 0) {
-        return res.status(400).json({ error: "USER_CODE already exists" });
+      return res.status(400).json({ error: "USER_CODE already exists" });
     }
-    
+
     const insert = await pool.request()
       .input("ID", sql.SmallInt, ID)
       .input("USERNAME", sql.VarChar(100), USERNAME)
@@ -697,7 +716,7 @@ exports.getDashboardStats = async (req, res) => {
       FROM dbo.[${TABLES.EVENTS}]
     `;
 
-     const tagsQuery = `
+    const tagsQuery = `
       SELECT 
         COUNT(*) AS totalTags
       FROM dbo.[${TABLES.TAGS}]
