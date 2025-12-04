@@ -380,7 +380,6 @@ exports.getTags = async (req, res) => {
     let query = `
       SELECT TAG_CODE, TAG_NAME, CREATED_DATE, USER_CODE, ACTIVE
       FROM dbo.[${TABLES.TAGS}]
-      WHERE ACTIVE = 1
     `;
 
     if (search.trim() !== "") {
@@ -390,7 +389,6 @@ exports.getTags = async (req, res) => {
     let countQuery = `
       SELECT COUNT(*) AS total
       FROM dbo.[${TABLES.TAGS}]
-      WHERE ACTIVE = 1
     `;
     if (search.trim() !== "") {
       countQuery += ` AND TAG_NAME LIKE '%' + @search + '%'`;
@@ -524,25 +522,48 @@ exports.addEditor = async (req, res) => {
     } = req.body;
 
     if (!name || !password) {
-      return res.status(400).json({ error: "USERNAME and PASSWORD are required" });
+      return res
+        .status(400)
+        .json({ error: "USERNAME and PASSWORD are required" });
     }
 
     const pool = await poolPromise;
+
+    const duplicate = await pool.request()
+      .input("USERNAME", sql.VarChar(100), name)
+      .input("EMAIL", sql.VarChar(100), email)
+      .input("PHONE", sql.VarChar(50), phone)
+      .input("USER_CODE", sql.VarChar(10), usercode)
+      .query(`
+        SELECT USERNAME, EMAIL, PHONE, USER_CODE
+        FROM dbo.[${TABLES.USER}]
+        WHERE USERNAME = @USERNAME
+           OR EMAIL = @EMAIL
+           OR PHONE = @PHONE
+           OR USER_CODE = @USER_CODE
+      `);
+
+    if (duplicate.recordset.length > 0) {
+      const row = duplicate.recordset[0];
+      if (row.USER_CODE === usercode)
+        return res.status(400).json({ error: "User code already exists" });
+      if (row.EMAIL === email)
+        return res.status(400).json({ error: "Email already exists" });
+
+      if (row.PHONE === phone)
+        return res.status(400).json({ error: "Phone already exists" });
+
+      if (row.USERNAME === name)
+        return res.status(400).json({ error: "Username already exists" });
+    }
+
     const idResult = await pool.request().query(`
-      SELECT ISNULL(MAX(ID), 0) + 1 AS NextID FROM dbo.[${TABLES.USER}]
+      SELECT ISNULL(MAX(ID), 0) + 1 AS NextID 
+      FROM dbo.[${TABLES.USER}]
     `);
 
     const ID = idResult.recordset[0].NextID;
-
-   const existingCode = await pool.request()
-        .input("USER_CODE", sql.VarChar(10), usercode)
-        .query(`SELECT 1 FROM dbo.[${TABLES.USER}] WHERE USER_CODE = @USER_CODE`);
-
-    if (existingCode.recordset.length > 0) {
-        return res.status(400).json({ error: "User already exists" });
-    }
-    
-    const insert = await pool.request()
+    await pool.request()
       .input("ID", sql.SmallInt, ID)
       .input("USERNAME", sql.VarChar(100), name)
       .input("PASSWORD", sql.VarChar(255), password)
@@ -568,12 +589,14 @@ exports.addEditor = async (req, res) => {
 
     return res.json({
       message: "User created successfully",
-      ID
+      ID,
     });
 
   } catch (err) {
     console.error("addUser error:", err);
-    return res.status(500).json({ error: "Server error", details: err.message });
+    return res
+      .status(500)
+      .json({ error: "Server error", details: err.message });
   }
 };
 
