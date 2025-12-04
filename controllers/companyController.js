@@ -206,7 +206,7 @@ exports.addCompany = async (req, res) => {
     const {
       name, emails, website, phones, addresses, pincode,
       remarks, division, specialremarks, country, state, city,
-      segment, usercode, sourcecode, sourceperson, sourcetype, oldname, tags = []
+      segment = [], usercode, sourcecode, sourceperson, sourcetype, oldname, tags = []
     } = req.body;
 
     await transaction.begin();
@@ -223,7 +223,7 @@ exports.addCompany = async (req, res) => {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: "Duplicate company found with same name.",
+        message: "Duplicate company found with the same name.",
       });
     }
 
@@ -257,7 +257,8 @@ exports.addCompany = async (req, res) => {
       .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
       .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
       .query(`
-        INSERT INTO dbo.[${TABLES.COMP_MASTER}] (COMPANY_CODE, USER_CODE, CREATED_DATE, SOURCE_CODE, ACTIVE, REMARKS, MANAGEMENT_REMARKS)
+        INSERT INTO dbo.[${TABLES.COMP_MASTER}] 
+        (COMPANY_CODE, USER_CODE, CREATED_DATE, SOURCE_CODE, ACTIVE, REMARKS, MANAGEMENT_REMARKS)
         VALUES (@COMPANY_CODE, @USER_CODE, @CREATED_DATE, @SOURCE_CODE, @ACTIVE, @REMARKS, @MANAGEMENT_REMARKS)
       `);
 
@@ -276,7 +277,8 @@ exports.addCompany = async (req, res) => {
       .input("WEBSITE", sql.NVarChar, website)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
-        INSERT INTO dbo.[${TABLES.COMPANY_DETAIL}] (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, CREATED_DATE)
+        INSERT INTO dbo.[${TABLES.COMPANY_DETAIL}] 
+        (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, CREATED_DATE)
         VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @CREATED_DATE)
       `);
 
@@ -298,18 +300,21 @@ exports.addCompany = async (req, res) => {
       .query(`
         INSERT INTO dbo.[${TABLES.COMPANY_UPDATE_HISTORY}] 
         (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE)
-        VALUES 
-        (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE)
+        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE)
       `);
 
-    await new sql.Request(transaction)
-      .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
-      .input("SEGMENT", sql.NVarChar, segment)
-      .input("SEG_CODE", sql.VarChar, segment)
-      .query(`
-        INSERT INTO dbo.[${TABLES.COMP_SEGMENT_MAP}] (COMPANY_CODE, SEGMENT, SEG_CODE)
-        VALUES (@COMPANY_CODE, @SEGMENT, @SEG_CODE)
-      `);
+    if (Array.isArray(segment) && segment.length > 0) {
+      for (const seg of segment) {
+        await new sql.Request(transaction)
+          .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
+          .input("SEGMENT", sql.NVarChar, seg)
+          .input("SEG_CODE", sql.VarChar, seg)
+          .query(`
+            INSERT INTO dbo.[${TABLES.COMP_SEGMENT_MAP}] (COMPANY_CODE, SEGMENT, SEG_CODE)
+            VALUES (@COMPANY_CODE, @SEGMENT, @SEG_CODE)
+          `);
+      }
+    }
 
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
@@ -318,7 +323,8 @@ exports.addCompany = async (req, res) => {
       .input("SOURCE_TYPE", sql.NVarChar, sourcetype)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
-        INSERT INTO dbo.[${TABLES.DATA_SOURCE}]  (SOURCE_CODE, SOURCE_PERSON, SOURCE_TYPE, CREATED_DATE, COMPANY_CODE)
+        INSERT INTO dbo.[${TABLES.DATA_SOURCE}]  
+        (SOURCE_CODE, SOURCE_PERSON, SOURCE_TYPE, CREATED_DATE, COMPANY_CODE)
         VALUES (@SOURCE_CODE, @SOURCE_PERSON, @SOURCE_TYPE, @CREATED_DATE, @COMPANY_CODE)
       `);
 
@@ -374,7 +380,11 @@ exports.addCompany = async (req, res) => {
     if (transaction._aborted !== true) {
       await transaction.rollback();
     }
-    res.status(500).json({ success: false, error: err.message });
+
+    res.status(500).json({
+      success: false,
+      error: err.message || "Server error",
+    });
   }
 };
 
