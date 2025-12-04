@@ -328,15 +328,21 @@ exports.addEvent = async (req, res) => {
   try {
     const pool = await poolPromise;
 
-    const {
+    let {
       EVENT_NAME,
       EVENT_YEAR,
       EVENT_LOCATION,
       USER_CODE
     } = req.body;
 
+    EVENT_YEAR = parseInt(EVENT_YEAR);
+
     if (!EVENT_NAME || !EVENT_YEAR || !EVENT_LOCATION || !USER_CODE) {
       return res.status(400).json({ error: "All fields are required." });
+    }
+
+    if (isNaN(EVENT_YEAR)) {
+      return res.status(400).json({ error: "EVENT_YEAR must be a valid number." });
     }
 
     const duplicateCheckQuery = `
@@ -347,22 +353,21 @@ exports.addEvent = async (req, res) => {
 
     const dupCheck = await pool.request()
       .input("EVENT_NAME", sql.VarChar(255), EVENT_NAME)
-      .input("EVENT_YEAR", sql.VarChar(255), EVENT_YEAR)
+      .input("EVENT_YEAR", sql.Int, EVENT_YEAR)   
       .query(duplicateCheckQuery);
 
     if (dupCheck.recordset[0].count > 0) {
       return res.status(409).json({
-        error: "An event with name and year already exists."
+        error: "An event with this name and year already exists."
       });
     }
 
     const EVENT_CODE = generateEventCode();
 
-
     const query = `
       INSERT INTO dbo.[${TABLES.EVENTS}]
         (EVENT_NAME, EVENT_CODE, EVENT_YEAR, EVENT_LOCATION,
-        CREATED_DATE, UPDATED_DATE, USER_CODE)
+         CREATED_DATE, UPDATED_DATE, USER_CODE)
       VALUES
         (@EVENT_NAME, @EVENT_CODE, @EVENT_YEAR, @EVENT_LOCATION,
          GETDATE(), GETDATE(), @USER_CODE);
@@ -373,7 +378,7 @@ exports.addEvent = async (req, res) => {
     const request = pool.request();
     request.input("EVENT_NAME", sql.VarChar(255), EVENT_NAME);
     request.input("EVENT_CODE", sql.VarChar(100), EVENT_CODE);
-    request.input("EVENT_YEAR", sql.Int, EVENT_YEAR);
+    request.input("EVENT_YEAR", sql.Int, EVENT_YEAR);  
     request.input("EVENT_LOCATION", sql.VarChar(255), EVENT_LOCATION);
     request.input("USER_CODE", sql.VarChar(100), USER_CODE);
 
@@ -387,14 +392,10 @@ exports.addEvent = async (req, res) => {
 
   } catch (err) {
     console.error("addEvent error:", err);
-    if (err?.originalError?.info?.message) {
-      return res.status(500).json({
-        error: "Database Error",
-        details: err.originalError.info.message
-      });
-    }
-
-    res.status(500).json({ error: "Server error" });
+    return res.status(500).json({
+      error: "Database Error",
+      details: err.originalError?.info?.message || err.message
+    });
   }
 };
 
