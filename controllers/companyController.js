@@ -514,25 +514,55 @@ exports.GetCompanyDetail = async (req, res) => {
     }
 
     const pool = await poolPromise;
+
     const result = await pool.request()
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .query(`
-        SELECT m.COMPANY_CODE, i.INDUSTRY, d.COMPANY_NAME, d.DIVISION, d.OLDNAME, d.ADDRESS, d.CITY, d.STATE, d.COUNTRY, d.PINCODE,
-               d.PHONES, d.EMAIL, d.WEBSITE, s.SEGMENT, s.SEG_CODE, ds.SOURCE_CODE, ds.SOURCE_PERSON, ds.SOURCE_TYPE,
-               m.REMARKS, m.MANAGEMENT_REMARKS
+        SELECT 
+          m.COMPANY_CODE, 
+          d.COMPANY_NAME, 
+          d.DIVISION, 
+          d.OLDNAME, 
+          d.ADDRESS, 
+          d.CITY, 
+          d.STATE, 
+          d.COUNTRY, 
+          d.PINCODE,
+          d.PHONES, 
+          d.EMAIL, 
+          d.WEBSITE, 
+          ds.SOURCE_CODE, 
+          ds.SOURCE_PERSON, 
+          ds.SOURCE_TYPE,
+          m.REMARKS, 
+          m.MANAGEMENT_REMARKS,
+          -- Aggregate segments per industry
+          i.INDUSTRY,
+          STRING_AGG(s.SEG_CODE, ',') AS SEG_CODES,
+          STRING_AGG(s.SEGMENT, ',') AS SEGMENTS
         FROM dbo.[${TABLES.COMP_MASTER}] m
         LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] d ON m.COMPANY_CODE = d.COMPANY_CODE
         LEFT JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] s ON m.COMPANY_CODE = s.COMPANY_CODE
         LEFT JOIN dbo.[${TABLES.DATA_SOURCE}] ds ON m.COMPANY_CODE = ds.COMPANY_CODE
-        LEFT JOIN dbo.[${TABLES.INDSEGMENT }] i ON s.SEG_CODE = i.SEG_CODE
+        LEFT JOIN dbo.[${TABLES.INDSEGMENT}] i ON s.SEG_CODE = i.SEG_CODE
         WHERE m.COMPANY_CODE = @COMPANY_CODE
+        GROUP BY 
+          m.COMPANY_CODE, d.COMPANY_NAME, d.DIVISION, d.OLDNAME, d.ADDRESS, d.CITY, d.STATE, d.COUNTRY, d.PINCODE,
+          d.PHONES, d.EMAIL, d.WEBSITE, ds.SOURCE_CODE, ds.SOURCE_PERSON, ds.SOURCE_TYPE,
+          m.REMARKS, m.MANAGEMENT_REMARKS, i.INDUSTRY
       `);
 
     if (result.recordset.length === 0) {
       return res.status(404).json({ success: false, message: "Company not found" });
     }
 
-    res.status(200).json(result.recordset[0]);
+    const data = result.recordset.map(row => ({
+      ...row,
+      SEG_CODES: row.SEG_CODES ? row.SEG_CODES.split(',') : [],
+      SEGMENTS: row.SEGMENTS ? row.SEGMENTS.split(',') : [],
+    }));
+
+    res.status(200).json(data);
 
   } catch (err) {
     console.error("Error fetching company details:", err);
