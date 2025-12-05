@@ -478,14 +478,20 @@ exports.EditCompany = async (req, res) => {
 
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
-      .input("SEGMENT", sql.NVarChar(255), segment)
-      .input("SEG_CODE", sql.VarChar(50), segment)
-      .query(`
-        UPDATE dbo.[${TABLES.COMP_SEGMENT_MAP}]
-        SET SEGMENT = @SEGMENT,
-            SEG_CODE = @SEG_CODE
-        WHERE COMPANY_CODE = @COMPANY_CODE
+      .query(`DELETE FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] WHERE COMPANY_CODE = @COMPANY_CODE`);
+
+    if (Array.isArray(segment)) {
+      for (let seg of segment) {
+        await new sql.Request(transaction)
+          .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+          .input("SEGMENT", sql.NVarChar(255), seg)
+          .input("SEG_CODE", sql.VarChar(50), seg)
+          .query(`
+        INSERT INTO dbo.[${TABLES.COMP_SEGMENT_MAP}] (COMPANY_CODE, SEGMENT, SEG_CODE)
+        VALUES (@COMPANY_CODE, @SEGMENT, @SEG_CODE)
       `);
+      }
+    }
 
     await transaction.commit();
 
@@ -1592,7 +1598,7 @@ exports.getAllCompaniesWithSearch = async (req, res) => {
 
     res.json({
       data: result.recordset,
-      total: result.recordset.length, 
+      total: result.recordset.length,
     });
 
   } catch (err) {
