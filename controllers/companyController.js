@@ -24,6 +24,7 @@ exports.getCompanies = async (req, res) => {
     const user = req.user;
     const userLevel = Number(user.access_level);
     const userCode = user.user_code;
+
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;
     const offset = (pageNum - 1) * limitNum;
@@ -54,20 +55,11 @@ exports.getCompanies = async (req, res) => {
 
       if (Array.isArray(val) && val.length > 0) {
         const paramNames = val.map((_, idx) => `@${key}_${idx}`);
-        const clause = `${col} IN (${paramNames.join(", ")})`;
-        whereClauses.push(clause);
-
-        val.forEach((item, idx) => {
-          request.input(`${key}_${idx}`, item);
-        });
+        whereClauses.push(`${col} IN (${paramNames.join(", ")})`);
+        val.forEach((v, idx) => request.input(`${key}_${idx}`, v));
       } else if (typeof val === "string" && val.trim() !== "") {
-        if (key === "SEGMENT") {
-          whereClauses.push(`UPPER(${col}) = UPPER(@${key})`);
-          request.input(key, val.trim());
-        } else {
-          whereClauses.push(`UPPER(${col}) LIKE UPPER(@${key})`);
-          request.input(key, `%${val.trim()}%`);
-        }
+        whereClauses.push(`UPPER(${col}) LIKE UPPER(@${key})`);
+        request.input(key, `%${val.trim()}%`);
       }
     }
 
@@ -78,7 +70,6 @@ exports.getCompanies = async (req, res) => {
         "c.[EMAIL] LIKE @search3",
         "c.[PHONES] LIKE @search4",
       ];
-
       whereClauses.push("(" + likeClauses.join(" OR ") + ")");
       request.input("search1", `%${search}%`);
       request.input("search2", `%${search}%`);
@@ -97,15 +88,24 @@ exports.getCompanies = async (req, res) => {
 
     const whereSQL =
       whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
+
     const query = `
       WITH CompanyData AS (
-        SELECT DISTINCT c.*, s.INDUSTRY, s.SEGMENT,
-              ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
+        SELECT 
+          c.COMPANY_CODE,
+          c.COMPANY_NAME,
+          c.EMAIL,
+          c.PHONES,
+          STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRY,
+          STRING_AGG(s.SEGMENT, ', ') AS SEGMENT,
+          ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
         FROM dbo.[${TABLES.COMPANY_DETAIL}] c
         INNER JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] m ON c.COMPANY_CODE = m.COMPANY_CODE
         INNER JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
         ${masterJoin}
         ${whereSQL}
+        GROUP BY 
+          c.COMPANY_CODE, c.COMPANY_NAME, c.EMAIL, c.PHONES
       )
       SELECT *
       FROM CompanyData
@@ -118,6 +118,7 @@ exports.getCompanies = async (req, res) => {
       ${masterJoin}
       ${whereSQL};
     `;
+
     const result = await request.query(query);
 
     res.json({
@@ -126,6 +127,7 @@ exports.getCompanies = async (req, res) => {
       page: pageNum,
       limit: limitNum,
     });
+
   } catch (err) {
     console.error("Company fetch error:", err?.originalError || err);
     res.status(500).json({ error: "Server error" });
