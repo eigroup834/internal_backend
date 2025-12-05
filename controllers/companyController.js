@@ -1547,7 +1547,7 @@ exports.getAllCompaniesWithSearch = async (req, res) => {
     const { search = "" } = req.query;
 
     let query = `
-      SELECT COMPANY_CODE, COMPANY_NAME,
+      SELECT COMPANY_CODE, COMPANY_NAME
       FROM dbo.[${TABLES.COMPANY_DETAIL}]
     `;
 
@@ -1571,12 +1571,12 @@ exports.getAllCompaniesWithSearch = async (req, res) => {
 
     const [dataResult, countResult] = await Promise.all([
       request.query(query),
-      countRequest.query(countQuery)
+      countRequest.query(countQuery),
     ]);
 
     res.json({
       data: dataResult.recordset,
-      total: countResult.recordset[0].total
+      total: countResult.recordset[0].total,
     });
 
   } catch (err) {
