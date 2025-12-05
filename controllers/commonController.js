@@ -324,6 +324,51 @@ exports.getEvents = async (req, res) => {
   }
 };
 
+exports.getEventsWithSearch = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { search = "" } = req.query;
+
+    let query = `
+      SELECT EVENT_NAME, EVENT_YEAR, EVENT_CODE, EVENT_LOCATION, CREATED_DATE, USER_CODE
+      FROM dbo.[${TABLES.EVENTS}]
+    `;
+
+    let countQuery = `
+      SELECT COUNT(*) AS total
+      FROM dbo.[${TABLES.EVENTS}]
+    `;
+
+    const request = pool.request();
+    const countRequest = pool.request();
+
+    if (search.trim() !== "") {
+      query += ` WHERE EVENT_NAME LIKE '%' + @search + '%'`;
+      countQuery += ` WHERE EVENT_NAME LIKE '%' + @search + '%'`;
+
+      request.input("search", sql.VarChar(100), search);
+      countRequest.input("search", sql.VarChar(100), search);
+    }
+
+    query += ` ORDER BY EVENT_NAME`;
+
+    const [dataResult, countResult] = await Promise.all([
+      request.query(query),
+      countRequest.query(countQuery)
+    ]);
+
+    res.json({
+      data: dataResult.recordset,
+      total: countResult.recordset[0].total
+    });
+
+  } catch (err) {
+    console.error("getEvents error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+
 exports.addEvent = async (req, res) => {
   try {
     const pool = await poolPromise;
