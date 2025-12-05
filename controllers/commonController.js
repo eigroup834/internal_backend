@@ -368,7 +368,6 @@ exports.getEventsWithSearch = async (req, res) => {
   }
 };
 
-
 exports.addEvent = async (req, res) => {
   try {
     const pool = await poolPromise;

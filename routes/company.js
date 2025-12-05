@@ -4,6 +4,7 @@ const companyController = require('../controllers/companyController');
 const authenticateToken = require('../middleware/auth');
 
 router.get('/getCompanies', authenticateToken, companyController.getCompanies);
+router.get('/getAllCompanies', authenticateToken, companyController.getAllCompaniesWithSearch);
 router.post("/addCompany", authenticateToken, companyController.addCompany);
 router.post("/addPerson", authenticateToken, companyController.addPerson);
 router.get("/getPersonList", authenticateToken, companyController.getPersonList);

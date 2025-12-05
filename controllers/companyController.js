@@ -1541,6 +1541,50 @@ exports.addPersonHistory = async (req, res) => {
   }
 };
 
+exports.getAllCompaniesWithSearch = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { search = "" } = req.query;
+
+    let query = `
+      SELECT COMPANY_CODE, COMPANY_NAME,
+      FROM dbo.[${TABLES.COMPANY_DETAIL}]
+    `;
+
+    let countQuery = `
+      SELECT COUNT(*) AS total
+      FROM dbo.[${TABLES.COMPANY_DETAIL}]
+    `;
+
+    const request = pool.request();
+    const countRequest = pool.request();
+
+    if (search.trim() !== "") {
+      query += ` WHERE COMPANY_NAME LIKE '%' + @search + '%'`;
+      countQuery += ` WHERE COMPANY_NAME LIKE '%' + @search + '%'`;
+
+      request.input("search", sql.VarChar(100), search);
+      countRequest.input("search", sql.VarChar(100), search);
+    }
+
+    query += ` ORDER BY COMPANY_NAME`;
+
+    const [dataResult, countResult] = await Promise.all([
+      request.query(query),
+      countRequest.query(countQuery)
+    ]);
+
+    res.json({
+      data: dataResult.recordset,
+      total: countResult.recordset[0].total
+    });
+
+  } catch (err) {
+    console.error("getCompany error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
 
 
 
