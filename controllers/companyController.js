@@ -21,16 +21,11 @@ exports.getCompanies = async (req, res) => {
       filters = "{}",
     } = req.query;
 
-    const user = req.user;
-    const userLevel = Number(user.access_level);
-    const userCode = user.user_code;
-
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;
     const offset = (pageNum - 1) * limitNum;
 
     let filterObj = {};
-    let masterJoin = "";
 
     try {
       filterObj = JSON.parse(filters);
@@ -46,7 +41,7 @@ exports.getCompanies = async (req, res) => {
       STATE: "c.STATE",
       CITY: "c.CITY",
       INDUSTRY: "s.INDUSTRY",
-      SEGMENT: "m.SEG_CODE"
+      SEGMENT: "m.SEG_CODE",
     };
 
     for (const [key, val] of Object.entries(filterObj)) {
@@ -77,14 +72,10 @@ exports.getCompanies = async (req, res) => {
       request.input("search4", `%${search}%`);
     }
 
-    if (userLevel > 1) {
-      masterJoin = `
-        INNER JOIN dbo.[${TABLES.COMP_MASTER}] u
-          ON c.COMPANY_CODE = u.COMPANY_CODE
-      `;
-      whereClauses.push("u.USER_CODE = @userCode");
-      request.input("userCode", userCode);
-    }
+    const masterJoin = `
+    LEFT JOIN dbo.[${TABLES.COMP_MASTER}] u
+      ON c.COMPANY_CODE = u.COMPANY_CODE
+  `;
 
     const whereSQL =
       whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
@@ -94,8 +85,18 @@ exports.getCompanies = async (req, res) => {
         SELECT 
           c.COMPANY_CODE,
           c.COMPANY_NAME,
-          c.EMAIL,
+          c.DIVISION,
+          c.ADDRESS,
+          c.CITY,
+          c.STATE,
+          c.COUNTRY,
+          c.PINCODE,
           c.PHONES,
+          c.EMAIL,
+          c.WEBSITE,
+          c.OFC_TYPE,
+          c.OLDNAME,
+          u.USER_CODE,
           STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRY,
           STRING_AGG(s.SEGMENT, ', ') AS SEGMENT,
           ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
@@ -105,7 +106,9 @@ exports.getCompanies = async (req, res) => {
         ${masterJoin}
         ${whereSQL}
         GROUP BY 
-          c.COMPANY_CODE, c.COMPANY_NAME, c.EMAIL, c.PHONES
+          c.COMPANY_CODE, c.COMPANY_NAME, c.DIVISION, c.ADDRESS, c.CITY, 
+          c.STATE, c.COUNTRY, c.PINCODE, c.PHONES, c.EMAIL, c.WEBSITE, 
+          c.OFC_TYPE, c.OLDNAME, u.USER_CODE
       )
       SELECT *
       FROM CompanyData
@@ -127,7 +130,6 @@ exports.getCompanies = async (req, res) => {
       page: pageNum,
       limit: limitNum,
     });
-
   } catch (err) {
     console.error("Company fetch error:", err?.originalError || err);
     res.status(500).json({ error: "Server error" });
