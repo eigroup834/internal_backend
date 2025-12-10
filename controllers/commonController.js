@@ -329,6 +329,46 @@ exports.getEvents = async (req, res) => {
   }
 };
 
+exports.updateEventAttendee = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { id } = req.params;
+    
+    let { ATTENDEE = [] } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ error: "Event ID is required" });
+    }
+
+    const attendeeJson = JSON.stringify(ATTENDEE);
+
+    const query = `
+      UPDATE dbo.[${TABLES.EVENTS}]
+      SET ATTENDEE = @ATTENDEE,
+          UPDATED_DATE = GETDATE()
+      WHERE ID = @ID
+    `;
+
+    const request = pool.request();
+    request.input("ID", sql.Int, id);
+    request.input("ATTENDEE", sql.NVarChar(sql.MAX), attendeeJson);
+
+    await request.query(query);
+
+    res.status(200).json({
+      message: "Event attendees updated successfully",
+      attendees: ATTENDEE
+    });
+
+  } catch (err) {
+    console.error("updateEventAttendee error:", err);
+    return res.status(500).json({
+      error: "Database Error",
+      details: err.originalError?.info?.message || err.message
+    });
+  }
+};
+
 exports.getEventsAttendee = async (req, res) => {
   try {
     const pool = await poolPromise;
