@@ -1169,11 +1169,6 @@ exports.getPersonList = async (req, res) => {
       request.input("search5", `%${search}%`);
     }
 
-    if (userLevel > 1) {
-      whereClauses.push("p.USER_CODE = @userCode");
-      request.input("userCode", userCode);
-    }
-
     for (const key in filterObj) {
       if (allowedColumns.includes(key) && filterObj[key] !== "") {
         whereClauses.push(`[${key}] = @${key}`);
@@ -1464,8 +1459,7 @@ exports.addPersonHistory = async (req, res) => {
       EXH_CODE,
       EXH_NAME,
       EXH_YEAR,
-      EXH_LOCATION,
-      EVENT,
+      ATTENDEE,
       SPEAKER,
       VISITOR,
       DELEGATE,
@@ -1528,7 +1522,7 @@ exports.addPersonHistory = async (req, res) => {
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
       .input("EXH_YEAR", sql.VarChar(50), EXH_YEAR)
-      .input("EVENT", sql.NVarChar(255), EVENT || "")
+      .input("ATTENDEE", sql.NVarChar(255), ATTENDEE || "")
       .input("SPEAKER", sql.NVarChar(10), SPEAKER || "No")
       .input("VISITOR", sql.NVarChar(10), VISITOR || "No")
       .input("DELEGATE", sql.NVarChar(10), DELEGATE || "No")
@@ -1542,13 +1536,13 @@ exports.addPersonHistory = async (req, res) => {
         INSERT INTO dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         (
           PERSON_CODE, EXH_CODE, EXH_NAME, EXH_YEAR,
-          EVENT, SPEAKER, VISITOR, DELEGATE, INVITEE, MARKETING, PROSPECT,
+          SPEAKER, VISITOR, DELEGATE, INVITEE, MARKETING, PROSPECT, ATTENDEE,
           USER_CODE, CREATED_DATE, UPDATED_DATE
         )
         VALUES
         (
           @PERSON_CODE, @EXH_CODE, @EXH_NAME, @EXH_YEAR,
-          @EVENT, @SPEAKER, @VISITOR, @DELEGATE, @INVITEE, @MARKETING, @PROSPECT,
+          @SPEAKER, @VISITOR, @DELEGATE, @INVITEE, @MARKETING, @PROSPECT, @ATTENDEE, 
           @USER_CODE, @CREATED_DATE, @UPDATED_DATE
         )
       `);
