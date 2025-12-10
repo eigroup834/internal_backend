@@ -407,7 +407,7 @@ exports.getEventsWithSearch = async (req, res) => {
     const { search = "" } = req.query;
 
     let query = `
-      SELECT EVENT_NAME, EVENT_YEAR, EVENT_CODE, EVENT_LOCATION, CREATED_DATE, USER_CODE
+      SELECT EVENT_NAME, EVENT_YEAR, EVENT_CODE, EVENT_LOCATION, CREATED_DATE, USER_CODE, ATTENDEE
       FROM dbo.[${TABLES.EVENTS}]
     `;
 
@@ -433,6 +433,23 @@ exports.getEventsWithSearch = async (req, res) => {
       request.query(query),
       countRequest.query(countQuery)
     ]);
+
+    dataResult.recordset = dataResult.recordset.map(ev => {
+      let att = ev.ATTENDEE;
+
+      if (typeof att === "string") {
+        try {
+          att = JSON.parse(att);
+        } catch {
+          att = att.split(",").map(x => x.replace(/[\[\]"]/g, "").trim());
+        }
+      }
+
+      return {
+        ...ev,
+        ATTENDEE: Array.isArray(att) ? att : []
+      };
+    });
 
     res.json({
       data: dataResult.recordset,
