@@ -324,6 +324,38 @@ exports.getEvents = async (req, res) => {
   }
 };
 
+exports.getEventsAttendee = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const search = req.query.search || "";
+
+    let query = `
+      SELECT NAME
+      FROM dbo.[${TABLES.EVENTS_ATTENDEE}]
+    `;
+
+    if (search.trim() !== "") {
+      query += ` WHERE NAME LIKE '%' + @search + '%'`;
+    }
+
+    query += ` ORDER BY NAME`;
+
+    const request = pool.request();
+    request.input("search", sql.VarChar(100), search);
+
+    const result = await request.query(query);
+
+    res.json({
+      data: result.recordset,
+      total: result.recordset.length
+    });
+
+  } catch (err) {
+    console.error("getEventsAttendee error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
 exports.getEventsWithSearch = async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -556,7 +588,6 @@ exports.addTags = async (req, res) => {
     return res.status(500).json({ error: "Server error" });
   }
 };
-
 
 exports.updateTag = async (req, res) => {
   try {

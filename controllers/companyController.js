@@ -1584,7 +1584,7 @@ exports.getAllCompaniesWithSearch = async (req, res) => {
     const { search = "" } = req.query;
 
     let query = `
-      SELECT TOP 50 COMPANY_CODE, COMPANY_NAME
+      SELECT TOP 50 COMPANY_CODE, COMPANY_NAME, ADDRESS
       FROM dbo.[${TABLES.COMPANY_DETAIL}]
     `;
 

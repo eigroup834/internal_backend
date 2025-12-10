@@ -13,6 +13,7 @@ router.get('/stats', authenticateToken, commonController.getStats);
 router.get('/activity', authenticateToken, commonController.getActivity);
 
 router.get('/events', authenticateToken, commonController.getEvents);
+router.get('/eventAttendee', authenticateToken, commonController.getEventsAttendee);
 router.get('/eventsSearch', authenticateToken, commonController.getEventsWithSearch);
 router.post('/addevent', authenticateToken, commonController.addEvent);
 
