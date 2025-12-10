@@ -285,7 +285,7 @@ exports.getEvents = async (req, res) => {
     const offset = (page - 1) * limit;
 
     let query = `
-      SELECT EVENT_NAME, EVENT_YEAR, EVENT_CODE, EVENT_LOCATION, CREATED_DATE, USER_CODE
+      SELECT ID, EVENT_NAME, EVENT_YEAR, EVENT_CODE, EVENT_LOCATION, CREATED_DATE, USER_CODE, ATTENDEE
       FROM dbo.[${TABLES.EVENTS}]
     `;
 
@@ -314,8 +314,13 @@ exports.getEvents = async (req, res) => {
       pool.request().input("search", sql.VarChar(100), search).query(countQuery),
     ]);
 
+    const events = dataResult.recordset.map(item => ({
+      ...item,
+      ATTENDEE: item.ATTENDEE ? JSON.parse(item.ATTENDEE) : []
+    }));
+
     res.json({
-      data: dataResult.recordset,
+      data: events,
       total: countResult.recordset[0].total,
     });
   } catch (err) {
@@ -408,7 +413,8 @@ exports.addEvent = async (req, res) => {
       EVENT_NAME,
       EVENT_YEAR,
       EVENT_LOCATION,
-      USER_CODE
+      USER_CODE,
+      ATTENDEE = [] 
     } = req.body;
 
     EVENT_YEAR = parseInt(EVENT_YEAR);
@@ -416,6 +422,8 @@ exports.addEvent = async (req, res) => {
     if (!EVENT_NAME || !EVENT_YEAR || !EVENT_LOCATION || !USER_CODE) {
       return res.status(400).json({ error: "All fields are required." });
     }
+
+    const attendeeJson = JSON.stringify(ATTENDEE || []);
 
     if (isNaN(EVENT_YEAR)) {
       return res.status(400).json({ error: "EVENT_YEAR must be a valid number." });
@@ -443,10 +451,10 @@ exports.addEvent = async (req, res) => {
     const query = `
       INSERT INTO dbo.[${TABLES.EVENTS}]
         (EVENT_NAME, EVENT_CODE, EVENT_YEAR, EVENT_LOCATION,
-         CREATED_DATE, UPDATED_DATE, USER_CODE)
+        ATTENDEE, CREATED_DATE, UPDATED_DATE, USER_CODE)
       VALUES
         (@EVENT_NAME, @EVENT_CODE, @EVENT_YEAR, @EVENT_LOCATION,
-         GETDATE(), GETDATE(), @USER_CODE);
+         @ATTENDEE, GETDATE(), GETDATE(), @USER_CODE);
 
       SELECT SCOPE_IDENTITY() AS newId;
     `;
@@ -456,6 +464,7 @@ exports.addEvent = async (req, res) => {
     request.input("EVENT_CODE", sql.VarChar(100), EVENT_CODE);
     request.input("EVENT_YEAR", sql.Int, EVENT_YEAR);  
     request.input("EVENT_LOCATION", sql.VarChar(255), EVENT_LOCATION);
+    request.input("ATTENDEE", sql.NVarChar(sql.MAX), attendeeJson);
     request.input("USER_CODE", sql.VarChar(100), USER_CODE);
 
     const result = await request.query(query);
