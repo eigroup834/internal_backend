@@ -14,7 +14,7 @@ router.get('/activity', authenticateToken, commonController.getActivity);
 
 router.get('/events', authenticateToken, commonController.getEvents);
 router.get('/eventAttendee', authenticateToken, commonController.getEventsAttendee);
-router.put('/events/:id/attendee', authenticateToken, commonController.updateEventAttendee);
+router.put('/events/:id', authenticateToken, commonController.updateEventAttendee);
 
 router.get('/eventsSearch', authenticateToken, commonController.getEventsWithSearch);
 router.post('/addevent', authenticateToken, commonController.addEvent);
