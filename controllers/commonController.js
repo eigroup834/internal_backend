@@ -143,17 +143,21 @@ exports.getEditors = async (req, res) => {
 exports.getCategories = async (req, res) => {
   try {
     const pool = await poolPromise;
-    const result = await pool
-      .request()
-      .query(`
-        SELECT CATEGORY_TYPE, LABEL, VALUE 
-        FROM dbo.[${TABLES.CATEGORY}] 
-        WHERE ACTIVE = 1
-      `);
 
-    const rows = result.recordset;
+    const categoryResult = await pool.request().query(`
+      SELECT CATEGORY_TYPE, LABEL, VALUE 
+      FROM dbo.[${TABLES.CATEGORY}] 
+      WHERE ACTIVE = 1
+    `);
 
-    const grouped = rows.reduce((acc, row) => {
+    const sourcePersonResult = await pool.request().query(`
+      SELECT TOP (1000) [ID], [NAME], [STATUS], [CREATED_DATE], [UPDATED_DATE]
+      FROM [Eiplsql_5.0].[dbo].[SOURCE_PERSON]
+    `);
+
+    const rows = categoryResult.recordset;
+
+    const groupedCategories = rows.reduce((acc, row) => {
       if (!acc[row.CATEGORY_TYPE]) {
         acc[row.CATEGORY_TYPE] = [];
       }
@@ -164,7 +168,14 @@ exports.getCategories = async (req, res) => {
       return acc;
     }, {});
 
-    res.json(grouped);
+    const SOURCEPERSON = sourcePersonResult.recordset;
+
+    const response = {
+      ...groupedCategories,
+      SOURCEPERSON
+    };
+    res.json(response);
+
   } catch (err) {
     console.error("Category fetch error:", err);
     res.status(500).json({ error: "Server error" });
