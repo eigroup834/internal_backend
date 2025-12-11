@@ -965,7 +965,10 @@ exports.addPerson = async (req, res) => {
       addresses,
       cupd_remark,
       usercode,
-      tags = []
+      tags = [],
+      sourcecode, 
+      sourceperson, 
+      sourcetype
     } = req.body;
 
     await transaction.begin();
@@ -1097,6 +1100,19 @@ exports.addPerson = async (req, res) => {
             `);
       }
     }
+
+     await new sql.Request(transaction)
+      .input("PERSON_CODE", sql.VarChar, PERSON_CODE)
+      .input("SOURCE_CODE", sql.VarChar, sourcecode)
+      .input("SOURCE_PERSON", sql.NVarChar, sourceperson)
+      .input("SOURCE_TYPE", sql.NVarChar, sourcetype)
+      .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
+      .query(`
+        INSERT INTO dbo.[${TABLES.DATA_SOURCE}]  
+        (SOURCE_CODE, SOURCE_PERSON, SOURCE_TYPE, CREATED_DATE, PERSON_CODE)
+        VALUES (@SOURCE_CODE, @SOURCE_PERSON, @SOURCE_TYPE, @CREATED_DATE, @PERSON_CODE)
+      `); 
+
     await transaction.commit();
 
     res.status(201).json({
