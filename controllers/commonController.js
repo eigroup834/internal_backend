@@ -969,10 +969,12 @@ exports.getDashboardActivity = async (req, res) => {
     // Merge results
     const activityMap = {};
     companyRes.recordset.forEach(row => {
+      if (!row.date) return;
       const key = row.date.toISOString().split("T")[0];
       activityMap[key] = { date: key, companies: row.companies, persons: 0 };
     });
     personRes.recordset.forEach(row => {
+      if (!row.date) return;
       const key = row.date.toISOString().split("T")[0];
       if (activityMap[key]) {
         activityMap[key].persons = row.persons;

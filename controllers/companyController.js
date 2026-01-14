@@ -1141,10 +1141,6 @@ exports.getPersonList = async (req, res) => {
       filters = "{}",
     } = req.query;
 
-    const user = req.user;
-    const userLevel = Number(user.access_level);
-    const userCode = user.user_code;
-
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;
     const offset = (pageNum - 1) * limitNum;
@@ -1174,10 +1170,10 @@ exports.getPersonList = async (req, res) => {
     if (search) {
       const likeClauses = [
         "[FNAME] LIKE @search1",
-        "[LNAME] LIKE @search2",
         "[PERSON_EMAIL] LIKE @search3",
-        "[MOBILE] LIKE @search4",
-        "[COMPANY_CODE] LIKE @search5",
+        "[USER_CODE] LIKE @search4",
+        "[MOBILE] LIKE @search5",
+        "[COMPANY_CODE] LIKE @search6",
       ];
       whereClauses.push("(" + likeClauses.join(" OR ") + ")");
       request.input("search1", `%${search}%`);
@@ -1185,6 +1181,7 @@ exports.getPersonList = async (req, res) => {
       request.input("search3", `%${search}%`);
       request.input("search4", `%${search}%`);
       request.input("search5", `%${search}%`);
+      request.input("search6", `%${search}%`);
     }
 
     for (const key in filterObj) {
@@ -1593,33 +1590,55 @@ exports.addPersonHistory = async (req, res) => {
 exports.getAllCompaniesWithSearch = async (req, res) => {
   try {
     const pool = await poolPromise;
-    const { search = "" } = req.query;
-
-    let query = `
-      SELECT TOP 50 COMPANY_CODE, COMPANY_NAME, ADDRESS
-      FROM dbo.[${TABLES.COMPANY_DETAIL}]
-    `;
+    const { search = "", companyCode = "" } = req.query;
 
     const request = pool.request();
+    let query = "";
 
-    if (search.trim() !== "") {
-      query += ` WHERE COMPANY_NAME LIKE @search`;
+    // CASE 1: companyCode only
+    if (companyCode && !search.trim()) {
+      query = `
+        SELECT COMPANY_CODE, COMPANY_NAME, ADDRESS
+        FROM dbo.[${TABLES.COMPANY_DETAIL}]
+        WHERE COMPANY_CODE = @companyCode
+      `;
+      request.input("companyCode", sql.VarChar(50), companyCode);
+    }
+
+    // CASE 2: search only
+    else if (search.trim()) {
+      query = `
+        SELECT TOP 50 COMPANY_CODE, COMPANY_NAME, ADDRESS
+        FROM dbo.[${TABLES.COMPANY_DETAIL}]
+        WHERE COMPANY_NAME LIKE @search
+        ORDER BY COMPANY_NAME
+      `;
       request.input("search", sql.VarChar(200), `%${search}%`);
     }
 
-    query += ` ORDER BY COMPANY_NAME`;
+    // CASE 3: default
+    else {
+      query = `
+        SELECT TOP 50 COMPANY_CODE, COMPANY_NAME, ADDRESS
+        FROM dbo.[${TABLES.COMPANY_DETAIL}]
+        ORDER BY COMPANY_NAME
+      `;
+    }
+
     const result = await request.query(query);
 
-    res.json({
+    return res.json({
       data: result.recordset,
       total: result.recordset.length,
     });
 
   } catch (err) {
     console.error("getCompany error:", err);
-    res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 };
+
+
 
 
 
