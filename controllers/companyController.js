@@ -308,15 +308,27 @@ exports.addCompany = async (req, res) => {
       `);
 
     if (Array.isArray(segment) && segment.length > 0) {
-      for (const seg of segment) {
+      for (const segCode of segment) {
+        const segmentResult = await new sql.Request(transaction)
+          .input("SEG_CODE", sql.VarChar, segCode)
+          .query(`
+        SELECT TOP 1 SEGMENT_NAME 
+        FROM dbo.[INDSEGMENT]
+        WHERE SEG_CODE = @SEG_CODE
+      `);
+
+        const segmentName = segmentResult.recordset.length > 0
+          ? segmentResult.recordset[0].SEGMENT_NAME
+          : segCode; 
+
         await new sql.Request(transaction)
           .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
-          .input("SEGMENT", sql.NVarChar, seg)
-          .input("SEG_CODE", sql.VarChar, seg)
+          .input("SEGMENT", sql.NVarChar, segmentName)
+          .input("SEG_CODE", sql.VarChar, segCode)
           .query(`
-            INSERT INTO dbo.[${TABLES.COMP_SEGMENT_MAP}] (COMPANY_CODE, SEGMENT, SEG_CODE)
-            VALUES (@COMPANY_CODE, @SEGMENT, @SEG_CODE)
-          `);
+        INSERT INTO dbo.[${TABLES.COMP_SEGMENT_MAP}] (COMPANY_CODE, SEGMENT, SEG_CODE)
+        VALUES (@COMPANY_CODE, @SEGMENT, @SEG_CODE)
+      `);
       }
     }
 
@@ -966,8 +978,8 @@ exports.addPerson = async (req, res) => {
       cupd_remark,
       usercode,
       tags = [],
-      sourcecode, 
-      sourceperson, 
+      sourcecode,
+      sourceperson,
       sourcetype
     } = req.body;
 
@@ -1101,7 +1113,7 @@ exports.addPerson = async (req, res) => {
       }
     }
 
-     await new sql.Request(transaction)
+    await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar, PERSON_CODE)
       .input("SOURCE_CODE", sql.VarChar, sourcecode)
       .input("SOURCE_PERSON", sql.NVarChar, sourceperson)
@@ -1111,7 +1123,7 @@ exports.addPerson = async (req, res) => {
         INSERT INTO dbo.[${TABLES.DATA_SOURCE}]  
         (SOURCE_CODE, SOURCE_PERSON, SOURCE_TYPE, CREATED_DATE, PERSON_CODE)
         VALUES (@SOURCE_CODE, @SOURCE_PERSON, @SOURCE_TYPE, @CREATED_DATE, @PERSON_CODE)
-      `); 
+      `);
 
     await transaction.commit();
 
