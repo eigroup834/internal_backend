@@ -251,6 +251,7 @@ exports.addCompany = async (req, res) => {
     const nextCount = currentCount + 1;
     const COMPANY_CODE = `${usercode}${nextCount}`;
     const CREATED_DATE = new Date();
+    const Status = 'A';
 
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
@@ -301,10 +302,11 @@ exports.addCompany = async (req, res) => {
       .input("WEBSITE", sql.NVarChar, website)
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("USER_CODE", sql.VarChar, usercode)
+      .input("STATUS", sql.VarChar(50), Status)
       .query(`
         INSERT INTO dbo.[${TABLES.COMPANY_UPDATE_HISTORY}] 
-        (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE)
-        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE)
+        (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE, STATUS)
+        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE, @STATUS)
       `);
 
     if (Array.isArray(segment) && segment.length > 0) {
@@ -423,6 +425,7 @@ exports.EditCompany = async (req, res) => {
     }
 
     const UPDATED_DATE = new Date();
+    const Status = 'U';
     await transaction.begin();
 
     await new sql.Request(transaction)
@@ -483,11 +486,12 @@ exports.EditCompany = async (req, res) => {
       .input("WEBSITE", sql.NVarChar(255), website)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("STATUS", sql.VarChar(50), Status)
       .query(`
         INSERT INTO dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]  
-          (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE)
+          (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE, STATUS)
         VALUES 
-          (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE)
+          (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE, @STATUS)
       `);
 
     await new sql.Request(transaction)
