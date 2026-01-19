@@ -938,15 +938,13 @@ exports.getDashboardActivity = async (req, res) => {
     const companyReq = pool.request();
     const personReq = pool.request();
 
-    // User filter
     if (user_code !== "ALL") {
       companyReq.input("user_code", sql.VarChar(50), user_code);
-      personReq.input("user_code", sql.VarChar(10), user_code);
+      personReq.input("user_code", sql.VarChar(50), user_code);
       companyQuery += " AND m.USER_CODE = @user_code";
       personQuery += " AND USER_CODE = @user_code";
     }
 
-    // Date filter
     if (startDate && endDate) {
       companyReq.input("startDate", sql.Date, startDate);
       companyReq.input("endDate", sql.Date, endDate);
@@ -956,17 +954,14 @@ exports.getDashboardActivity = async (req, res) => {
       personQuery += " AND CAST(CREATED_DATE AS DATE) BETWEEN @startDate AND @endDate";
     }
 
-    // Grouping & ordering
     companyQuery += " GROUP BY CAST(c.CREATED_DATE AS DATE) ORDER BY date";
     personQuery += " GROUP BY CAST(CREATED_DATE AS DATE) ORDER BY date";
 
-    // Execute
     const [companyRes, personRes] = await Promise.all([
       companyReq.query(companyQuery),
       personReq.query(personQuery),
     ]);
 
-    // Merge results
     const activityMap = {};
     companyRes.recordset.forEach(row => {
       if (!row.date) return;
