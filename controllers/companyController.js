@@ -996,6 +996,7 @@ exports.addPerson = async (req, res) => {
 
     const dobDate = dob ? new Date(dob) : null;
     const contactDate = contactdate ? new Date(contactdate) : null;
+    const Status = 'A';
 
     await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
@@ -1040,6 +1041,7 @@ exports.addPerson = async (req, res) => {
       .input("USER_CODE", sql.VarChar(10), usercode)
       .input("CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
+      .input("STATUS", sql.VarChar(50), Status)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}] (
           PERSON_CODE,
@@ -1058,7 +1060,8 @@ exports.addPerson = async (req, res) => {
           USER_CODE,
           ADDRESS,
           CUPD_REMARK,
-          UPDATED_DATE
+          UPDATED_DATE,
+          STATUS
         )
         VALUES (
           @PERSON_CODE,
@@ -1078,6 +1081,7 @@ exports.addPerson = async (req, res) => {
           @ADDRESS,
           @CUPD_REMARK,
           @UPDATED_DATE
+          @STATUS
         )
       `);
 
@@ -1300,6 +1304,7 @@ exports.EditPerson = async (req, res) => {
     }
 
     const UPDATED_DATE = new Date();
+    const Status = 'U';
     await transaction.begin();
 
     await new sql.Request(transaction)
@@ -1360,6 +1365,7 @@ exports.EditPerson = async (req, res) => {
       .input("USER_CODE", sql.VarChar(10), usercode)
       .input("CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
+      .input("STATUS", sql.VarChar(50), Status)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}] (
           PERSON_CODE,
@@ -1378,7 +1384,8 @@ exports.EditPerson = async (req, res) => {
           USER_CODE,
           ADDRESS,
           CUPD_REMARK,
-          UPDATED_DATE
+          UPDATED_DATE,
+          STATUS
         )
         VALUES (
           @PERSON_CODE,
@@ -1398,6 +1405,7 @@ exports.EditPerson = async (req, res) => {
           @ADDRESS,
           @CUPD_REMARK,
           @UPDATED_DATE
+          @STATUS
         )
       `);
 
