@@ -988,20 +988,39 @@ exports.getDashboardActivity = async (req, res) => {
 
 exports.exportData = async (req, res) => {
   try {
-    const { tables, columns, joins, where, industries, segments } = req.body;
+    const {
+      tables,
+      columns,
+      joins,
+      where,
+      segments,
+      reason,
+      exportType,
+      userCode,
+      username,
+      ipAddress
+    } = req.body;
+
+    if (!tables?.length || !Object.keys(columns).length) {
+      return res.status(400).json({ message: 'No tables or columns selected' });
+    }
+
     const selectCols = [];
     tables.forEach((t) => {
       (columns[t] || []).forEach((c) => selectCols.push(`${t}.${c}`));
     });
-    let sql = `SELECT DISTINCT ${selectCols.join(', ')} FROM ${tables[0]}`;
+
+    let sqlQuery = `SELECT DISTINCT ${selectCols.join(', ')} FROM ${tables[0]}`;
     joins.forEach((j) => {
       if (tables.includes(j.from) && tables.includes(j.to)) {
-        sql += ` ${j.type} JOIN ${j.to} ON ${j.on}`;
+        sqlQuery += ` ${j.type} JOIN ${j.to} ON ${j.on}`;
       }
     });
     const whereClauses = [];
     if (segments?.length) {
-      whereClauses.push(`CSM.SEGMENT IN (${segments.map(s => `'${s}'`).join(', ')})`);
+      whereClauses.push(
+        `CSM.SEGMENT IN (${segments.map((s) => `'${s}'`).join(', ')})`
+      );
     }
     where.forEach((w) => {
       if (w.table && w.column && w.value) {
@@ -1009,16 +1028,31 @@ exports.exportData = async (req, res) => {
       }
     });
     if (whereClauses.length) {
-      sql += ` WHERE ${whereClauses.join(' AND ')}`;
+      sqlQuery += ` WHERE ${whereClauses.join(' AND ')}`;
     }
-    const result = await db.query(sql); 
-    const rows = result.rows || result; 
+    const pool = await poolPromise;
+    const result = await pool.request().query(sqlQuery);
+    const rows = result.recordset;
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Export');
+
     if (rows.length > 0) {
-      sheet.addRow(Object.keys(rows[0]));
+      sheet.addRow(Object.keys(rows[0])); 
       rows.forEach((r) => sheet.addRow(Object.values(r)));
     }
+
+    await pool
+      .request()
+      .input('USER_CODE', sql.VarChar, userCode || 'SYSTEM')
+      .input('USERNAME', sql.VarChar, username || 'SYSTEM')
+      .input('IP_ADDRESS', sql.VarChar, ipAddress || '')
+      .input('EXPORT_REASON', sql.VarChar, reason)
+      .input('EXPORT_TYPE', sql.VarChar, exportType)
+      .query(`
+        INSERT INTO DATA_EXPORT_LOG (USER_CODE, USERNAME, IP_ADDRESS, EXPORT_REASON, EXPORT_TYPE, CREATED_AT)
+        VALUES (@USER_CODE, @USERNAME, @IP_ADDRESS, @EXPORT_REASON, @EXPORT_TYPE, GETDATE())
+      `);
+
     res.setHeader(
       'Content-Disposition',
       `attachment; filename=export-${Date.now()}.xlsx`
@@ -1027,8 +1061,10 @@ exports.exportData = async (req, res) => {
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     );
+
     await workbook.xlsx.write(res);
     res.end();
+
   } catch (err) {
     console.error('Export error:', err);
     res.status(500).json({ message: 'Export failed', error: err.message });
