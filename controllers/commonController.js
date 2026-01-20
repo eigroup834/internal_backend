@@ -1010,29 +1010,50 @@ exports.exportData = async (req, res) => {
       (columns[t] || []).forEach((c) => selectCols.push(`${t}.${c}`));
     });
 
+    if (!selectCols.length) {
+      return res.status(400).json({ message: 'No columns selected' });
+    }
+
     let sqlQuery = `SELECT DISTINCT ${selectCols.join(', ')} FROM ${tables[0]}`;
+    
+    const joinedTables = new Set();
+
     joins.forEach((j) => {
-      if (tables.includes(j.from) && tables.includes(j.to)) {
-        sqlQuery += ` ${j.type} JOIN ${j.to} ON ${j.on}`;
+      if (tables.includes(j.from) && tables.includes(j.to) && !joinedTables.has(j.to)) {
+        let joinClause = `${j.type} JOIN ${j.to}`;
+        if (j.to === "COMP_SEGMENT_MAP") joinClause += " AS CSM";
+        joinClause += ` ON ${j.on}`;
+        sqlQuery += ` ${joinClause}`;
+        joinedTables.add(j.to);
       }
     });
+
     const whereClauses = [];
+
     if (segments?.length) {
+      if (!joinedTables.has("COMP_SEGMENT_MAP")) {
+        sqlQuery += ` LEFT JOIN COMP_SEGMENT_MAP AS CSM ON CSM.COMPANY_CODE = ${tables[0]}.COMPANY_CODE`;
+        joinedTables.add("COMP_SEGMENT_MAP");
+      }
       whereClauses.push(
-        `CSM.SEGMENT IN (${segments.map((s) => `'${s}'`).join(', ')})`
+        `CSM.SEG_CODE IN (${segments.map((s) => `'${s}'`).join(', ')})`
       );
     }
+
     where.forEach((w) => {
-      if (w.table && w.column && w.value) {
+      if (w.table && w.column && w.value !== undefined && w.value !== null) {
         whereClauses.push(`${w.table}.${w.column} ${w.operator} '${w.value}'`);
       }
     });
+
     if (whereClauses.length) {
       sqlQuery += ` WHERE ${whereClauses.join(' AND ')}`;
     }
+
     const pool = await poolPromise;
     const result = await pool.request().query(sqlQuery);
     const rows = result.recordset;
+
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Export');
 
@@ -1070,6 +1091,7 @@ exports.exportData = async (req, res) => {
     res.status(500).json({ message: 'Export failed', error: err.message });
   }
 };
+
 
 
 
