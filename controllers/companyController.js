@@ -258,7 +258,7 @@ exports.addCompany = async (req, res) => {
       .input("USER_CODE", sql.VarChar, usercode)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("SOURCE_CODE", sql.VarChar, sourcecode)
-      .input("ACTIVE", sql.Bit, 0)
+      .input("ACTIVE", sql.Bit, 1)
       .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
       .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
       .query(`
