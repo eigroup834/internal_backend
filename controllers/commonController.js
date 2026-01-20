@@ -988,72 +988,53 @@ exports.getDashboardActivity = async (req, res) => {
 
 exports.exportData = async (req, res) => {
   try {
-    const {
-      tables,
-      columns,
-      joins,
-      where,
-      reason,
-      exportType,
-      industries,
-      segments,
-    } = req.body;
-
-    if (!tables || tables.length === 0) {
-      return res.status(400).json({ error: "No tables selected" });
-    }
-
-    if (!Object.keys(columns).length) {
-      return res.status(400).json({ error: "No columns selected" });
-    }
-
-    if (!reason || !reason.trim()) {
-      return res.status(400).json({ error: "Export reason required" });
-    }
-
-    const data = {};
-    tables.forEach((table) => {
-      const cols = columns[table] || [];
-      data[table] = [];
-
-      for (let i = 1; i <= 5; i++) {
-        const row = {};
-        cols.forEach((col) => {
-          row[col] = `${col}_value_${i}`;
-        });
-        data[table].push(row);
+    const { tables, columns, joins, where, industries, segments } = req.body;
+    const selectCols = [];
+    tables.forEach((t) => {
+      (columns[t] || []).forEach((c) => selectCols.push(`${t}.${c}`));
+    });
+    let sql = `SELECT DISTINCT ${selectCols.join(', ')} FROM ${tables[0]}`;
+    joins.forEach((j) => {
+      if (tables.includes(j.from) && tables.includes(j.to)) {
+        sql += ` ${j.type} JOIN ${j.to} ON ${j.on}`;
       }
     });
-
+    const whereClauses = [];
+    if (segments?.length) {
+      whereClauses.push(`CSM.SEGMENT IN (${segments.map(s => `'${s}'`).join(', ')})`);
+    }
+    where.forEach((w) => {
+      if (w.table && w.column && w.value) {
+        whereClauses.push(`${w.table}.${w.column} ${w.operator} '${w.value}'`);
+      }
+    });
+    if (whereClauses.length) {
+      sql += ` WHERE ${whereClauses.join(' AND ')}`;
+    }
+    const result = await db.query(sql); 
+    const rows = result.rows || result; 
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Data Export System";
-    workbook.created = new Date();
-
-    tables.forEach((table) => {
-      const worksheet = workbook.addWorksheet(table);
-      const cols = columns[table] || [];
-
-      if (cols.length > 0) {
-        worksheet.columns = cols.map((c) => ({ header: c, key: c, width: 20 }));
-        data[table].forEach((row) => worksheet.addRow(row));
-      }
-    });
-
-    const buffer = await workbook.xlsx.writeBuffer();
+    const sheet = workbook.addWorksheet('Export');
+    if (rows.length > 0) {
+      sheet.addRow(Object.keys(rows[0]));
+      rows.forEach((r) => sheet.addRow(Object.values(r)));
+    }
     res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
-    res.setHeader(
-      "Content-Disposition",
+      'Content-Disposition',
       `attachment; filename=export-${Date.now()}.xlsx`
     );
-    return res.send(buffer);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    await workbook.xlsx.write(res);
+    res.end();
   } catch (err) {
-    console.error("Export failed:", err);
-    return res.status(500).json({ error: "Export failed. Check server logs." });
+    console.error('Export error:', err);
+    res.status(500).json({ message: 'Export failed', error: err.message });
   }
 };
+
 
 
 
