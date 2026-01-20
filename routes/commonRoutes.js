@@ -11,6 +11,7 @@ router.get('/categories', authenticateToken, commonController.getCategories);
 
 router.get('/stats', authenticateToken, commonController.getStats);        
 router.get('/activity', authenticateToken, commonController.getActivity);
+router.post('/export', authenticateToken, commonController.exportData);
 
 router.get('/events', authenticateToken, commonController.getEvents);
 router.get('/eventAttendee', authenticateToken, commonController.getEventsAttendee);
