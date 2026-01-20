@@ -1071,6 +1071,8 @@ exports.exportData = async (req, res) => {
       sqlQuery += ` WHERE ${whereClauses.join(" AND ")}`;
     }
 
+    console.log("======== sqlQuery",sqlQuery);
+
     const pool = await poolPromise;
     const result = await pool.request().query(sqlQuery);
     const rows = result.recordset;
@@ -1079,8 +1081,16 @@ exports.exportData = async (req, res) => {
     const sheet = workbook.addWorksheet("Export");
 
     if (rows.length > 0) {
-      sheet.addRow(Object.keys(rows[0]));
-      rows.forEach((r) => sheet.addRow(Object.values(r)));
+      const headers = selectCols.map(c => {
+        const m = c.match(/ AS (.+)$/i);
+        return m ? m[1] : c;
+      });
+
+      sheet.addRow(headers);
+
+      rows.forEach(row => {
+        sheet.addRow(headers.map(h => row[h]));
+      });
     }
 
     await pool.request()
