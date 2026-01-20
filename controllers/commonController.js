@@ -345,7 +345,7 @@ exports.updateEventAttendee = async (req, res) => {
   try {
     const pool = await poolPromise;
     const { id } = req.params;
-    
+
     let { ATTENDEE = [] } = req.body;
 
     if (!id) {
@@ -483,7 +483,7 @@ exports.addEvent = async (req, res) => {
       EVENT_YEAR,
       EVENT_LOCATION,
       USER_CODE,
-      ATTENDEE = [] 
+      ATTENDEE = []
     } = req.body;
 
     EVENT_YEAR = parseInt(EVENT_YEAR);
@@ -506,7 +506,7 @@ exports.addEvent = async (req, res) => {
 
     const dupCheck = await pool.request()
       .input("EVENT_NAME", sql.VarChar(255), EVENT_NAME)
-      .input("EVENT_YEAR", sql.Int, EVENT_YEAR)   
+      .input("EVENT_YEAR", sql.Int, EVENT_YEAR)
       .query(duplicateCheckQuery);
 
     if (dupCheck.recordset[0].count > 0) {
@@ -531,7 +531,7 @@ exports.addEvent = async (req, res) => {
     const request = pool.request();
     request.input("EVENT_NAME", sql.VarChar(255), EVENT_NAME);
     request.input("EVENT_CODE", sql.VarChar(100), EVENT_CODE);
-    request.input("EVENT_YEAR", sql.Int, EVENT_YEAR);  
+    request.input("EVENT_YEAR", sql.Int, EVENT_YEAR);
     request.input("EVENT_LOCATION", sql.VarChar(255), EVENT_LOCATION);
     request.input("ATTENDEE", sql.NVarChar(sql.MAX), attendeeJson);
     request.input("USER_CODE", sql.VarChar(100), USER_CODE);
@@ -628,7 +628,7 @@ exports.addTags = async (req, res) => {
 
     if (existing.recordset.length > 0) {
       const row = existing.recordset[0];
-      return res.status(409).json({ error: "Tagname already exists" }); 
+      return res.status(409).json({ error: "Tagname already exists" });
     }
 
     let TAG_CODE;
@@ -992,7 +992,7 @@ exports.exportData = async (req, res) => {
       tables,
       columns,
       joins,
-      where,
+      where = [],
       segments,
       reason,
       exportType,
@@ -1002,52 +1002,73 @@ exports.exportData = async (req, res) => {
     } = req.body;
 
     if (!tables?.length || !Object.keys(columns).length) {
-      return res.status(400).json({ message: 'No tables or columns selected' });
+      return res.status(400).json({ message: "No tables or columns selected" });
     }
 
     const selectCols = [];
     tables.forEach((t) => {
-      (columns[t] || []).forEach((c) => selectCols.push(`${t}.${c}`));
+      (columns[t] || []).forEach((c) => {
+        selectCols.push(`${t}.${c} AS ${t}_${c}`);
+      });
     });
 
     if (!selectCols.length) {
-      return res.status(400).json({ message: 'No columns selected' });
+      return res.status(400).json({ message: "No columns selected" });
     }
 
-    let sqlQuery = `SELECT DISTINCT ${selectCols.join(', ')} FROM ${tables[0]}`;
-    
+    let sqlQuery = `SELECT DISTINCT ${selectCols.join(", ")} FROM ${tables[0]}`;
+
     const joinedTables = new Set();
+    const joinFilters = {};  
+    const whereClauses = [];
+
+    const LEFT_JOIN_TABLES = [
+      "COMP_EXH_HISTORY",
+      "COMP_PERSON_EXH_HISTORY"
+    ];
+
+    where.forEach((w) => {
+      if (!w.table || !w.column || w.value === undefined || w.value === null) return;
+
+      const condition = `${w.table}.${w.column} ${w.operator} '${w.value}'`;
+
+      if (LEFT_JOIN_TABLES.includes(w.table)) {
+        if (!joinFilters[w.table]) joinFilters[w.table] = [];
+        joinFilters[w.table].push(condition);
+      } else {
+        whereClauses.push(condition);
+      }
+    });
 
     joins.forEach((j) => {
       if (tables.includes(j.from) && tables.includes(j.to) && !joinedTables.has(j.to)) {
         let joinClause = `${j.type} JOIN ${j.to}`;
         if (j.to === "COMP_SEGMENT_MAP") joinClause += " AS CSM";
+
         joinClause += ` ON ${j.on}`;
+
+        if (joinFilters[j.to]?.length) {
+          joinClause += " AND " + joinFilters[j.to].join(" AND ");
+        }
+
         sqlQuery += ` ${joinClause}`;
         joinedTables.add(j.to);
       }
     });
 
-    const whereClauses = [];
-
     if (segments?.length) {
       if (!joinedTables.has("COMP_SEGMENT_MAP")) {
-        sqlQuery += ` LEFT JOIN COMP_SEGMENT_MAP AS CSM ON CSM.COMPANY_CODE = ${tables[0]}.COMPANY_CODE`;
-        joinedTables.add("COMP_SEGMENT_MAP");
+        sqlQuery += ` LEFT JOIN COMP_SEGMENT_MAP AS CSM 
+                      ON CSM.COMPANY_CODE = ${tables[0]}.COMPANY_CODE`;
       }
+
       whereClauses.push(
-        `CSM.SEG_CODE IN (${segments.map((s) => `'${s}'`).join(', ')})`
+        `CSM.SEG_CODE IN (${segments.map((s) => `'${s}'`).join(", ")})`
       );
     }
 
-    where.forEach((w) => {
-      if (w.table && w.column && w.value !== undefined && w.value !== null) {
-        whereClauses.push(`${w.table}.${w.column} ${w.operator} '${w.value}'`);
-      }
-    });
-
     if (whereClauses.length) {
-      sqlQuery += ` WHERE ${whereClauses.join(' AND ')}`;
+      sqlQuery += ` WHERE ${whereClauses.join(" AND ")}`;
     }
 
     const pool = await poolPromise;
@@ -1055,42 +1076,43 @@ exports.exportData = async (req, res) => {
     const rows = result.recordset;
 
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Export');
+    const sheet = workbook.addWorksheet("Export");
 
     if (rows.length > 0) {
-      sheet.addRow(Object.keys(rows[0])); 
+      sheet.addRow(Object.keys(rows[0]));
       rows.forEach((r) => sheet.addRow(Object.values(r)));
     }
 
-    await pool
-      .request()
-      .input('USER_CODE', sql.VarChar, userCode || 'EIAD')
-      .input('USERNAME', sql.VarChar, username || 'eiadmin')
-      .input('IP_ADDRESS', sql.VarChar, ipAddress || '')
-      .input('EXPORT_REASON', sql.VarChar, reason)
-      .input('EXPORT_TYPE', sql.VarChar, exportType)
+    await pool.request()
+      .input("USER_CODE", sql.VarChar, userCode || "EIAD")
+      .input("USERNAME", sql.VarChar, username || "eiadmin")
+      .input("IP_ADDRESS", sql.VarChar, ipAddress || "")
+      .input("EXPORT_REASON", sql.VarChar, reason)
+      .input("EXPORT_TYPE", sql.VarChar, exportType)
       .query(`
-        INSERT INTO DATA_EXPORT_LOG (USER_CODE, USERNAME, IP_ADDRESS, EXPORT_REASON, EXPORT_TYPE, CREATED_AT)
+        INSERT INTO DATA_EXPORT_LOG
+        (USER_CODE, USERNAME, IP_ADDRESS, EXPORT_REASON, EXPORT_TYPE, CREATED_AT)
         VALUES (@USER_CODE, @USERNAME, @IP_ADDRESS, @EXPORT_REASON, @EXPORT_TYPE, GETDATE())
       `);
 
     res.setHeader(
-      'Content-Disposition',
+      "Content-Disposition",
       `attachment; filename=export-${Date.now()}.xlsx`
     );
     res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
 
     await workbook.xlsx.write(res);
     res.end();
 
   } catch (err) {
-    console.error('Export error:', err);
-    res.status(500).json({ message: 'Export failed', error: err.message });
+    console.error("Export error:", err);
+    res.status(500).json({ message: "Export failed", error: err.message });
   }
 };
+
 
 
 
