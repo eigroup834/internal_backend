@@ -1064,8 +1064,8 @@ exports.exportData = async (req, res) => {
 
     await pool
       .request()
-      .input('USER_CODE', sql.VarChar, userCode || 'SYSTEM')
-      .input('USERNAME', sql.VarChar, username || 'SYSTEM')
+      .input('USER_CODE', sql.VarChar, userCode || 'EIAD')
+      .input('USERNAME', sql.VarChar, username || 'eiadmin')
       .input('IP_ADDRESS', sql.VarChar, ipAddress || '')
       .input('EXPORT_REASON', sql.VarChar, reason)
       .input('EXPORT_TYPE', sql.VarChar, exportType)
