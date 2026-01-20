@@ -314,13 +314,13 @@ exports.addCompany = async (req, res) => {
         const segmentResult = await new sql.Request(transaction)
           .input("SEG_CODE", sql.VarChar, segCode)
           .query(`
-        SELECT TOP 1 SEGMENT_NAME 
+        SELECT TOP 1 SEGMENT 
         FROM dbo.[INDSEGMENT]
         WHERE SEG_CODE = @SEG_CODE
       `);
 
         const segmentName = segmentResult.recordset.length > 0
-          ? segmentResult.recordset[0].SEGMENT_NAME
+          ? segmentResult.recordset[0].SEGMENT   
           : segCode; 
 
         await new sql.Request(transaction)
