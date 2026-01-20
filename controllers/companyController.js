@@ -1408,7 +1408,7 @@ exports.EditPerson = async (req, res) => {
           @USER_CODE,
           @ADDRESS,
           @CUPD_REMARK,
-          @UPDATED_DATE
+          @UPDATED_DATE,
           @STATUS
         )
       `);
