@@ -320,8 +320,8 @@ exports.addCompany = async (req, res) => {
       `);
 
         const segmentName = segmentResult.recordset.length > 0
-          ? segmentResult.recordset[0].SEGMENT   
-          : segCode; 
+          ? segmentResult.recordset[0].SEGMENT
+          : segCode;
 
         await new sql.Request(transaction)
           .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
@@ -563,13 +563,19 @@ exports.GetCompanyDetail = async (req, res) => {
           m.REMARKS,
           m.MANAGEMENT_REMARKS,
 
+          -- LAST UPDATED DETAILS
+          h.UPDATED_DATE AS LAST_UPDATED_DATE,
+          h.USER_CODE AS LAST_UPDATED_BY_CODE,
+          u.USERNAME AS LAST_UPDATED_BY_USERNAME,
+
           -- INDUSTRIES
           (
             SELECT STRING_AGG(INDUSTRY, ',')
             FROM (
               SELECT DISTINCT i.INDUSTRY
               FROM dbo.${TABLES.COMP_SEGMENT_MAP} s
-              JOIN dbo.${TABLES.INDSEGMENT} i ON s.SEG_CODE = i.SEG_CODE
+              JOIN dbo.${TABLES.INDSEGMENT} i 
+                ON s.SEG_CODE = i.SEG_CODE
               WHERE s.COMPANY_CODE = m.COMPANY_CODE
             ) x
           ) AS INDUSTRY,
@@ -590,16 +596,31 @@ exports.GetCompanyDetail = async (req, res) => {
             FROM (
               SELECT DISTINCT i.SEGMENT
               FROM dbo.${TABLES.COMP_SEGMENT_MAP} s
-              JOIN dbo.${TABLES.INDSEGMENT} i ON s.SEG_CODE = i.SEG_CODE
+              JOIN dbo.${TABLES.INDSEGMENT} i 
+                ON s.SEG_CODE = i.SEG_CODE
               WHERE s.COMPANY_CODE = m.COMPANY_CODE
             ) x
           ) AS SEGMENTS
 
         FROM dbo.${TABLES.COMP_MASTER} m
+
         LEFT JOIN dbo.${TABLES.COMPANY_DETAIL} d 
           ON m.COMPANY_CODE = d.COMPANY_CODE
+
         LEFT JOIN dbo.${TABLES.DATA_SOURCE} ds 
           ON m.COMPANY_CODE = ds.COMPANY_CODE
+
+        -- JOIN LATEST UPDATE HISTORY
+        LEFT JOIN (
+          SELECT TOP 1 *
+          FROM dbo.COMPANY_UPDATE_HISTORY
+          WHERE COMPANY_CODE = @COMPANY_CODE
+          ORDER BY UPDATED_DATE DESC
+        ) h ON m.COMPANY_CODE = h.COMPANY_CODE
+
+        -- JOIN USER TABLE FOR USERNAME
+        LEFT JOIN dbo.[USER] u 
+          ON h.USER_CODE = u.USER_CODE
 
         WHERE m.COMPANY_CODE = @COMPANY_CODE;
       `);
@@ -1259,11 +1280,42 @@ exports.GetPersonDetail = async (req, res) => {
     const result = await pool.request()
       .input("PERSON_CODE", sql.VarChar(50), personCode)
       .query(`
-        SELECT PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL,
-        DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, CUPD_REMARK
-        FROM dbo.[${TABLES.COMP_PERSON}]
-        WHERE PERSON_CODE = @PERSON_CODE
-    `);
+        SELECT 
+          m.PERSON_CODE,
+          m.COMPANY_CODE,
+          m.PREFIX,
+          m.FNAME,
+          m.LNAME,
+          m.DESIG,
+          m.DEPT,
+          m.MOBILE,
+          m.PERSON_EMAIL,
+          m.DOB,
+          m.REMARKS,
+          m.CONTACTDATE,
+          m.MANAGEMENT_REMARKS,
+          m.USER_CODE,
+          m.ADDRESS,
+          m.CUPD_REMARK,
+
+          h.UPDATED_DATE AS LAST_UPDATED_DATE,
+          h.USER_CODE AS LAST_UPDATED_BY_CODE,
+          u.USERNAME AS LAST_UPDATED_BY_USERNAME
+
+        FROM dbo.[${TABLES.COMP_PERSON}] m  
+
+        LEFT JOIN (
+            SELECT TOP 1 *
+            FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
+            WHERE PERSON_CODE = @PERSON_CODE
+            ORDER BY UPDATED_DATE DESC
+        ) h ON m.PERSON_CODE = h.PERSON_CODE
+
+        LEFT JOIN dbo.[USER] u
+          ON h.USER_CODE = u.USER_CODE
+
+        WHERE m.PERSON_CODE = @PERSON_CODE
+      `);
 
     if (result.recordset.length === 0) {
       return res.status(404).json({ success: false, message: "Person not found" });
