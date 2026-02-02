@@ -1210,19 +1210,21 @@ exports.getPersonList = async (req, res) => {
 
     if (search) {
       const likeClauses = [
-        "[FNAME] LIKE @search1",
-        "[PERSON_EMAIL] LIKE @search3",
-        "[USER_CODE] LIKE @search4",
-        "[MOBILE] LIKE @search5",
-        "[COMPANY_CODE] LIKE @search6",
+        "[FNAME] LIKE @search",
+        "[LNAME] LIKE @search",
+
+        "(FNAME + ' ' + LNAME) LIKE @search",
+        "(LNAME + ' ' + FNAME) LIKE @search",
+
+        "[PERSON_EMAIL] LIKE @search",
+        "[USER_CODE] LIKE @search",
+        "[MOBILE] LIKE @search",
+        "[COMPANY_CODE] LIKE @search"
       ];
+
       whereClauses.push("(" + likeClauses.join(" OR ") + ")");
-      request.input("search1", `%${search}%`);
-      request.input("search2", `%${search}%`);
-      request.input("search3", `%${search}%`);
-      request.input("search4", `%${search}%`);
-      request.input("search5", `%${search}%`);
-      request.input("search6", `%${search}%`);
+      const cleanedSearch = search.trim().replace(/\s+/g, " ");
+      request.input("search", `%${cleanedSearch}%`);
     }
 
     for (const key in filterObj) {
