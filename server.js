@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 require('dotenv').config({ path: __dirname + '/.env' });
 
 const authRoutes = require('./routes/auth');
@@ -11,13 +12,21 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.use((req, res, next) => {
-  next();
-});
-
 app.use('/api/auth', authRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api', commonRoutes);
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.use(express.static(
+  path.join(__dirname, '../frontend/build')
+));
+
+app.use((req, res) => {
+  res.sendFile(
+    path.join(__dirname, '../frontend/build/index.html')
+  );
+});
+
+const PORT = 5010;
+app.listen(PORT, '0.0.0.0', () =>
+  console.log(`Server running on port ${PORT}`)
+);
