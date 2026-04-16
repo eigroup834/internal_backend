@@ -1554,11 +1554,18 @@ exports.addPersonHistory = async (req, res) => {
       EXH_YEAR,
       ATTENDEE,
       SPEAKER,
-      VISITOR,
-      DELEGATE,
+      PROSPECT,
+      BUYER,
+      DELEGATE_INTERNATIONAL,
+      DELEGATE_NATIONAL,
+      INVESTOR,
       INVITEE,
       MARKETING,
-      PROSPECT
+      MEDIA,
+      ORGANISER,
+      POTENTIAL_EXHIBITOR,
+      VIP,
+      VISITOR
     } = req.body;
 
     if (!PERSON_CODE || !USER_CODE) {
@@ -1618,10 +1625,19 @@ exports.addPersonHistory = async (req, res) => {
       .input("ATTENDEE", sql.NVarChar(255), ATTENDEE || "")
       .input("SPEAKER", sql.NVarChar(10), SPEAKER || "No")
       .input("VISITOR", sql.NVarChar(10), VISITOR || "No")
-      .input("DELEGATE", sql.NVarChar(10), DELEGATE || "No")
       .input("INVITEE", sql.NVarChar(10), INVITEE || "No")
       .input("MARKETING", sql.NVarChar(10), MARKETING || "No")
       .input("PROSPECT", sql.NVarChar(10), PROSPECT || "No")
+
+      .input("BUYER", sql.NVarChar(10), BUYER || "No")
+      .input("DELEGATE_INTERNATIONAL", sql.NVarChar(10), DELEGATE_INTERNATIONAL || "No")
+      .input("DELEGATE_NATIONAL", sql.NVarChar(10), DELEGATE_NATIONAL || "No")
+      .input("INVESTOR", sql.NVarChar(10), INVESTOR || "No")
+      .input("MEDIA", sql.NVarChar(10), MEDIA || "No")
+      .input("ORGANISER", sql.NVarChar(10), ORGANISER || "No")
+      .input("POTENTIAL_EXHIBITOR", sql.NVarChar(10), POTENTIAL_EXHIBITOR || "No")
+      .input("VIP", sql.NVarChar(10), VIP || "No")
+
       .input("USER_CODE", sql.VarChar(50), USER_CODE)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
@@ -1629,13 +1645,15 @@ exports.addPersonHistory = async (req, res) => {
         INSERT INTO dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         (
           PERSON_CODE, EXH_CODE, EXH_NAME, EXH_YEAR,
-          SPEAKER, VISITOR, DELEGATE, INVITEE, MARKETING, PROSPECT, ATTENDEE,
+          SPEAKER, VISITOR, INVITEE, MARKETING, PROSPECT, ATTENDEE, BUYER,  DELEGATE_INTERNATIONAL, 
+          DELEGATE_NATIONAL, INVESTOR, MEDIA, ORGANISER, POTENTIAL_EXHIBITOR, VIP,
           USER_CODE, CREATED_DATE, UPDATED_DATE
         )
         VALUES
         (
           @PERSON_CODE, @EXH_CODE, @EXH_NAME, @EXH_YEAR,
-          @SPEAKER, @VISITOR, @DELEGATE, @INVITEE, @MARKETING, @PROSPECT, @ATTENDEE, 
+          @SPEAKER, @VISITOR, @INVITEE, @MARKETING, @PROSPECT, @ATTENDEE, @BUYER,  @DELEGATE_INTERNATIONAL, 
+          @DELEGATE_NATIONAL, @INVESTOR, @MEDIA, @ORGANISER, @POTENTIAL_EXHIBITOR, @VIP,
           @USER_CODE, @CREATED_DATE, @UPDATED_DATE
         )
       `);
