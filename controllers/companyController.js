@@ -774,11 +774,15 @@ exports.addCompanyHistory = async (req, res) => {
       EXH_LOCATION,
       ATTENDEE,
       REVENUE,
+      REV_UNIT,
       AREA,
       EXH_INFO,
       SPONSOR,
       EARLYBIRD_DIS,
-      FEEDBACK
+      FEEDBACK,
+      Info_1,
+      Info_2,
+      Info_3
     } = req.body;
 
     if (!COMPANY_CODE || !USER_CODE) {
@@ -814,11 +818,11 @@ exports.addCompanyHistory = async (req, res) => {
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .query(`
-    SELECT 1 AS found
-    FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
-    WHERE COMPANY_CODE = @COMPANY_CODE
-      AND EXH_CODE = @EXH_CODE
-  `);
+      SELECT 1 AS found
+      FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
+      WHERE COMPANY_CODE = @COMPANY_CODE
+        AND EXH_CODE = @EXH_CODE
+    `);
 
     if (existingRecord.recordset.length > 0) {
       return res.status(409).json({
@@ -840,19 +844,23 @@ exports.addCompanyHistory = async (req, res) => {
       .input("ATTENDEE", sql.NVarChar(255), ATTENDEE || "")
       .input("EXH_LOCATION", sql.NVarChar(255), EXH_LOCATION)
       .input("REVENUE", sql.Decimal(18, 2), REVENUE || 0)
+      .input("REV_UNIT", sql.Decimal(18, 2), REV_UNIT || 0)
       .input("AREA", sql.Decimal(18, 2), AREA || 0)
       .input("EXH_INFO", sql.NVarChar(sql.MAX), EXH_INFO || "")
       .input("SPONSOR", sql.NVarChar(50), SPONSOR || "")
       .input("EARLYBIRD_DIS", sql.NVarChar(50), EARLYBIRD_DIS || "No")
       .input("USER_CODE", sql.VarChar(50), USER_CODE)
       .input("FEEDBACK", sql.NVarChar(sql.MAX), FEEDBACK || "")
+      .input("Info_1", sql.NVarChar(sql.MAX), Info_1 || "")
+      .input("Info_2", sql.NVarChar(sql.MAX), Info_2 || "")
+      .input("Info_3", sql.NVarChar(sql.MAX), Info_3 || "")
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_EXH_HISTORY}]
-        (COMPANY_CODE, COMPANY_NAME, EXH_CODE, ATTENDEE, EXH_NAME, EXH_YEAR, EXH_LOCATION, REVENUE, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, USER_CODE, CREATED_DATE, UPDATED_DATE, FEEDBACK)
+        (COMPANY_CODE, COMPANY_NAME, EXH_CODE, ATTENDEE, EXH_NAME, EXH_YEAR, EXH_LOCATION, REVENUE, REV_UNIT, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, USER_CODE, CREATED_DATE, UPDATED_DATE, FEEDBACK, Info_1, Info_2, Info_3)
         VALUES
-        (@COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @ATTENDEE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @REVENUE, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @USER_CODE, @CREATED_DATE, @UPDATED_DATE, @FEEDBACK)
+        (@COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @ATTENDEE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @REVENUE, @REV_UNIT, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @USER_CODE, @CREATED_DATE, @UPDATED_DATE, @FEEDBACK, @Info_1, @Info_2, @Info_3)
       `);
 
     await transaction.commit();
