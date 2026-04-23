@@ -1178,6 +1178,131 @@ exports.addPerson = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+exports.getCompPersonList = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      sortBy = "PERSON_CODE",
+      sortOrder = "ASC",
+      companyCode,
+      filters = "{}",
+    } = req.query;
+
+    if (!companyCode) {
+      return res.status(400).json({ error: "companyCode is required" });
+    }
+
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
+    const offset = (pageNum - 1) * limitNum;
+
+    let filterObj = {};
+    try {
+      filterObj = JSON.parse(filters);
+    } catch {
+      return res.status(400).json({ error: "Invalid filters JSON" });
+    }
+
+    const allowedColumns = [
+      "PERSON_CODE",
+      "FNAME",
+      "LNAME",
+      "PERSON_EMAIL",
+      "MOBILE",
+      "DESIG",
+      "DEPT",
+      "COMPANY_CODE",
+    ];
+
+    const sortColumn = allowedColumns.includes(sortBy)
+      ? sortBy
+      : "PERSON_CODE";
+
+    const sortDir = sortOrder.toUpperCase() === "DESC" ? "DESC" : "ASC";
+
+    const request = (await poolPromise).request();
+
+    const whereClauses = [];
+
+    whereClauses.push("[COMPANY_CODE] = @companyCode");
+    request.input("companyCode", companyCode);
+
+    if (search) {
+      const likeClauses = [
+        "[FNAME] LIKE @search",
+        "[LNAME] LIKE @search",
+        "(FNAME + ' ' + LNAME) LIKE @search",
+        "(LNAME + ' ' + FNAME) LIKE @search",
+        "[PERSON_EMAIL] LIKE @search",
+        "[USER_CODE] LIKE @search",
+        "[MOBILE] LIKE @search",
+      ];
+
+      whereClauses.push("(" + likeClauses.join(" OR ") + ")");
+      request.input("search", `%${search.trim().replace(/\s+/g, " ")}%`);
+    }
+
+    for (const key in filterObj) {
+      if (allowedColumns.includes(key) && filterObj[key] !== "") {
+        whereClauses.push(`[${key}] = @${key}`);
+        request.input(key, filterObj[key]);
+      }
+    }
+
+    const whereSQL = whereClauses.length
+      ? "WHERE " + whereClauses.join(" AND ")
+      : "";
+
+    const dataQuery = `
+      WITH PersonData AS (
+        SELECT
+          PERSON_CODE,
+          COMPANY_CODE,
+          PREFIX,
+          FNAME,
+          LNAME,
+          DESIG,
+          DEPT,
+          MOBILE,
+          PERSON_EMAIL,
+          DOB,
+          REMARKS,
+          MANAGEMENT_REMARKS,
+          USER_CODE,
+          ADDRESS,
+          UPDATED_DATE,
+          CREATED_DATE,
+          ROW_NUMBER() OVER (ORDER BY [${sortColumn}] ${sortDir}) AS RowNum
+        FROM dbo.[${TABLES.COMP_PERSON}] p
+        ${whereSQL}
+      )
+      SELECT *
+      FROM PersonData
+      WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
+    `;
+
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM dbo.[${TABLES.COMP_PERSON}] p
+      ${whereSQL};
+    `;
+
+    const dataResult = await request.query(dataQuery);
+    const countResult = await request.query(countQuery);
+
+    res.json({
+      data: dataResult.recordset,
+      total: countResult.recordset[0].total,
+      page: pageNum,
+      limit: limitNum,
+    });
+  } catch (err) {
+    console.error("Person fetch error:", err?.originalError || err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
 
 exports.getPersonList = async (req, res) => {
   try {
