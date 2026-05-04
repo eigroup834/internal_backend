@@ -233,7 +233,7 @@ exports.addCompany = async (req, res) => {
 
     await transaction.begin();
 
-    const duplicateCheck = await new sql.Request(transaction)
+    const duplicateNameCheck = await new sql.Request(transaction)
       .input("COMPANY_NAME", sql.NVarChar, name)
       .query(`
         SELECT TOP 1 COMPANY_CODE 
@@ -241,12 +241,64 @@ exports.addCompany = async (req, res) => {
         WHERE COMPANY_NAME = @COMPANY_NAME
       `);
 
-    if (duplicateCheck.recordset.length > 0) {
+    if (duplicateNameCheck.recordset.length > 0) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Duplicate company found with the same name.",
       });
+    }
+
+    if (Array.isArray(emails) && emails.length > 0) {
+  
+      const emailList = emails
+        .map(e => (typeof e === "string" ? e : e?.email || e?.value || ""))
+        .map(e => e.trim().toLowerCase())
+        .filter(e => e.length > 0);
+
+      if (emailList.length > 0) {
+        const existingEmailsResult = await new sql.Request(transaction)
+          .query(`
+            SELECT COMPANY_CODE, COMPANY_NAME, EMAIL 
+            FROM dbo.[${TABLES.COMPANY_DETAIL}]
+            WHERE EMAIL IS NOT NULL AND EMAIL <> ''
+          `);
+
+        let duplicateEmail = null;
+        let duplicateCompanyName = null;
+
+        for (const row of existingEmailsResult.recordset) {
+          let storedEmails = [];
+          try {
+            const parsed = JSON.parse(row.EMAIL);
+            if (Array.isArray(parsed)) {
+              storedEmails = parsed
+                .map(e => (typeof e === "string" ? e : e?.email || e?.value || ""))
+                .map(e => e.trim().toLowerCase())
+                .filter(e => e.length > 0);
+            }
+          } catch (e) {
+            if (typeof row.EMAIL === "string") {
+              storedEmails = [row.EMAIL.trim().toLowerCase()];
+            }
+          }
+
+          const match = emailList.find(e => storedEmails.includes(e));
+          if (match) {
+            duplicateEmail = match;
+            duplicateCompanyName = row.COMPANY_NAME;
+            break;
+          }
+        }
+
+        if (duplicateEmail) {
+          await transaction.rollback();
+          return res.status(400).json({
+            success: false,
+            message: `Duplicate email "${duplicateEmail}" already exists for company "${duplicateCompanyName}".`,
+          });
+        }
+      }
     }
 
     const userResult = await new sql.Request(transaction)
