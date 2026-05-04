@@ -16,6 +16,7 @@ exports.getCompanies = async (req, res) => {
       page = 1,
       limit = 10,
       search = "",
+      searchBy = "",
       sortBy = "COMPANY_CODE",
       sortOrder = "ASC",
       filters = "{}",
@@ -26,22 +27,35 @@ exports.getCompanies = async (req, res) => {
     const offset = (pageNum - 1) * limitNum;
 
     let filterObj = {};
-
     try {
       filterObj = JSON.parse(filters);
     } catch {
       return res.status(400).json({ error: "Invalid filters JSON" });
     }
 
+    const searchableColumns = {
+      COMPANY_CODE: "c.[COMPANY_CODE]",
+      COMPANY_NAME: "c.[COMPANY_NAME]",
+      EMAIL:        "c.[EMAIL]",
+      WEBSITE:      "c.[WEBSITE]",
+      PHONES:       "c.[PHONES]",
+    };
+
+    const sortableColumns = new Set([
+      "COMPANY_CODE", "COMPANY_NAME", "CITY", "STATE", "COUNTRY",
+    ]);
+    const safeSortBy = sortableColumns.has(sortBy) ? sortBy : "COMPANY_CODE";
+    const safeSortOrder = String(sortOrder).toUpperCase() === "DESC" ? "DESC" : "ASC";
+
     let whereClauses = [];
-    let request = (await poolPromise).request();
+    const request = (await poolPromise).request();
 
     const filterColumns = {
-      COUNTRY: "c.COUNTRY",
-      STATE: "c.STATE",
-      CITY: "c.CITY",
+      COUNTRY:  "c.COUNTRY",
+      STATE:    "c.STATE",
+      CITY:     "c.CITY",
       INDUSTRY: "s.INDUSTRY",
-      SEGMENT: "m.SEG_CODE",
+      SEGMENT:  "m.SEG_CODE",
     };
 
     for (const [key, val] of Object.entries(filterObj)) {
@@ -58,24 +72,28 @@ exports.getCompanies = async (req, res) => {
       }
     }
 
-    if (search) {
-      const likeClauses = [
-        "c.[COMPANY_NAME] LIKE @search1",
-        "c.[COMPANY_CODE] LIKE @search2",
-        "c.[EMAIL] LIKE @search3",
-        "c.[PHONES] LIKE @search4",
-      ];
-      whereClauses.push("(" + likeClauses.join(" OR ") + ")");
-      request.input("search1", `%${search}%`);
-      request.input("search2", `%${search}%`);
-      request.input("search3", `%${search}%`);
-      request.input("search4", `%${search}%`);
+    if (search && search.trim() !== "") {
+      const term = search.trim();
+
+      if (searchBy && searchableColumns[searchBy]) {
+
+        const col = searchableColumns[searchBy];
+        whereClauses.push(`UPPER(${col}) LIKE UPPER(@search)`);
+        request.input("search", `%${term}%`);
+      } else {
+        const orParts = Object.values(searchableColumns)
+          .map((col, i) => {
+            request.input(`search${i}`, `%${term}%`);
+            return `UPPER(${col}) LIKE UPPER(@search${i})`;
+          });
+        whereClauses.push(`(${orParts.join(" OR ")})`);
+      }
     }
 
     const masterJoin = `
-    LEFT JOIN dbo.[${TABLES.COMP_MASTER}] u
-      ON c.COMPANY_CODE = u.COMPANY_CODE
-  `;
+      LEFT JOIN dbo.[${TABLES.COMP_MASTER}] u
+        ON c.COMPANY_CODE = u.COMPANY_CODE
+    `;
 
     const whereSQL =
       whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
@@ -99,7 +117,7 @@ exports.getCompanies = async (req, res) => {
           u.USER_CODE,
           STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRY,
           STRING_AGG(s.SEGMENT, ', ') AS SEGMENT,
-          ROW_NUMBER() OVER (ORDER BY c.[${sortBy}] ${sortOrder}) AS RowNum
+          ROW_NUMBER() OVER (ORDER BY c.[${safeSortBy}] ${safeSortOrder}) AS RowNum
         FROM dbo.[${TABLES.COMPANY_DETAIL}] c
         INNER JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] m ON c.COMPANY_CODE = m.COMPANY_CODE
         INNER JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
