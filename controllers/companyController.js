@@ -1060,6 +1060,26 @@ exports.deleteExhibitionHistory = async (req, res) => {
   }
 };
 
+exports.deletePersonExhibitionHistory = async (req, res) => {
+  const { exhCode } = req.params;
+
+  if (!exhCode) {
+    return res.status(400).json({ success: false, message: "EXH_CODE is required" });
+  }
+
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input("EXH_CODE", sql.VarChar(50), exhCode)
+      .query(`DELETE FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] WHERE EXH_CODE = @EXH_CODE`);
+
+    res.status(200).json({ success: true, message: "Exhibition history deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting exhibition history:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 exports.addPerson = async (req, res) => {
   const transaction = new sql.Transaction(await poolPromise);
 
@@ -1117,13 +1137,13 @@ exports.addPerson = async (req, res) => {
       .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), management_remarks || "")
       .input("USER_CODE", sql.VarChar(50), usercode)
       .input("ADDRESS", sql.NVarChar(sql.MAX), addrJson)
-      .input("CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
+      .input("PERSON_CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON}] 
-        (PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL, DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, CUPD_REMARK, UPDATED_DATE, CREATED_DATE)
-        VALUES (@PERSON_CODE, @COMPANY_CODE, @PREFIX, @FNAME, @LNAME, @DESIG, @DEPT, @MOBILE, @PERSON_EMAIL, @DOB, @REMARKS, @CONTACTDATE, @MANAGEMENT_REMARKS, @USER_CODE, @ADDRESS, @CUPD_REMARK, @UPDATED_DATE, @CREATED_DATE)
+        (PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL, DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, PERSON_CUPD_REMARK, UPDATED_DATE, CREATED_DATE)
+        VALUES (@PERSON_CODE, @COMPANY_CODE, @PREFIX, @FNAME, @LNAME, @DESIG, @DEPT, @MOBILE, @PERSON_EMAIL, @DOB, @REMARKS, @CONTACTDATE, @MANAGEMENT_REMARKS, @USER_CODE, @ADDRESS, @PERSON_CUPD_REMARK, @UPDATED_DATE, @CREATED_DATE)
       `);
 
     await new sql.Request(transaction)
@@ -1142,7 +1162,7 @@ exports.addPerson = async (req, res) => {
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
       .input("MANAGEMENT_REMARKS", sql.VarChar(75), management_remarks || "")
       .input("USER_CODE", sql.VarChar(10), usercode)
-      .input("CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
+      .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
       .query(`
@@ -1162,7 +1182,7 @@ exports.addPerson = async (req, res) => {
           MANAGEMENT_REMARKS,
           USER_CODE,
           ADDRESS,
-          CUPD_REMARK,
+          PERSON_CUPD_REMARK,
           UPDATED_DATE,
           STATUS
         )
@@ -1182,7 +1202,7 @@ exports.addPerson = async (req, res) => {
           @MANAGEMENT_REMARKS,
           @USER_CODE,
           @ADDRESS,
-          @CUPD_REMARK,
+          @PERSON_CUPD_REMARK,
           @UPDATED_DATE,
           @STATUS
         )
@@ -1501,7 +1521,7 @@ exports.GetPersonDetail = async (req, res) => {
           m.MANAGEMENT_REMARKS,
           m.USER_CODE,
           m.ADDRESS,
-          m.CUPD_REMARK,
+          m.PERSON_CUPD_REMARK,
 
           h.UPDATED_DATE AS LAST_UPDATED_DATE,
           h.USER_CODE AS LAST_UPDATED_BY_CODE,
@@ -1584,7 +1604,7 @@ exports.EditPerson = async (req, res) => {
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
       .input("MANAGEMENT_REMARKS", sql.VarChar(75), management_remarks || "")
       .input("USER_CODE", sql.VarChar(10), usercode)
-      .input("CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
+      .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
         UPDATE dbo.[${TABLES.COMP_PERSON}]
@@ -1603,7 +1623,7 @@ exports.EditPerson = async (req, res) => {
           MANAGEMENT_REMARKS = @MANAGEMENT_REMARKS,
           USER_CODE = @USER_CODE,
           ADDRESS = @ADDRESS,
-          CUPD_REMARK = @CUPD_REMARK,
+          PERSON_CUPD_REMARK = @PERSON_CUPD_REMARK,
           UPDATED_DATE = @UPDATED_DATE
         WHERE PERSON_CODE = @PERSON_CODE
       `);
@@ -1624,7 +1644,7 @@ exports.EditPerson = async (req, res) => {
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
       .input("MANAGEMENT_REMARKS", sql.VarChar(75), management_remarks || "")
       .input("USER_CODE", sql.VarChar(10), usercode)
-      .input("CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
+      .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
       .query(`
@@ -1644,7 +1664,7 @@ exports.EditPerson = async (req, res) => {
           MANAGEMENT_REMARKS,
           USER_CODE,
           ADDRESS,
-          CUPD_REMARK,
+          PERSON_CUPD_REMARK,
           UPDATED_DATE,
           STATUS
         )
@@ -1664,7 +1684,7 @@ exports.EditPerson = async (req, res) => {
           @MANAGEMENT_REMARKS,
           @USER_CODE,
           @ADDRESS,
-          @CUPD_REMARK,
+          @PERSON_CUPD_REMARK,
           @UPDATED_DATE,
           @STATUS
         )

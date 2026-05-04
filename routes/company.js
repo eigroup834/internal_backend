@@ -19,6 +19,7 @@ router.delete("/history/:exhCode", authenticateToken, companyController.deleteEx
 
 router.get("/personHistory", authenticateToken, companyController.getPersonExhHistory);
 router.post("/updatePersonHistory", authenticateToken, companyController.addPersonHistory);
+router.delete("/personHistory/:exhCode", authenticateToken, companyController.deletePersonExhibitionHistory);
 
 router.get("/industries", authenticateToken, companyController.getIndustries);
 router.get("/industries/segments", authenticateToken, companyController.getSegmentsByIndustry);
