@@ -43,9 +43,14 @@ exports.getCompanies = async (req, res) => {
 
     const sortableColumns = new Set([
       "COMPANY_CODE", "COMPANY_NAME", "CITY", "STATE", "COUNTRY",
+      "PERSON_COUNT", "HISTORY_COUNT",
     ]);
     const safeSortBy = sortableColumns.has(sortBy) ? sortBy : "COMPANY_CODE";
     const safeSortOrder = String(sortOrder).toUpperCase() === "DESC" ? "DESC" : "ASC";
+    const aggregateSortColumns = new Set(["PERSON_COUNT", "HISTORY_COUNT"]);
+    const orderByExpr = aggregateSortColumns.has(safeSortBy)
+      ? `[${safeSortBy}] ${safeSortOrder}`
+      : `c.[${safeSortBy}] ${safeSortOrder}`;
 
     let whereClauses = [];
     const request = (await poolPromise).request();
@@ -76,7 +81,6 @@ exports.getCompanies = async (req, res) => {
       const term = search.trim();
 
       if (searchBy && searchableColumns[searchBy]) {
-
         const col = searchableColumns[searchBy];
         whereClauses.push(`UPPER(${col}) LIKE UPPER(@search)`);
         request.input("search", `%${term}%`);
@@ -116,11 +120,13 @@ exports.getCompanies = async (req, res) => {
           c.OLDNAME,
           u.USER_CODE,
           STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRY,
-          STRING_AGG(s.SEGMENT, ', ') AS SEGMENT,
-          ROW_NUMBER() OVER (ORDER BY c.[${safeSortBy}] ${safeSortOrder}) AS RowNum
+          STRING_AGG(s.SEGMENT, ', ')  AS SEGMENT,
+          (SELECT COUNT(*) FROM dbo.[${TABLES.COMP_PERSON}]  p WHERE p.COMPANY_CODE = c.COMPANY_CODE) AS PERSON_COUNT,
+          (SELECT COUNT(*) FROM dbo.[${TABLES.COMP_EXH_HISTORY}] h WHERE h.COMPANY_CODE = c.COMPANY_CODE) AS HISTORY_COUNT,
+          ROW_NUMBER() OVER (ORDER BY ${orderByExpr}) AS RowNum
         FROM dbo.[${TABLES.COMPANY_DETAIL}] c
         INNER JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] m ON c.COMPANY_CODE = m.COMPANY_CODE
-        INNER JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
+        INNER JOIN dbo.[${TABLES.INDSEGMENT}] s        ON m.SEG_CODE     = s.SEG_CODE
         ${masterJoin}
         ${whereSQL}
         GROUP BY 
@@ -135,7 +141,7 @@ exports.getCompanies = async (req, res) => {
       SELECT COUNT(DISTINCT c.COMPANY_CODE) AS total
       FROM dbo.[${TABLES.COMPANY_DETAIL}] c
       INNER JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] m ON c.COMPANY_CODE = m.COMPANY_CODE
-      INNER JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
+      INNER JOIN dbo.[${TABLES.INDSEGMENT}] s        ON m.SEG_CODE     = s.SEG_CODE
       ${masterJoin}
       ${whereSQL};
     `;
@@ -1348,26 +1354,37 @@ exports.getCompPersonList = async (req, res) => {
     const dataQuery = `
       WITH PersonData AS (
         SELECT
-          PERSON_CODE,
-          COMPANY_CODE,
-          PREFIX,
-          FNAME,
-          LNAME,
-          DESIG,
-          DEPT,
-          MOBILE,
-          PERSON_EMAIL,
-          DOB,
-          REMARKS,
-          MANAGEMENT_REMARKS,
-          USER_CODE,
-          ADDRESS,
-          UPDATED_DATE,
-          CREATED_DATE,
-          ROW_NUMBER() OVER (ORDER BY [${sortColumn}] ${sortDir}) AS RowNum
+          p.PERSON_CODE,
+          p.COMPANY_CODE,
+          p.PREFIX,
+          p.FNAME,
+          p.LNAME,
+          p.DESIG,
+          p.DEPT,
+          p.MOBILE,
+          p.PERSON_EMAIL,
+          p.DOB,
+          p.REMARKS,
+          p.MANAGEMENT_REMARKS,
+          p.USER_CODE,
+          p.ADDRESS,
+          p.UPDATED_DATE,
+          p.CREATED_DATE,
+
+          (
+            SELECT COUNT(*)
+            FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] ph
+            WHERE ph.PERSON_CODE = p.PERSON_CODE
+          ) AS HISTORY_COUNT,
+
+          ROW_NUMBER() OVER (
+            ORDER BY p.[${sortColumn}] ${sortDir}
+          ) AS RowNum
+
         FROM dbo.[${TABLES.COMP_PERSON}] p
         ${whereSQL}
       )
+
       SELECT *
       FROM PersonData
       WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
