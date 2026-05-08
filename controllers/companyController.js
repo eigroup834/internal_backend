@@ -105,6 +105,7 @@ exports.getCompanies = async (req, res) => {
     const query = `
       WITH CompanyData AS (
         SELECT 
+          u.REMARKS,
           c.COMPANY_CODE,
           c.COMPANY_NAME,
           c.DIVISION,
@@ -132,7 +133,7 @@ exports.getCompanies = async (req, res) => {
         GROUP BY 
           c.COMPANY_CODE, c.COMPANY_NAME, c.DIVISION, c.ADDRESS, c.CITY, 
           c.STATE, c.COUNTRY, c.PINCODE, c.PHONES, c.EMAIL, c.WEBSITE, 
-          c.OFC_TYPE, c.OLDNAME, u.USER_CODE
+          c.OFC_TYPE, c.OLDNAME, u.USER_CODE, u.REMARKS
       )
       SELECT *
       FROM CompanyData
