@@ -1418,6 +1418,7 @@ exports.getPersonList = async (req, res) => {
       page = 1,
       limit = 10,
       search = "",
+      searchBy = "",
       sortBy = "PERSON_CODE",
       sortOrder = "ASC",
       filters = "{}",
@@ -1426,6 +1427,7 @@ exports.getPersonList = async (req, res) => {
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;
     const offset = (pageNum - 1) * limitNum;
+
     let filterObj = {};
     try {
       filterObj = JSON.parse(filters);
@@ -1433,7 +1435,17 @@ exports.getPersonList = async (req, res) => {
       return res.status(400).json({ error: "Invalid filters JSON" });
     }
 
-    const allowedColumns = [
+    const request = (await poolPromise).request();
+
+    const searchableColumns = {
+      NAME: "(p.FNAME + ' ' + p.LNAME)",
+      EMAIL: "p.PERSON_EMAIL",
+      PHONE: "p.MOBILE",
+      PERSON_CODE: "p.PERSON_CODE",
+      COMPANY_CODE: "p.COMPANY_CODE",
+    };
+
+    const sortableColumns = new Set([
       "PERSON_CODE",
       "FNAME",
       "LNAME",
@@ -1442,72 +1454,129 @@ exports.getPersonList = async (req, res) => {
       "COMPANY_CODE",
       "DESIG",
       "DEPT",
-    ];
-    const sortColumn = allowedColumns.includes(sortBy) ? sortBy : "PERSON_CODE";
-    const sortDir = sortOrder.toUpperCase() === "DESC" ? "DESC" : "ASC";
+      "HISTORY_COUNT",
+    ]);
+
+    const safeSortBy = sortableColumns.has(sortBy)
+      ? sortBy
+      : "PERSON_CODE";
+
+    const safeSortOrder =
+      String(sortOrder).toUpperCase() === "DESC" ? "DESC" : "ASC";
+
+    const aggregateSortColumns = new Set(["HISTORY_COUNT"]);
+
+    const orderByExpr = aggregateSortColumns.has(safeSortBy)
+      ? `[${safeSortBy}] ${safeSortOrder}`
+      : `p.[${safeSortBy}] ${safeSortOrder}`;
 
     const whereClauses = [];
-    const request = (await poolPromise).request();
 
-    if (search) {
-      const likeClauses = [
-        "[FNAME] LIKE @search",
-        "[LNAME] LIKE @search",
+    if (search && search.trim() !== "") {
+      const term = search.trim();
 
-        "(FNAME + ' ' + LNAME) LIKE @search",
-        "(LNAME + ' ' + FNAME) LIKE @search",
+      if (searchBy && searchableColumns[searchBy]) {
+        const col = searchableColumns[searchBy];
 
-        "[PERSON_EMAIL] LIKE @search",
-        "[USER_CODE] LIKE @search",
-        "[MOBILE] LIKE @search",
-        "[COMPANY_CODE] LIKE @search"
-      ];
+        whereClauses.push(`UPPER(${col}) LIKE UPPER(@search)`);
 
-      whereClauses.push("(" + likeClauses.join(" OR ") + ")");
-      const cleanedSearch = search.trim().replace(/\s+/g, " ");
-      request.input("search", `%${cleanedSearch}%`);
-    }
+        request.input("search", `%${term}%`);
+      } else {
+        whereClauses.push(`
+          UPPER(p.FNAME + ' ' + p.LNAME) LIKE UPPER(@search)
+        `);
 
-    for (const key in filterObj) {
-      if (allowedColumns.includes(key) && filterObj[key] !== "") {
-        whereClauses.push(`[${key}] = @${key}`);
-        request.input(key, filterObj[key]);
+        request.input("search", `%${term}%`);
       }
     }
 
-    const whereSQL = whereClauses.length ? "WHERE " + whereClauses.join(" AND ") : "";
+    const filterColumns = {
+      PERSON_CODE: "p.PERSON_CODE",
+      COMPANY_CODE: "p.COMPANY_CODE",
+      DESIG: "p.DESIG",
+      DEPT: "p.DEPT",
+      PERSON_EMAIL: "p.PERSON_EMAIL",
+      MOBILE: "p.MOBILE",
+    };
 
-    const dataQuery = `
+    for (const [key, val] of Object.entries(filterObj)) {
+      const col = filterColumns[key];
+      if (!col) continue;
+      if (Array.isArray(val) && val.length > 0) {
+        const paramNames = val.map((_, idx) => `@${key}_${idx}`);
+        whereClauses.push(`${col} IN (${paramNames.join(", ")})`);
+        val.forEach((v, idx) => {
+          request.input(`${key}_${idx}`, v);
+        });
+      } else if (typeof val === "string" && val.trim() !== "") {
+        whereClauses.push(`UPPER(${col}) LIKE UPPER(@${key})`);
+        request.input(key, `%${val.trim()}%`);
+      }
+    }
+
+    const whereSQL =
+      whereClauses.length > 0
+        ? "WHERE " + whereClauses.join(" AND ")
+        : "";
+
+    const query = `
       WITH PersonData AS (
-        SELECT *,
-               ROW_NUMBER() OVER (ORDER BY [${sortColumn}] ${sortDir}) AS RowNum
+        SELECT
+          p.PERSON_CODE,
+          p.COMPANY_CODE,
+          p.PREFIX,
+          p.FNAME,
+          p.LNAME,
+          p.DESIG,
+          p.DEPT,
+          p.MOBILE,
+          p.PERSON_EMAIL,
+          p.DOB,
+          p.REMARKS,
+          p.MANAGEMENT_REMARKS,
+          p.USER_CODE,
+          p.ADDRESS,
+          p.UPDATED_DATE,
+          p.CREATED_DATE,
+
+          (
+            SELECT COUNT(*)
+            FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] h
+            WHERE h.PERSON_CODE = p.PERSON_CODE
+          ) AS HISTORY_COUNT,
+
+          ROW_NUMBER() OVER (
+            ORDER BY ${orderByExpr}
+          ) AS RowNum
+
         FROM dbo.[${TABLES.COMP_PERSON}] p
         ${whereSQL}
       )
-      SELECT PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL,
-             DOB, REMARKS, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, UPDATED_DATE, CREATED_DATE
+
+      SELECT *
       FROM PersonData
       WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
-    `;
 
-    const countQuery = `
       SELECT COUNT(*) AS total
       FROM dbo.[${TABLES.COMP_PERSON}] p
       ${whereSQL};
     `;
 
-    const dataResult = await request.query(dataQuery);
-    const countResult = await request.query(countQuery);
+    const result = await request.query(query);
 
     res.json({
-      data: dataResult.recordset,
-      total: countResult.recordset[0].total,
+      data: result.recordsets[0],
+      total: result.recordsets[1][0].total,
       page: pageNum,
       limit: limitNum,
     });
+
   } catch (err) {
     console.error("Person fetch error:", err?.originalError || err);
-    res.status(500).json({ error: "Server error" });
+
+    res.status(500).json({
+      error: "Server error",
+    });
   }
 };
 
