@@ -146,8 +146,8 @@ exports.getCategories = async (req, res) => {
     const pool = await poolPromise;
 
     const categoryResult = await pool.request().query(`
-      SELECT CATEGORY_TYPE, LABEL, VALUE 
-      FROM dbo.[${TABLES.CATEGORY}] 
+      SELECT CATEGORY_TYPE, LABEL, VALUE, RANK
+      FROM dbo.[${TABLES.CATEGORY}]
       WHERE ACTIVE = 1
     `);
 
@@ -162,10 +162,9 @@ exports.getCategories = async (req, res) => {
       if (!acc[row.CATEGORY_TYPE]) {
         acc[row.CATEGORY_TYPE] = [];
       }
-      acc[row.CATEGORY_TYPE].push({
-        label: row.LABEL,
-        value: row.VALUE,
-      });
+      const item = { label: row.LABEL, value: row.VALUE };
+      if (row.RANK != null) item.rank = row.RANK;
+      acc[row.CATEGORY_TYPE].push(item);
       return acc;
     }, {});
 
@@ -691,6 +690,122 @@ exports.updateTag = async (req, res) => {
     res.json({ message: "Tag updated successfully" });
   } catch (err) {
     console.error("updateTag error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+exports.getGroups = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { search = "", page = 1, limit = 10 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    let query = `SELECT GROUP_CODE, GROUP_NAME, CREATED_DATE, USER_CODE, ACTIVE FROM dbo.[${TABLES.COMPANY_GROUP}] WHERE 1=1`;
+    let countQuery = `SELECT COUNT(*) AS total FROM dbo.[${TABLES.COMPANY_GROUP}] WHERE 1=1`;
+
+    if (search.trim()) {
+      query += ` AND GROUP_NAME LIKE '%' + @search + '%'`;
+      countQuery += ` AND GROUP_NAME LIKE '%' + @search + '%'`;
+    }
+
+    query += ` ORDER BY GROUP_NAME OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`;
+
+    const request = pool.request();
+    request.input("search", sql.VarChar(100), search);
+    request.input("offset", sql.Int, offset);
+    request.input("limit", sql.Int, parseInt(limit));
+
+    const [dataResult, countResult] = await Promise.all([
+      request.query(query),
+      pool.request().input("search", sql.VarChar(100), search).query(countQuery)
+    ]);
+
+    res.json({ data: dataResult.recordset, total: countResult.recordset[0].total });
+  } catch (err) {
+    console.error("getGroups error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+exports.addGroup = async (req, res) => {
+  try {
+    const { GROUP_NAME, usercode } = req.body;
+    if (!GROUP_NAME) return res.status(400).json({ error: "Group name is required" });
+    if (!usercode) return res.status(400).json({ error: "User code is required" });
+
+    const pool = await poolPromise;
+
+    const existing = await pool.request()
+      .input("GROUP_NAME", sql.NVarChar(255), GROUP_NAME)
+      .query(`SELECT GROUP_CODE FROM dbo.[${TABLES.COMPANY_GROUP}] WHERE GROUP_NAME = @GROUP_NAME`);
+
+    if (existing.recordset.length > 0) return res.status(409).json({ error: "Group name already exists" });
+
+    let GROUP_CODE;
+    let exists = true;
+    while (exists) {
+      GROUP_CODE = "GRP" + Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase().padStart(6, "0");
+      const chk = await pool.request()
+        .input("GROUP_CODE", sql.VarChar(20), GROUP_CODE)
+        .query(`SELECT 1 FROM dbo.[${TABLES.COMPANY_GROUP}] WHERE GROUP_CODE = @GROUP_CODE`);
+      exists = chk.recordset.length > 0;
+    }
+
+    await pool.request()
+      .input("GROUP_CODE", sql.VarChar(20), GROUP_CODE)
+      .input("GROUP_NAME", sql.NVarChar(255), GROUP_NAME)
+      .input("USER_CODE", sql.VarChar(50), usercode)
+      .query(`INSERT INTO dbo.[${TABLES.COMPANY_GROUP}] (GROUP_CODE, GROUP_NAME, USER_CODE, ACTIVE, CREATED_DATE) VALUES (@GROUP_CODE, @GROUP_NAME, @USER_CODE, 1, GETDATE())`);
+
+    return res.status(200).json({ success: true, message: "Group created successfully", groupCode: GROUP_CODE });
+  } catch (err) {
+    console.error("addGroup error:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+};
+
+exports.updateGroup = async (req, res) => {
+  try {
+    const { groupCode } = req.params;
+    const { GROUP_NAME, ACTIVE, usercode } = req.body;
+    if (!GROUP_NAME) return res.status(400).json({ error: "Group name is required" });
+
+    const pool = await poolPromise;
+    await pool.request()
+      .input("GROUP_CODE", sql.VarChar(20), groupCode)
+      .input("GROUP_NAME", sql.NVarChar(255), GROUP_NAME)
+      .input("ACTIVE", sql.Bit, ACTIVE)
+      .input("USER_CODE", sql.VarChar(50), usercode)
+      .query(`UPDATE dbo.[${TABLES.COMPANY_GROUP}] SET GROUP_NAME = @GROUP_NAME, ACTIVE = @ACTIVE, USER_CODE = @USER_CODE, UPDATED_DATE = GETDATE() WHERE GROUP_CODE = @GROUP_CODE`);
+
+    res.json({ message: "Group updated successfully" });
+  } catch (err) {
+    console.error("updateGroup error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+exports.deleteGroup = async (req, res) => {
+  try {
+    const { groupCode } = req.params;
+    const pool = await poolPromise;
+
+    const memberCheck = await pool.request()
+      .input("GROUP_CODE", sql.VarChar(20), groupCode)
+      .query(`SELECT COUNT(*) AS cnt FROM dbo.[${TABLES.COMPANY_GROUP_MEMBER}] WHERE GROUP_CODE = @GROUP_CODE`);
+
+    const count = memberCheck.recordset[0].cnt;
+    if (count > 0) {
+      return res.status(400).json({ error: `Cannot delete — this group has ${count} company member(s). Reassign or remove them first.` });
+    }
+
+    await pool.request()
+      .input("GROUP_CODE", sql.VarChar(20), groupCode)
+      .query(`DELETE FROM dbo.[${TABLES.COMPANY_GROUP}] WHERE GROUP_CODE = @GROUP_CODE`);
+
+    res.json({ message: "Group deleted successfully" });
+  } catch (err) {
+    console.error("deleteGroup error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };

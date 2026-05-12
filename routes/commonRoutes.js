@@ -24,6 +24,11 @@ router.get('/tags', authenticateToken, commonController.getTags);
 router.post('/addtags', authenticateToken, commonController.addTags);
 router.put('/tags/:tagCode', authenticateToken, commonController.updateTag);
 
+router.get('/groups', authenticateToken, commonController.getGroups);
+router.post('/addGroup', authenticateToken, commonController.addGroup);
+router.put('/groups/:groupCode', authenticateToken, commonController.updateGroup);
+router.delete('/groups/:groupCode', authenticateToken, commonController.deleteGroup);
+
 router.post('/addEditor', authenticateToken, commonController.addEditor);
 router.post('/editEditor', authenticateToken, commonController.editEditor);
 

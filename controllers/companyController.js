@@ -235,7 +235,8 @@ exports.addCompany = async (req, res) => {
     const {
       name, emails, website, phones, addresses, pincode,
       remarks, division, specialremarks, country, state, city,
-      segment = [], usercode, sourcecode, sourceperson, sourcetype, oldname, tags = []
+      segment = [], usercode, sourcecode, sourceperson, sourcetype, oldname, tags = [],
+      nature, orgtype, assocmember, groupCode = null
     } = req.body;
 
     await transaction.begin();
@@ -358,10 +359,13 @@ exports.addCompany = async (req, res) => {
       .input("EMAIL", sql.VarChar(sql.MAX), JSON.stringify(emails))
       .input("WEBSITE", sql.NVarChar, website)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
+      .input("NATURE", sql.NVarChar(255), nature || "")
+      .input("ORG_TYPE", sql.NVarChar(255), orgtype || "")
+      .input("ASSOC_MEMBER", sql.NVarChar(255), assocmember || "")
       .query(`
-        INSERT INTO dbo.[${TABLES.COMPANY_DETAIL}] 
-        (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, CREATED_DATE)
-        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @CREATED_DATE)
+        INSERT INTO dbo.[${TABLES.COMPANY_DETAIL}]
+        (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, CREATED_DATE, NATURE, ORG_TYPE, ASSOC_MEMBER)
+        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @CREATED_DATE, @NATURE, @ORG_TYPE, @ASSOC_MEMBER)
       `);
 
     await new sql.Request(transaction)
@@ -462,6 +466,15 @@ exports.addCompany = async (req, res) => {
       }
     }
 
+    if (groupCode) {
+      await new sql.Request(transaction)
+        .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
+        .input("GROUP_CODE", sql.VarChar(20), groupCode)
+        .input("USER_CODE", sql.VarChar, usercode)
+        .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
+        .query(`INSERT INTO dbo.[${TABLES.COMPANY_GROUP_MEMBER}] (COMPANY_CODE, GROUP_CODE, USER_CODE, CREATED_DATE) VALUES (@COMPANY_CODE, @GROUP_CODE, @USER_CODE, @CREATED_DATE)`);
+    }
+
     await transaction.commit();
 
     res.status(201).json({
@@ -491,7 +504,8 @@ exports.EditCompany = async (req, res) => {
       companyCode,
       name, emails, website, phones, addresses, pincode,
       remarks, division, specialremarks, country, state, city,
-      segment, oldname, usercode
+      segment, oldname, usercode,
+      nature, orgtype, assocmember, groupCode = null
     } = req.body;
 
     if (!companyCode) {
@@ -532,8 +546,11 @@ exports.EditCompany = async (req, res) => {
       .input("EMAIL", sql.NVarChar(sql.MAX), JSON.stringify(emails))
       .input("WEBSITE", sql.NVarChar(255), website)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
+      .input("NATURE", sql.NVarChar(255), nature || "")
+      .input("ORG_TYPE", sql.NVarChar(255), orgtype || "")
+      .input("ASSOC_MEMBER", sql.NVarChar(255), assocmember || "")
       .query(`
-        UPDATE dbo.[${TABLES.COMPANY_DETAIL}] 
+        UPDATE dbo.[${TABLES.COMPANY_DETAIL}]
         SET COMPANY_NAME = @COMPANY_NAME,
             DIVISION = @DIVISION,
             OLDNAME = @OLDNAME,
@@ -545,7 +562,10 @@ exports.EditCompany = async (req, res) => {
             PHONES = @PHONES,
             EMAIL = @EMAIL,
             WEBSITE = @WEBSITE,
-            UPDATED_DATE = @UPDATED_DATE
+            UPDATED_DATE = @UPDATED_DATE,
+            NATURE = @NATURE,
+            ORG_TYPE = @ORG_TYPE,
+            ASSOC_MEMBER = @ASSOC_MEMBER
         WHERE COMPANY_CODE = @COMPANY_CODE
       `);
 
@@ -586,6 +606,18 @@ exports.EditCompany = async (req, res) => {
         VALUES (@COMPANY_CODE, @SEGMENT, @SEG_CODE)
       `);
       }
+    }
+
+    await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+      .query(`DELETE FROM dbo.[${TABLES.COMPANY_GROUP_MEMBER}] WHERE COMPANY_CODE = @COMPANY_CODE`);
+
+    if (groupCode) {
+      await new sql.Request(transaction)
+        .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+        .input("GROUP_CODE", sql.VarChar(20), groupCode)
+        .input("USER_CODE", sql.VarChar(50), usercode)
+        .query(`INSERT INTO dbo.[${TABLES.COMPANY_GROUP_MEMBER}] (COMPANY_CODE, GROUP_CODE, USER_CODE, CREATED_DATE) VALUES (@COMPANY_CODE, @GROUP_CODE, @USER_CODE, GETDATE())`);
     }
 
     await transaction.commit();
@@ -634,6 +666,9 @@ exports.GetCompanyDetail = async (req, res) => {
           d.PHONES,
           d.EMAIL,
           d.WEBSITE,
+          d.NATURE,
+          d.ORG_TYPE,
+          d.ASSOC_MEMBER,
           ds.SOURCE_CODE,
           ds.SOURCE_PERSON,
           ds.SOURCE_TYPE,
@@ -673,11 +708,15 @@ exports.GetCompanyDetail = async (req, res) => {
             FROM (
               SELECT DISTINCT i.SEGMENT
               FROM dbo.${TABLES.COMP_SEGMENT_MAP} s
-              JOIN dbo.${TABLES.INDSEGMENT} i 
+              JOIN dbo.${TABLES.INDSEGMENT} i
                 ON s.SEG_CODE = i.SEG_CODE
               WHERE s.COMPANY_CODE = m.COMPANY_CODE
             ) x
-          ) AS SEGMENTS
+          ) AS SEGMENTS,
+
+          -- COMPANY GROUP
+          (SELECT TOP 1 gm.GROUP_CODE FROM dbo.[${TABLES.COMPANY_GROUP_MEMBER}] gm WHERE gm.COMPANY_CODE = m.COMPANY_CODE) AS GROUP_CODE,
+          (SELECT TOP 1 g.GROUP_NAME FROM dbo.[${TABLES.COMPANY_GROUP_MEMBER}] gm JOIN dbo.[${TABLES.COMPANY_GROUP}] g ON gm.GROUP_CODE = g.GROUP_CODE WHERE gm.COMPANY_CODE = m.COMPANY_CODE) AS GROUP_NAME
 
         FROM dbo.${TABLES.COMP_MASTER} m
 
