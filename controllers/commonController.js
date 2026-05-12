@@ -146,7 +146,7 @@ exports.getCategories = async (req, res) => {
     const pool = await poolPromise;
 
     const categoryResult = await pool.request().query(`
-      SELECT CATEGORY_TYPE, LABEL, VALUE, RANK
+      SELECT CATEGORY_TYPE, LABEL, VALUE
       FROM dbo.[${TABLES.CATEGORY}]
       WHERE ACTIVE = 1
     `);
@@ -163,7 +163,6 @@ exports.getCategories = async (req, res) => {
         acc[row.CATEGORY_TYPE] = [];
       }
       const item = { label: row.LABEL, value: row.VALUE };
-      if (row.RANK != null) item.rank = row.RANK;
       acc[row.CATEGORY_TYPE].push(item);
       return acc;
     }, {});

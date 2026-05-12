@@ -1149,7 +1149,8 @@ exports.addPerson = async (req, res) => {
       tags = [],
       sourcecode,
       sourceperson,
-      sourcetype
+      sourcetype,
+      participantCategory = []
     } = req.body;
 
     await transaction.begin();
@@ -1162,6 +1163,7 @@ exports.addPerson = async (req, res) => {
     const desigJson = JSON.stringify(designations?.filter(d => d) || []);
     const deptJson = JSON.stringify(departments?.filter(d => d) || []);
     const addrJson = JSON.stringify(addresses?.filter(a => a) || []);
+    const catEntriesJson = JSON.stringify(Array.isArray(participantCategory) ? participantCategory.filter(e => e.category || e.year || e.sourcePerson) : []);
 
     const dobDate = dob ? new Date(dob) : null;
     const contactDate = contactdate ? new Date(contactdate) : null;
@@ -1186,10 +1188,11 @@ exports.addPerson = async (req, res) => {
       .input("PERSON_CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
+      .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
       .query(`
-        INSERT INTO dbo.[${TABLES.COMP_PERSON}] 
-        (PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL, DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, PERSON_CUPD_REMARK, UPDATED_DATE, CREATED_DATE)
-        VALUES (@PERSON_CODE, @COMPANY_CODE, @PREFIX, @FNAME, @LNAME, @DESIG, @DEPT, @MOBILE, @PERSON_EMAIL, @DOB, @REMARKS, @CONTACTDATE, @MANAGEMENT_REMARKS, @USER_CODE, @ADDRESS, @PERSON_CUPD_REMARK, @UPDATED_DATE, @CREATED_DATE)
+        INSERT INTO dbo.[${TABLES.COMP_PERSON}]
+        (PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL, DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, PERSON_CUPD_REMARK, UPDATED_DATE, CREATED_DATE, PARTICIPANT_CATEGORY)
+        VALUES (@PERSON_CODE, @COMPANY_CODE, @PREFIX, @FNAME, @LNAME, @DESIG, @DEPT, @MOBILE, @PERSON_EMAIL, @DOB, @REMARKS, @CONTACTDATE, @MANAGEMENT_REMARKS, @USER_CODE, @ADDRESS, @PERSON_CUPD_REMARK, @UPDATED_DATE, @CREATED_DATE, @PARTICIPANT_CATEGORY)
       `);
 
     await new sql.Request(transaction)
@@ -1648,6 +1651,7 @@ exports.GetPersonDetail = async (req, res) => {
           m.USER_CODE,
           m.ADDRESS,
           m.PERSON_CUPD_REMARK,
+          m.PARTICIPANT_CATEGORY,
 
           h.UPDATED_DATE AS LAST_UPDATED_DATE,
           h.USER_CODE AS LAST_UPDATED_BY_CODE,
@@ -1700,7 +1704,8 @@ exports.EditPerson = async (req, res) => {
       contactdate,
       addresses,
       cupd_remark,
-      usercode
+      usercode,
+      participantCategory = []
     } = req.body;
 
     if (!personCode) {
@@ -1710,6 +1715,7 @@ exports.EditPerson = async (req, res) => {
       });
     }
 
+    const catEntriesJson = JSON.stringify(Array.isArray(participantCategory) ? participantCategory.filter(e => e.category || e.year || e.sourcePerson) : []);
     const UPDATED_DATE = new Date();
     const Status = 'U';
     await transaction.begin();
@@ -1732,6 +1738,7 @@ exports.EditPerson = async (req, res) => {
       .input("USER_CODE", sql.VarChar(10), usercode)
       .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
+      .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
       .query(`
         UPDATE dbo.[${TABLES.COMP_PERSON}]
         SET
@@ -1750,7 +1757,8 @@ exports.EditPerson = async (req, res) => {
           USER_CODE = @USER_CODE,
           ADDRESS = @ADDRESS,
           PERSON_CUPD_REMARK = @PERSON_CUPD_REMARK,
-          UPDATED_DATE = @UPDATED_DATE
+          UPDATED_DATE = @UPDATED_DATE,
+          PARTICIPANT_CATEGORY = @PARTICIPANT_CATEGORY
         WHERE PERSON_CODE = @PERSON_CODE
       `);
 
@@ -1773,6 +1781,7 @@ exports.EditPerson = async (req, res) => {
       .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
+      .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}] (
           PERSON_CODE,
@@ -1792,7 +1801,8 @@ exports.EditPerson = async (req, res) => {
           ADDRESS,
           PERSON_CUPD_REMARK,
           UPDATED_DATE,
-          STATUS
+          STATUS,
+          PARTICIPANT_CATEGORY
         )
         VALUES (
           @PERSON_CODE,
@@ -1812,7 +1822,8 @@ exports.EditPerson = async (req, res) => {
           @ADDRESS,
           @PERSON_CUPD_REMARK,
           @UPDATED_DATE,
-          @STATUS
+          @STATUS,
+          @PARTICIPANT_CATEGORY
         )
       `);
 
