@@ -2056,7 +2056,7 @@ exports.getAllCompaniesWithSearch = async (req, res) => {
       query = `
         SELECT TOP 50 COMPANY_CODE, COMPANY_NAME, ADDRESS
         FROM dbo.[${TABLES.COMPANY_DETAIL}]
-        WHERE COMPANY_NAME LIKE @search
+        WHERE COMPANY_NAME LIKE @search OR COMPANY_CODE LIKE @search
         ORDER BY COMPANY_NAME
       `;
       request.input("search", sql.VarChar(200), `%${search}%`);
