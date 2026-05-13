@@ -2041,31 +2041,56 @@ exports.getAllCompaniesWithSearch = async (req, res) => {
     const request = pool.request();
     let query = "";
 
-    // CASE 1: companyCode only
     if (companyCode && !search.trim()) {
       query = `
         SELECT COMPANY_CODE, COMPANY_NAME, ADDRESS
         FROM dbo.[${TABLES.COMPANY_DETAIL}]
         WHERE COMPANY_CODE = @companyCode
       `;
-      request.input("companyCode", sql.VarChar(50), companyCode);
+
+      request.input(
+        "companyCode",
+        sql.VarChar(50),
+        companyCode
+      );
     }
 
     // CASE 2: search only
     else if (search.trim()) {
+
+      const trimmedSearch = search.trim();
+
       query = `
-        SELECT TOP 50 COMPANY_CODE, COMPANY_NAME, ADDRESS
+        SELECT TOP 50
+          COMPANY_CODE,
+          COMPANY_NAME,
+          ADDRESS
         FROM dbo.[${TABLES.COMPANY_DETAIL}]
-        WHERE COMPANY_NAME LIKE @search OR COMPANY_CODE LIKE @search
+        WHERE
+          COMPANY_NAME LIKE @nameSearch
+          OR COMPANY_CODE LIKE @codeSearch
         ORDER BY COMPANY_NAME
       `;
-      request.input("search", sql.VarChar(200), `%${search}%`);
+
+      request.input(
+        "nameSearch",
+        sql.VarChar(200),
+        `${trimmedSearch}%`
+      );
+
+      request.input(
+        "codeSearch",
+        sql.VarChar(200),
+        `%${trimmedSearch}%`
+      );
     }
 
-    // CASE 3: default
     else {
       query = `
-        SELECT TOP 50 COMPANY_CODE, COMPANY_NAME, ADDRESS
+        SELECT TOP 50
+          COMPANY_CODE,
+          COMPANY_NAME,
+          ADDRESS
         FROM dbo.[${TABLES.COMPANY_DETAIL}]
         ORDER BY COMPANY_NAME
       `;
@@ -2080,7 +2105,9 @@ exports.getAllCompaniesWithSearch = async (req, res) => {
 
   } catch (err) {
     console.error("getCompany error:", err);
-    return res.status(500).json({ error: "Server error" });
+    return res.status(500).json({
+      error: "Server error",
+    });
   }
 };
 
