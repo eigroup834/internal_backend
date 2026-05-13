@@ -19,6 +19,7 @@ router.put('/events/:id', authenticateToken, commonController.updateEventAttende
 
 router.get('/eventsSearch', authenticateToken, commonController.getEventsWithSearch);
 router.post('/addevent', authenticateToken, commonController.addEvent);
+router.delete('/events/:id', authenticateToken, commonController.deleteEvent);
 
 router.get('/tags', authenticateToken, commonController.getTags);
 router.post('/addtags', authenticateToken, commonController.addTags);

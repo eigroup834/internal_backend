@@ -551,6 +551,33 @@ exports.addEvent = async (req, res) => {
   }
 };
 
+exports.deleteEvent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+
+    const check = await pool.request()
+      .input("ID", sql.Int, id)
+      .query(`SELECT COUNT(*) AS cnt FROM dbo.[${TABLES.EVENTS}] WHERE ID = @ID`);
+
+    if (check.recordset[0].cnt === 0) {
+      return res.status(404).json({ error: "Exhibition not found." });
+    }
+
+    await pool.request()
+      .input("ID", sql.Int, id)
+      .query(`DELETE FROM dbo.[${TABLES.EVENTS}] WHERE ID = @ID`);
+
+    res.json({ message: "Exhibition deleted successfully" });
+  } catch (err) {
+    console.error("deleteEvent error:", err);
+    res.status(500).json({
+      error: "Database Error",
+      details: err.originalError?.info?.message || err.message
+    });
+  }
+};
+
 exports.getTags = async (req, res) => {
   try {
     const pool = await poolPromise;
