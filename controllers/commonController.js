@@ -631,7 +631,7 @@ exports.getTags = async (req, res) => {
 
 exports.addTags = async (req, res) => {
   try {
-    const { TAG_NAME, usercode } = req.body;
+    const { TAG_NAME, ACTIVE, usercode } = req.body;
 
     if (!TAG_NAME) {
       return res.status(400).json({ error: "Tagname is required" });
@@ -676,9 +676,10 @@ exports.addTags = async (req, res) => {
       .input("TAG_NAME", sql.VarChar(100), TAG_NAME)
       .input("USER_CODE", sql.VarChar(10), usercode)
       .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
+      .input("ACTIVE", sql.Bit, ACTIVE ?? 1)
       .query(`
         INSERT INTO dbo.${TABLES.TAGS} (TAG_NAME, USER_CODE, ACTIVE, TAG_CODE)
-        VALUES (@TAG_NAME, @USER_CODE, 1, @TAG_CODE)
+        VALUES (@TAG_NAME, @USER_CODE, @ACTIVE, @TAG_CODE)
       `);
 
     return res.status(200).json({
@@ -755,7 +756,7 @@ exports.getGroups = async (req, res) => {
 
 exports.addGroup = async (req, res) => {
   try {
-    const { GROUP_NAME, usercode } = req.body;
+    const { GROUP_NAME, ACTIVE, usercode } = req.body;
     if (!GROUP_NAME) return res.status(400).json({ error: "Group name is required" });
     if (!usercode) return res.status(400).json({ error: "User code is required" });
 
@@ -781,7 +782,8 @@ exports.addGroup = async (req, res) => {
       .input("GROUP_CODE", sql.VarChar(20), GROUP_CODE)
       .input("GROUP_NAME", sql.NVarChar(255), GROUP_NAME)
       .input("USER_CODE", sql.VarChar(50), usercode)
-      .query(`INSERT INTO dbo.[${TABLES.COMPANY_GROUP}] (GROUP_CODE, GROUP_NAME, USER_CODE, ACTIVE, CREATED_DATE) VALUES (@GROUP_CODE, @GROUP_NAME, @USER_CODE, 1, GETDATE())`);
+      .input("ACTIVE", sql.Bit, ACTIVE ?? 1)
+      .query(`INSERT INTO dbo.[${TABLES.COMPANY_GROUP}] (GROUP_CODE, GROUP_NAME, USER_CODE, ACTIVE, CREATED_DATE) VALUES (@GROUP_CODE, @GROUP_NAME, @USER_CODE, @ACTIVE, GETDATE())`);
 
     return res.status(200).json({ success: true, message: "Group created successfully", groupCode: GROUP_CODE });
   } catch (err) {
