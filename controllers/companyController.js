@@ -83,7 +83,11 @@ exports.getCompanies = async (req, res) => {
       if (searchBy && searchableColumns[searchBy]) {
         const col = searchableColumns[searchBy];
         whereClauses.push(`UPPER(${col}) LIKE UPPER(@search)`);
-        request.input("search", `%${term}%`);
+          if (searchBy === "COMPANY_NAME") {
+            request.input("search", `${term}%`);
+          } else {
+            request.input("search", `%${term}%`);
+          }
       } else {
         const orParts = Object.values(searchableColumns)
           .map((col, i) => {
@@ -1504,8 +1508,11 @@ exports.getPersonList = async (req, res) => {
         const col = searchableColumns[searchBy];
 
         whereClauses.push(`UPPER(${col}) LIKE UPPER(@search)`);
-
-        request.input("search", `%${term}%`);
+          if (searchBy === "NAME") {
+            request.input("search", `${term}%`);
+          } else {
+            request.input("search", `%${term}%`);
+          }
       } else {
         whereClauses.push(`
           UPPER(p.FNAME + ' ' + p.LNAME) LIKE UPPER(@search)
