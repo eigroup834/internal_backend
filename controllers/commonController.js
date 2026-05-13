@@ -344,31 +344,38 @@ exports.updateEventAttendee = async (req, res) => {
     const pool = await poolPromise;
     const { id } = req.params;
 
-    let { ATTENDEE = [] } = req.body;
+    let { EVENT_NAME, EVENT_YEAR, EVENT_LOCATION, ATTENDEE = [] } = req.body;
 
     if (!id) {
       return res.status(400).json({ error: "Event ID is required" });
+    }
+
+    if (!EVENT_NAME || !EVENT_YEAR || !EVENT_LOCATION) {
+      return res.status(400).json({ error: "Event name, year, and location are required." });
     }
 
     const attendeeJson = JSON.stringify(ATTENDEE);
 
     const query = `
       UPDATE dbo.[${TABLES.EVENTS}]
-      SET ATTENDEE = @ATTENDEE,
+      SET EVENT_NAME = @EVENT_NAME,
+          EVENT_YEAR = @EVENT_YEAR,
+          EVENT_LOCATION = @EVENT_LOCATION,
+          ATTENDEE = @ATTENDEE,
           UPDATED_DATE = GETDATE()
       WHERE ID = @ID
     `;
 
     const request = pool.request();
     request.input("ID", sql.Int, id);
+    request.input("EVENT_NAME", sql.VarChar(255), EVENT_NAME);
+    request.input("EVENT_YEAR", sql.Int, parseInt(EVENT_YEAR, 10));
+    request.input("EVENT_LOCATION", sql.VarChar(255), EVENT_LOCATION);
     request.input("ATTENDEE", sql.NVarChar(sql.MAX), attendeeJson);
 
     await request.query(query);
 
-    res.status(200).json({
-      message: "Event attendees updated successfully",
-      attendees: ATTENDEE
-    });
+    res.status(200).json({ message: "Exhibition updated successfully" });
 
   } catch (err) {
     console.error("updateEventAttendee error:", err);
