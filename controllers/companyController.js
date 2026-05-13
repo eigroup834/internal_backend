@@ -960,10 +960,11 @@ exports.getCompanyExhHistory = async (req, res) => {
       .input("OFFSET", sql.Int, offset)
       .input("LIMIT", sql.Int, parseInt(limit))
       .query(`
-        SELECT * 
-        FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
-        WHERE COMPANY_CODE = @COMPANY_CODE
-        ORDER BY CREATED_DATE DESC
+        SELECT h.*, u.USERNAME
+        FROM dbo.[${TABLES.COMP_EXH_HISTORY}] h
+        LEFT JOIN dbo.[USER] u ON h.USER_CODE = u.USER_CODE
+        WHERE h.COMPANY_CODE = @COMPANY_CODE
+        ORDER BY h.CREATED_DATE DESC
         OFFSET @OFFSET ROWS
         FETCH NEXT @LIMIT ROWS ONLY
       `);
@@ -1856,10 +1857,11 @@ exports.getPersonExhHistory = async (req, res) => {
       .input("OFFSET", sql.Int, offset)
       .input("LIMIT", sql.Int, parseInt(limit))
       .query(`
-        SELECT * 
-        FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
-        WHERE PERSON_CODE = @PERSON_CODE
-        ORDER BY CREATED_DATE DESC
+        SELECT h.*, u.USERNAME
+        FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] h
+        LEFT JOIN dbo.[USER] u ON h.USER_CODE = u.USER_CODE
+        WHERE h.PERSON_CODE = @PERSON_CODE
+        ORDER BY h.CREATED_DATE DESC
         OFFSET @OFFSET ROWS
         FETCH NEXT @LIMIT ROWS ONLY
       `);
