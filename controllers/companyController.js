@@ -960,7 +960,7 @@ exports.getCompanyExhHistory = async (req, res) => {
       .input("OFFSET", sql.Int, offset)
       .input("LIMIT", sql.Int, parseInt(limit))
       .query(`
-        SELECT h.*, u.USERNAME
+        SELECT h.*, u.USERNAME AS ADDED_BY
         FROM dbo.[${TABLES.COMP_EXH_HISTORY}] h
         LEFT JOIN dbo.[USER] u ON h.USER_CODE = u.USER_CODE
         WHERE h.COMPANY_CODE = @COMPANY_CODE
@@ -1857,7 +1857,7 @@ exports.getPersonExhHistory = async (req, res) => {
       .input("OFFSET", sql.Int, offset)
       .input("LIMIT", sql.Int, parseInt(limit))
       .query(`
-        SELECT h.*, u.USERNAME
+        SELECT h.*, u.USERNAME AS ADDED_BY
         FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] h
         LEFT JOIN dbo.[USER] u ON h.USER_CODE = u.USER_CODE
         WHERE h.PERSON_CODE = @PERSON_CODE
