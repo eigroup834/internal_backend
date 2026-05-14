@@ -1567,6 +1567,7 @@ exports.getPersonList = async (req, res) => {
         SELECT
           p.PERSON_CODE,
           p.COMPANY_CODE,
+          cd.COMPANY_NAME,
           p.PREFIX,
           p.FNAME,
           p.LNAME,
@@ -1593,6 +1594,7 @@ exports.getPersonList = async (req, res) => {
           ) AS RowNum
 
         FROM dbo.[${TABLES.COMP_PERSON}] p
+        LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
         ${whereSQL}
       )
 
