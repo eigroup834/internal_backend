@@ -320,10 +320,13 @@ exports.addCompany = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("USER_CODE", sql.VarChar, usercode)
       .input("STATUS", sql.VarChar(50), Status)
+      .input("NATURE", sql.NVarChar(255), nature || "")
+      .input("ORG_TYPE", sql.NVarChar(255), orgtype || "")
+      .input("ASSOC_MEMBER", sql.NVarChar(255), assocmember || "")
       .query(`
-        INSERT INTO dbo.[${TABLES.COMPANY_UPDATE_HISTORY}] 
-        (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE, STATUS)
-        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE, @STATUS)
+        INSERT INTO dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]
+        (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE, STATUS, NATURE, ORG_TYPE, ASSOC_MEMBER)
+        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE, @STATUS, @NATURE, @ORG_TYPE, @ASSOC_MEMBER)
       `);
 
     if (Array.isArray(segment) && segment.length > 0) {
@@ -509,6 +512,7 @@ exports.EditCompany = async (req, res) => {
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .input("COMPANY_NAME", sql.NVarChar(255), name)
       .input("DIVISION", sql.NVarChar(255), division)
+      .input("OLDNAME", sql.NVarChar(255), oldname)
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
       .input("CITY", sql.NVarChar(100), city)
       .input("PINCODE", sql.VarChar(20), pincode)
@@ -520,11 +524,14 @@ exports.EditCompany = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("USER_CODE", sql.VarChar(50), usercode)
       .input("STATUS", sql.VarChar(50), Status)
+      .input("NATURE", sql.NVarChar(255), nature || "")
+      .input("ORG_TYPE", sql.NVarChar(255), orgtype || "")
+      .input("ASSOC_MEMBER", sql.NVarChar(255), assocmember || "")
       .query(`
-        INSERT INTO dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]  
-          (COMPANY_CODE, COMPANY_NAME, DIVISION, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE, STATUS)
-        VALUES 
-          (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE, @STATUS)
+        INSERT INTO dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]
+          (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE, STATUS, NATURE, ORG_TYPE, ASSOC_MEMBER)
+        VALUES
+          (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE, @STATUS, @NATURE, @ORG_TYPE, @ASSOC_MEMBER)
       `);
 
     await new sql.Request(transaction)
@@ -1201,6 +1208,7 @@ exports.addPerson = async (req, res) => {
       .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
+      .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}] (
           PERSON_CODE,
@@ -1220,7 +1228,8 @@ exports.addPerson = async (req, res) => {
           ADDRESS,
           PERSON_CUPD_REMARK,
           UPDATED_DATE,
-          STATUS
+          STATUS,
+          PARTICIPANT_CATEGORY
         )
         VALUES (
           @PERSON_CODE,
@@ -1240,7 +1249,8 @@ exports.addPerson = async (req, res) => {
           @ADDRESS,
           @PERSON_CUPD_REMARK,
           @UPDATED_DATE,
-          @STATUS
+          @STATUS,
+          @PARTICIPANT_CATEGORY
         )
       `);
 
