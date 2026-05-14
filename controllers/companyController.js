@@ -1507,19 +1507,19 @@ exports.getPersonList = async (req, res) => {
 
       if (searchBy && searchableColumns[searchBy]) {
         const col = searchableColumns[searchBy];
-
         whereClauses.push(`UPPER(${col}) LIKE UPPER(@search)`);
-          if (searchBy === "NAME") {
-            request.input("search", `${term}%`);
-          } else {
-            request.input("search", `%${term}%`);
-          }
+        if (searchBy === "NAME") {
+          request.input("search", `${term}%`);
+        } else {
+          request.input("search", `%${term}%`);
+        }
       } else {
-        whereClauses.push(`
-          UPPER(p.FNAME + ' ' + p.LNAME) LIKE UPPER(@search)
-        `);
-
-        request.input("search", `%${term}%`);
+        const orParts = Object.values(searchableColumns)
+          .map((col, i) => {
+            request.input(`search${i}`, `%${term}%`);
+            return `UPPER(${col}) LIKE UPPER(@search${i})`;
+          });
+        whereClauses.push(`(${orParts.join(" OR ")})`);
       }
     }
 
