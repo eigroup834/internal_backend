@@ -1873,9 +1873,13 @@ exports.getPersonExhHistory = async (req, res) => {
       .input("OFFSET", sql.Int, offset)
       .input("LIMIT", sql.Int, parseInt(limit))
       .query(`
-        SELECT h.*, u.USERNAME AS ADDED_BY
+        SELECT h.*, u.USERNAME AS ADDED_BY,
+          p.FNAME, p.LNAME, p.COMPANY_CODE,
+          cd.COMPANY_NAME
         FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] h
         LEFT JOIN dbo.[USER] u ON h.USER_CODE = u.USER_CODE
+        LEFT JOIN dbo.[${TABLES.COMP_PERSON}] p ON p.PERSON_CODE = h.PERSON_CODE
+        LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
         WHERE h.PERSON_CODE = @PERSON_CODE
         ORDER BY h.CREATED_DATE DESC
         OFFSET @OFFSET ROWS
