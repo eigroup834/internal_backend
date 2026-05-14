@@ -1109,9 +1109,9 @@ exports.addPerson = async (req, res) => {
       if (emailList.length > 0) {
         const existingEmailsResult = await new sql.Request(transaction)
           .query(`
-            SELECT EMAIL 
+            SELECT PERSON_EMAIL
             FROM dbo.[${TABLES.COMP_PERSON}]
-            WHERE EMAIL IS NOT NULL AND EMAIL <> ''
+            WHERE PERSON_EMAIL IS NOT NULL AND PERSON_EMAIL <> ''
           `);
 
         let duplicateEmail = null;
@@ -1119,7 +1119,7 @@ exports.addPerson = async (req, res) => {
         for (const row of existingEmailsResult.recordset) {
           let storedEmails = [];
           try {
-            const parsed = JSON.parse(row.EMAIL);
+            const parsed = JSON.parse(row.PERSON_EMAIL);
             if (Array.isArray(parsed)) {
               storedEmails = parsed
                 .map(e => (typeof e === "string" ? e : e?.email || e?.value || ""))
@@ -1127,8 +1127,8 @@ exports.addPerson = async (req, res) => {
                 .filter(e => e.length > 0);
             }
           } catch (e) {
-            if (typeof row.EMAIL === "string") {
-              storedEmails = [row.EMAIL.trim().toLowerCase()];
+            if (typeof row.PERSON_EMAIL === "string") {
+              storedEmails = [row.PERSON_EMAIL.trim().toLowerCase()];
             }
           }
 
