@@ -1635,7 +1635,7 @@ exports.GetPersonDetail = async (req, res) => {
     const result = await pool.request()
       .input("PERSON_CODE", sql.VarChar(50), personCode)
       .query(`
-        SELECT 
+        SELECT
           m.PERSON_CODE,
           m.COMPANY_CODE,
           m.PREFIX,
@@ -1654,11 +1654,17 @@ exports.GetPersonDetail = async (req, res) => {
           m.PERSON_CUPD_REMARK,
           m.PARTICIPANT_CATEGORY,
 
+          ds.SOURCE_PERSON,
+          ds.SOURCE_TYPE,
+
           h.UPDATED_DATE AS LAST_UPDATED_DATE,
           h.USER_CODE AS LAST_UPDATED_BY_CODE,
           u.USERNAME AS LAST_UPDATED_BY_USERNAME
 
-        FROM dbo.[${TABLES.COMP_PERSON}] m  
+        FROM dbo.[${TABLES.COMP_PERSON}] m
+
+        LEFT JOIN dbo.[${TABLES.DATA_SOURCE}] ds
+          ON ds.PERSON_CODE = m.PERSON_CODE
 
         LEFT JOIN (
             SELECT TOP 1 *
