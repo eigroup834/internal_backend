@@ -134,6 +134,7 @@ exports.getCompanies = async (req, res) => {
           c.WEBSITE,
           c.OFC_TYPE,
           c.OLDNAME,
+          u.UPDATED_DATE,
           u.USER_CODE,
           STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRY,
           STRING_AGG(s.SEGMENT, ', ')  AS SEGMENT,
@@ -150,7 +151,7 @@ exports.getCompanies = async (req, res) => {
         GROUP BY
           c.COMPANY_CODE, c.COMPANY_NAME, c.DIVISION, c.ADDRESS, c.CITY,
           c.STATE, c.COUNTRY, c.PINCODE, c.PHONES, c.EMAIL, c.WEBSITE,
-          c.OFC_TYPE, c.OLDNAME, u.USER_CODE, u.REMARKS,
+          c.OFC_TYPE, c.OLDNAME, u.UPDATED_DATE, u.USER_CODE, u.REMARKS,
           pc.PERSON_COUNT, hc.HISTORY_COUNT
       )
       SELECT *
