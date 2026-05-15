@@ -634,63 +634,51 @@ exports.GetCompanyDetail = async (req, res) => {
           h.USER_CODE AS LAST_UPDATED_BY_CODE,
           u.USERNAME AS LAST_UPDATED_BY_USERNAME,
 
-          -- INDUSTRIES
-          (
-            SELECT STRING_AGG(INDUSTRY, ',')
-            FROM (
-              SELECT DISTINCT i.INDUSTRY
-              FROM dbo.${TABLES.COMP_SEGMENT_MAP} s
-              JOIN dbo.${TABLES.INDSEGMENT} i 
-                ON s.SEG_CODE = i.SEG_CODE
-              WHERE s.COMPANY_CODE = m.COMPANY_CODE
-            ) x
-          ) AS INDUSTRY,
+          seg.INDUSTRY,
+          seg.SEG_CODES,
+          seg.SEGMENTS,
 
-          -- SEGMENT CODES
-          (
-            SELECT STRING_AGG(SEG_CODE, ',')
-            FROM (
-              SELECT DISTINCT s.SEG_CODE
-              FROM dbo.${TABLES.COMP_SEGMENT_MAP} s
-              WHERE s.COMPANY_CODE = m.COMPANY_CODE
-            ) x
-          ) AS SEG_CODES,
-
-          -- SEGMENT NAMES
-          (
-            SELECT STRING_AGG(SEGMENT, ',')
-            FROM (
-              SELECT DISTINCT i.SEGMENT
-              FROM dbo.${TABLES.COMP_SEGMENT_MAP} s
-              JOIN dbo.${TABLES.INDSEGMENT} i
-                ON s.SEG_CODE = i.SEG_CODE
-              WHERE s.COMPANY_CODE = m.COMPANY_CODE
-            ) x
-          ) AS SEGMENTS,
-
-          -- COMPANY GROUP
-          (SELECT TOP 1 gm.GROUP_CODE FROM dbo.[${TABLES.COMPANY_GROUP_MEMBER}] gm WHERE gm.COMPANY_CODE = m.COMPANY_CODE) AS GROUP_CODE,
-          (SELECT TOP 1 g.GROUP_NAME FROM dbo.[${TABLES.COMPANY_GROUP_MEMBER}] gm JOIN dbo.[${TABLES.COMPANY_GROUP}] g ON gm.GROUP_CODE = g.GROUP_CODE WHERE gm.COMPANY_CODE = m.COMPANY_CODE) AS GROUP_NAME
+          grp.GROUP_CODE,
+          grp.GROUP_NAME
 
         FROM dbo.${TABLES.COMP_MASTER} m
 
-        LEFT JOIN dbo.${TABLES.COMPANY_DETAIL} d 
+        LEFT JOIN dbo.${TABLES.COMPANY_DETAIL} d
           ON m.COMPANY_CODE = d.COMPANY_CODE
 
-        LEFT JOIN dbo.${TABLES.DATA_SOURCE} ds 
+        LEFT JOIN dbo.${TABLES.DATA_SOURCE} ds
           ON m.COMPANY_CODE = ds.COMPANY_CODE
 
-        -- JOIN LATEST UPDATE HISTORY
         LEFT JOIN (
-          SELECT TOP 1 *
-          FROM dbo.COMPANY_UPDATE_HISTORY
+          SELECT TOP 1 COMPANY_CODE, USER_CODE, UPDATED_DATE
+          FROM dbo.${TABLES.COMPANY_UPDATE_HISTORY}
           WHERE COMPANY_CODE = @COMPANY_CODE
           ORDER BY UPDATED_DATE DESC
-        ) h ON m.COMPANY_CODE = h.COMPANY_CODE
+        ) h ON h.COMPANY_CODE = m.COMPANY_CODE
 
-        -- JOIN USER TABLE FOR USERNAME
-        LEFT JOIN dbo.[USER] u 
-          ON h.USER_CODE = u.USER_CODE
+        LEFT JOIN dbo.[USER] u ON u.USER_CODE = h.USER_CODE
+
+        LEFT JOIN (
+          SELECT
+            x.COMPANY_CODE,
+            STRING_AGG(x.INDUSTRY, ',') AS INDUSTRY,
+            STRING_AGG(x.SEG_CODE,  ',') AS SEG_CODES,
+            STRING_AGG(x.SEGMENT,   ',') AS SEGMENTS
+          FROM (
+            SELECT DISTINCT s.COMPANY_CODE, i.INDUSTRY, s.SEG_CODE, i.SEGMENT
+            FROM dbo.${TABLES.COMP_SEGMENT_MAP} s
+            JOIN dbo.${TABLES.INDSEGMENT} i ON i.SEG_CODE = s.SEG_CODE
+            WHERE s.COMPANY_CODE = @COMPANY_CODE
+          ) x
+          GROUP BY x.COMPANY_CODE
+        ) seg ON seg.COMPANY_CODE = m.COMPANY_CODE
+
+        LEFT JOIN (
+          SELECT TOP 1 gm.COMPANY_CODE, gm.GROUP_CODE, g.GROUP_NAME
+          FROM dbo.[${TABLES.COMPANY_GROUP_MEMBER}] gm
+          JOIN dbo.[${TABLES.COMPANY_GROUP}] g ON g.GROUP_CODE = gm.GROUP_CODE
+          WHERE gm.COMPANY_CODE = @COMPANY_CODE
+        ) grp ON grp.COMPANY_CODE = m.COMPANY_CODE
 
         WHERE m.COMPANY_CODE = @COMPANY_CODE;
       `);
