@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const path = require('path');
 require('dotenv').config({ path: __dirname + '/.env' });
 
@@ -9,6 +10,7 @@ const commonRoutes = require('./routes/commonRoutes');
 
 const app = express();
 
+app.use(compression());
 app.use(cors());
 app.use(express.json());
 

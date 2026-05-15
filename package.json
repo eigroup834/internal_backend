@@ -12,6 +12,7 @@
   "dependencies": {
     "bcrypt": "^6.0.0",
     "body-parser": "^2.2.2",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "country-state-city": "^3.2.1",
     "dotenv": "^17.2.1",
