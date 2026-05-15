@@ -1570,7 +1570,12 @@ exports.getPersonList = async (req, res) => {
         : "";
 
     const query = `
-      WITH PersonData AS (
+      WITH LatestPersonUpdate AS (
+        SELECT PERSON_CODE, USER_CODE, UPDATED_DATE,
+               ROW_NUMBER() OVER (PARTITION BY PERSON_CODE ORDER BY UPDATED_DATE DESC) AS rn
+        FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
+      ),
+      PersonData AS (
         SELECT
           p.PERSON_CODE,
           p.COMPANY_CODE,
@@ -1585,9 +1590,9 @@ exports.getPersonList = async (req, res) => {
           p.DOB,
           p.REMARKS,
           p.MANAGEMENT_REMARKS,
-          p.USER_CODE,
+          COALESCE(lu.USER_CODE, p.USER_CODE) AS USER_CODE,
           p.ADDRESS,
-          p.UPDATED_DATE,
+          COALESCE(lu.UPDATED_DATE, p.UPDATED_DATE) AS UPDATED_DATE,
           p.CREATED_DATE,
 
           (
@@ -1602,6 +1607,7 @@ exports.getPersonList = async (req, res) => {
 
         FROM dbo.[${TABLES.COMP_PERSON}] p
         LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
+        LEFT JOIN LatestPersonUpdate lu ON lu.PERSON_CODE = p.PERSON_CODE AND lu.rn = 1
         ${whereSQL}
       )
 
