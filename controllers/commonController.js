@@ -305,12 +305,12 @@ exports.getEvents = async (req, res) => {
     `;
 
     if (search.trim() !== "") {
-      query += ` WHERE EVENT_NAME LIKE '%' + @search + '%'`;
-      countQuery += ` WHERE EVENT_NAME LIKE '%' + @search + '%'`;
+      query += ` WHERE (EVENT_NAME LIKE '%' + @search + '%' OR EVENT_CODE LIKE '%' + @search + '%')`;
+      countQuery += ` WHERE (EVENT_NAME LIKE '%' + @search + '%' OR EVENT_CODE LIKE '%' + @search + '%')`;
     }
 
     query += `
-      ORDER BY EVENT_NAME
+      ORDER BY EVENT_YEAR DESC, CREATED_DATE DESC
       OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
     `;
 
@@ -520,7 +520,15 @@ exports.addEvent = async (req, res) => {
       });
     }
 
-    const EVENT_CODE = generateEventCode();
+    let EVENT_CODE;
+    let codeExists = true;
+    while (codeExists) {
+      EVENT_CODE = generateEventCode();
+      const chk = await pool.request()
+        .input("EVENT_CODE", sql.VarChar(100), EVENT_CODE)
+        .query(`SELECT 1 FROM dbo.[${TABLES.EVENTS}] WHERE EVENT_CODE = @EVENT_CODE`);
+      codeExists = chk.recordset.length > 0;
+    }
 
     const query = `
       INSERT INTO dbo.[${TABLES.EVENTS}]
@@ -604,12 +612,12 @@ exports.getTags = async (req, res) => {
     `;
 
     if (search.trim() !== "") {
-      query += ` AND TAG_NAME LIKE '%' + @search + '%'`;
-      countQuery += ` AND TAG_NAME LIKE '%' + @search + '%'`;
+      query += ` AND (TAG_NAME LIKE '%' + @search + '%' OR TAG_CODE LIKE '%' + @search + '%')`;
+      countQuery += ` AND (TAG_NAME LIKE '%' + @search + '%' OR TAG_CODE LIKE '%' + @search + '%')`;
     }
 
     query += `
-      ORDER BY TAG_NAME
+      ORDER BY CREATED_DATE DESC
       OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
     `;
 
@@ -667,10 +675,10 @@ exports.addTags = async (req, res) => {
     let exists = true;
 
     while (exists) {
-      TAG_CODE = "HE" + Math.floor(Math.random() * 0xffffff)
+      TAG_CODE = "HE" + Math.floor(Math.random() * 0xffffffff)
         .toString(16)
         .toUpperCase()
-        .padStart(6, "0");
+        .padStart(8, "0");
 
       const chk = await pool.request()
         .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
@@ -738,11 +746,11 @@ exports.getGroups = async (req, res) => {
     let countQuery = `SELECT COUNT(*) AS total FROM dbo.[${TABLES.COMPANY_GROUP}] WHERE 1=1`;
 
     if (search.trim()) {
-      query += ` AND GROUP_NAME LIKE '%' + @search + '%'`;
-      countQuery += ` AND GROUP_NAME LIKE '%' + @search + '%'`;
+      query += ` AND (GROUP_NAME LIKE '%' + @search + '%' OR GROUP_CODE LIKE '%' + @search + '%')`;
+      countQuery += ` AND (GROUP_NAME LIKE '%' + @search + '%' OR GROUP_CODE LIKE '%' + @search + '%')`;
     }
 
-    query += ` ORDER BY GROUP_NAME OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`;
+    query += ` ORDER BY CREATED_DATE DESC OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`;
 
     const request = pool.request();
     request.input("search", sql.VarChar(100), search);
@@ -778,7 +786,7 @@ exports.addGroup = async (req, res) => {
     let GROUP_CODE;
     let exists = true;
     while (exists) {
-      GROUP_CODE = "GRP" + Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase().padStart(6, "0");
+      GROUP_CODE = "GRP" + Math.floor(Math.random() * 0xffffffff).toString(16).toUpperCase().padStart(8, "0");
       const chk = await pool.request()
         .input("GROUP_CODE", sql.VarChar(20), GROUP_CODE)
         .query(`SELECT 1 FROM dbo.[${TABLES.COMPANY_GROUP}] WHERE GROUP_CODE = @GROUP_CODE`);
