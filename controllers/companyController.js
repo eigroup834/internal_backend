@@ -107,8 +107,19 @@ exports.getCompanies = async (req, res) => {
       whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
 
     const query = `
-      WITH CompanyData AS (
-        SELECT 
+      WITH
+      PersonCounts AS (
+        SELECT COMPANY_CODE, COUNT(*) AS PERSON_COUNT
+        FROM dbo.[${TABLES.COMP_PERSON}]
+        GROUP BY COMPANY_CODE
+      ),
+      HistoryCounts AS (
+        SELECT COMPANY_CODE, COUNT(*) AS HISTORY_COUNT
+        FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
+        GROUP BY COMPANY_CODE
+      ),
+      CompanyData AS (
+        SELECT
           u.REMARKS,
           c.COMPANY_CODE,
           c.COMPANY_NAME,
@@ -126,18 +137,21 @@ exports.getCompanies = async (req, res) => {
           u.USER_CODE,
           STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRY,
           STRING_AGG(s.SEGMENT, ', ')  AS SEGMENT,
-          (SELECT COUNT(*) FROM dbo.[${TABLES.COMP_PERSON}]  p WHERE p.COMPANY_CODE = c.COMPANY_CODE) AS PERSON_COUNT,
-          (SELECT COUNT(*) FROM dbo.[${TABLES.COMP_EXH_HISTORY}] h WHERE h.COMPANY_CODE = c.COMPANY_CODE) AS HISTORY_COUNT,
+          ISNULL(pc.PERSON_COUNT, 0)   AS PERSON_COUNT,
+          ISNULL(hc.HISTORY_COUNT, 0)  AS HISTORY_COUNT,
           ROW_NUMBER() OVER (ORDER BY ${orderByExpr}) AS RowNum
         FROM dbo.[${TABLES.COMPANY_DETAIL}] c
         INNER JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] m ON c.COMPANY_CODE = m.COMPANY_CODE
         INNER JOIN dbo.[${TABLES.INDSEGMENT}] s        ON m.SEG_CODE     = s.SEG_CODE
         ${masterJoin}
+        LEFT JOIN PersonCounts  pc ON pc.COMPANY_CODE = c.COMPANY_CODE
+        LEFT JOIN HistoryCounts hc ON hc.COMPANY_CODE = c.COMPANY_CODE
         ${whereSQL}
-        GROUP BY 
-          c.COMPANY_CODE, c.COMPANY_NAME, c.DIVISION, c.ADDRESS, c.CITY, 
-          c.STATE, c.COUNTRY, c.PINCODE, c.PHONES, c.EMAIL, c.WEBSITE, 
-          c.OFC_TYPE, c.OLDNAME, u.USER_CODE, u.REMARKS
+        GROUP BY
+          c.COMPANY_CODE, c.COMPANY_NAME, c.DIVISION, c.ADDRESS, c.CITY,
+          c.STATE, c.COUNTRY, c.PINCODE, c.PHONES, c.EMAIL, c.WEBSITE,
+          c.OFC_TYPE, c.OLDNAME, u.USER_CODE, u.REMARKS,
+          pc.PERSON_COUNT, hc.HISTORY_COUNT
       )
       SELECT *
       FROM CompanyData
@@ -330,28 +344,27 @@ exports.addCompany = async (req, res) => {
       `);
 
     if (Array.isArray(segment) && segment.length > 0) {
-      for (const segCode of segment) {
-        const segmentResult = await new sql.Request(transaction)
-          .input("SEG_CODE", sql.VarChar, segCode)
-          .query(`
-        SELECT TOP 1 SEGMENT 
-        FROM dbo.[INDSEGMENT]
-        WHERE SEG_CODE = @SEG_CODE
+      const segLookupReq = new sql.Request(transaction);
+      segment.forEach((code, i) => segLookupReq.input(`seg${i}`, sql.VarChar, code));
+      const segNamesResult = await segLookupReq.query(`
+        SELECT SEG_CODE, SEGMENT FROM dbo.[INDSEGMENT]
+        WHERE SEG_CODE IN (${segment.map((_, i) => `@seg${i}`).join(', ')})
       `);
+      const segNameMap = Object.fromEntries(
+        segNamesResult.recordset.map(r => [r.SEG_CODE, r.SEGMENT])
+      );
 
-        const segmentName = segmentResult.recordset.length > 0
-          ? segmentResult.recordset[0].SEGMENT
-          : segCode;
-
-        await new sql.Request(transaction)
-          .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
-          .input("SEGMENT", sql.NVarChar, segmentName)
-          .input("SEG_CODE", sql.VarChar, segCode)
-          .query(`
+      const segInsertReq = new sql.Request(transaction);
+      segInsertReq.input('CC', sql.VarChar, COMPANY_CODE);
+      const segValueClauses = segment.map((segCode, i) => {
+        segInsertReq.input(`sn${i}`, sql.NVarChar, segNameMap[segCode] || segCode);
+        segInsertReq.input(`sc${i}`, sql.VarChar, segCode);
+        return `(@CC, @sn${i}, @sc${i})`;
+      });
+      await segInsertReq.query(`
         INSERT INTO dbo.[${TABLES.COMP_SEGMENT_MAP}] (COMPANY_CODE, SEGMENT, SEG_CODE)
-        VALUES (@COMPANY_CODE, @SEGMENT, @SEG_CODE)
+        VALUES ${segValueClauses.join(', ')}
       `);
-      }
     }
 
     await new sql.Request(transaction)
@@ -375,33 +388,30 @@ exports.addCompany = async (req, res) => {
       `);
 
     if (Array.isArray(tags) && tags.length > 0) {
-      for (const tagCode of tags) {
-        if (!tagCode) continue;
+      const validTags = tags.filter(Boolean);
+      if (validTags.length > 0) {
+        const tagLookupReq = new sql.Request(transaction);
+        validTags.forEach((code, i) => tagLookupReq.input(`tag${i}`, sql.VarChar, code));
+        const tagNamesResult = await tagLookupReq.query(`
+          SELECT TAG_CODE, TAG_NAME FROM dbo.[${TABLES.TAGS}]
+          WHERE TAG_CODE IN (${validTags.map((_, i) => `@tag${i}`).join(', ')})
+        `);
+        const tagNameMap = Object.fromEntries(
+          tagNamesResult.recordset.map(r => [r.TAG_CODE, r.TAG_NAME])
+        );
 
-        const tagResult = await new sql.Request(transaction)
-          .input("TAG_CODE", sql.VarChar, tagCode)
-          .query(`
-            SELECT TOP 1 TAG_NAME 
-            FROM dbo.[${TABLES.TAGS}] 
-            WHERE TAG_CODE = @TAG_CODE
-          `);
-
-        const tagName = tagResult.recordset.length > 0
-          ? tagResult.recordset[0].TAG_NAME
-          : tagCode;
-
-        await new sql.Request(transaction)
-          .input("TAG_NAME", sql.NVarChar, tagName)
-          .input("TAG_CODE", sql.VarChar, tagCode)
-          .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
-          .input("PERSON_CODE", sql.VarChar, null)
-          .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
-          .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
-          .query(`
-            INSERT INTO dbo.[${TABLES.TAGS_MAPPING}]  
-            (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
-            VALUES (@TAG_NAME, @TAG_CODE, @COMPANY_CODE, @PERSON_CODE, @CREATED_DATE, @UPDATED_DATE)
-          `);
+        const tagInsertReq = new sql.Request(transaction);
+        tagInsertReq.input('TCC', sql.VarChar, COMPANY_CODE);
+        tagInsertReq.input('TCD', sql.DateTime, CREATED_DATE);
+        const tagValueClauses = validTags.map((tagCode, i) => {
+          tagInsertReq.input(`tn${i}`, sql.NVarChar, tagNameMap[tagCode] || tagCode);
+          tagInsertReq.input(`tc${i}`, sql.VarChar, tagCode);
+          return `(@tn${i}, @tc${i}, @TCC, NULL, @TCD, @TCD)`;
+        });
+        await tagInsertReq.query(`
+          INSERT INTO dbo.[${TABLES.TAGS_MAPPING}] (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
+          VALUES ${tagValueClauses.join(', ')}
+        `);
       }
     }
 
@@ -1100,13 +1110,12 @@ exports.addPerson = async (req, res) => {
     await transaction.begin();
 
     if (Array.isArray(emails) && emails.length > 0) {
-  
       const emailList = emails
         .map(e => (typeof e === "string" ? e : e?.email || e?.value || ""))
         .map(e => e.trim().toLowerCase())
         .filter(e => e.length > 0);
 
-      if (emailList.length > 0) {
+     if (emailList.length > 0) {
         const existingEmailsResult = await new sql.Request(transaction)
           .query(`
             SELECT PERSON_EMAIL
@@ -1256,33 +1265,30 @@ exports.addPerson = async (req, res) => {
 
 
     if (Array.isArray(tags) && tags.length > 0) {
-      for (const tagCode of tags) {
-        if (!tagCode) continue;
+      const validTags = tags.filter(Boolean);
+      if (validTags.length > 0) {
+        const tagLookupReq = new sql.Request(transaction);
+        validTags.forEach((code, i) => tagLookupReq.input(`tag${i}`, sql.VarChar, code));
+        const tagNamesResult = await tagLookupReq.query(`
+          SELECT TAG_CODE, TAG_NAME FROM dbo.[${TABLES.TAGS}]
+          WHERE TAG_CODE IN (${validTags.map((_, i) => `@tag${i}`).join(', ')})
+        `);
+        const tagNameMap = Object.fromEntries(
+          tagNamesResult.recordset.map(r => [r.TAG_CODE, r.TAG_NAME])
+        );
 
-        const tagResult = await new sql.Request(transaction)
-          .input("TAG_CODE", sql.VarChar(50), tagCode)
-          .query(`
-              SELECT TOP 1 TAG_NAME 
-              FROM dbo.[${TABLES.TAGS}] 
-              WHERE TAG_CODE = @TAG_CODE
-            `);
-
-        const tagName = tagResult.recordset.length > 0
-          ? tagResult.recordset[0].TAG_NAME
-          : tagCode;
-
-        await new sql.Request(transaction)
-          .input("TAG_NAME", sql.NVarChar(255), tagName)
-          .input("TAG_CODE", sql.VarChar(50), tagCode)
-          .input("COMPANY_CODE", sql.VarChar(50), null)
-          .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
-          .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
-          .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
-          .query(`
-              INSERT INTO dbo.[${TABLES.TAGS_MAPPING}] 
-              (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
-              VALUES (@TAG_NAME, @TAG_CODE, @COMPANY_CODE, @PERSON_CODE, @CREATED_DATE, @UPDATED_DATE)
-            `);
+        const tagInsertReq = new sql.Request(transaction);
+        tagInsertReq.input('TPC', sql.VarChar, PERSON_CODE);
+        tagInsertReq.input('TCD', sql.DateTime, CREATED_DATE);
+        const tagValueClauses = validTags.map((tagCode, i) => {
+          tagInsertReq.input(`tn${i}`, sql.NVarChar, tagNameMap[tagCode] || tagCode);
+          tagInsertReq.input(`tc${i}`, sql.VarChar, tagCode);
+          return `(@tn${i}, @tc${i}, NULL, @TPC, @TCD, @TCD)`;
+        });
+        await tagInsertReq.query(`
+          INSERT INTO dbo.[${TABLES.TAGS_MAPPING}] (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
+          VALUES ${tagValueClauses.join(', ')}
+        `);
       }
     }
 
@@ -1669,7 +1675,7 @@ exports.GetPersonDetail = async (req, res) => {
           ON ds.PERSON_CODE = m.PERSON_CODE
 
         LEFT JOIN (
-            SELECT TOP 1 *
+            SELECT TOP 1 PERSON_CODE, USER_CODE, UPDATED_DATE
             FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
             WHERE PERSON_CODE = @PERSON_CODE
             ORDER BY UPDATED_DATE DESC
