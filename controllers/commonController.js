@@ -437,8 +437,8 @@ exports.getEventsWithSearch = async (req, res) => {
     const countRequest = pool.request();
 
     if (search.trim() !== "") {
-      query += ` WHERE EVENT_NAME LIKE '%' + @search + '%'`;
-      countQuery += ` WHERE EVENT_NAME LIKE '%' + @search + '%'`;
+      query += ` WHERE EVENT_NAME LIKE '%' + @search + '%' OR EVENT_CODE LIKE '%' + @search + '%'`;
+      countQuery += ` WHERE EVENT_NAME LIKE '%' + @search + '%' OR EVENT_CODE LIKE '%' + @search + '%'`;
 
       request.input("search", sql.VarChar(100), search);
       countRequest.input("search", sql.VarChar(100), search);

@@ -135,7 +135,7 @@ exports.getCompanies = async (req, res) => {
           c.OFC_TYPE,
           c.OLDNAME,
           u.UPDATED_DATE,
-          u.USER_CODE,
+          ISNULL(usr.USERNAME, u.USER_CODE) AS USER_CODE,
           STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRY,
           STRING_AGG(s.SEGMENT, ', ')  AS SEGMENT,
           ISNULL(pc.PERSON_COUNT, 0)   AS PERSON_COUNT,
@@ -145,6 +145,7 @@ exports.getCompanies = async (req, res) => {
         INNER JOIN dbo.[${TABLES.COMP_SEGMENT_MAP}] m ON c.COMPANY_CODE = m.COMPANY_CODE
         INNER JOIN dbo.[${TABLES.INDSEGMENT}] s        ON m.SEG_CODE     = s.SEG_CODE
         ${masterJoin}
+        LEFT JOIN dbo.[USER] usr ON usr.USER_CODE = u.USER_CODE
         LEFT JOIN PersonCounts  pc ON pc.COMPANY_CODE = c.COMPANY_CODE
         LEFT JOIN HistoryCounts hc ON hc.COMPANY_CODE = c.COMPANY_CODE
         ${whereSQL}
@@ -152,7 +153,7 @@ exports.getCompanies = async (req, res) => {
           c.COMPANY_CODE, c.COMPANY_NAME, c.DIVISION, c.ADDRESS, c.CITY,
           c.STATE, c.COUNTRY, c.PINCODE, c.PHONES, c.EMAIL, c.WEBSITE,
           c.OFC_TYPE, c.OLDNAME, u.UPDATED_DATE, u.USER_CODE, u.REMARKS,
-          pc.PERSON_COUNT, hc.HISTORY_COUNT
+          pc.PERSON_COUNT, hc.HISTORY_COUNT, usr.USERNAME
       )
       SELECT *
       FROM CompanyData
@@ -1557,7 +1558,7 @@ exports.getPersonList = async (req, res) => {
           p.DOB,
           p.REMARKS,
           p.MANAGEMENT_REMARKS,
-          COALESCE(lu.USER_CODE, p.USER_CODE) AS USER_CODE,
+          ISNULL(usr.USERNAME, COALESCE(lu.USER_CODE, p.USER_CODE)) AS USER_CODE,
           p.ADDRESS,
           COALESCE(lu.UPDATED_DATE, p.UPDATED_DATE) AS UPDATED_DATE,
           p.CREATED_DATE,
@@ -1575,6 +1576,7 @@ exports.getPersonList = async (req, res) => {
         FROM dbo.[${TABLES.COMP_PERSON}] p
         LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
         LEFT JOIN LatestPersonUpdate lu ON lu.PERSON_CODE = p.PERSON_CODE AND lu.rn = 1
+        LEFT JOIN dbo.[USER] usr ON usr.USER_CODE = COALESCE(lu.USER_CODE, p.USER_CODE)
         ${whereSQL}
       )
 
