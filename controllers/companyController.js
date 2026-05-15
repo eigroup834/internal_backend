@@ -1116,45 +1116,24 @@ exports.addPerson = async (req, res) => {
         .map(e => e.trim().toLowerCase())
         .filter(e => e.length > 0);
 
-     if (emailList.length > 0) {
-        const existingEmailsResult = await new sql.Request(transaction)
-          .query(`
-            SELECT PERSON_EMAIL
-            FROM dbo.[${TABLES.COMP_PERSON}]
-            WHERE PERSON_EMAIL IS NOT NULL AND PERSON_EMAIL <> ''
-          `);
-
-        let duplicateEmail = null;
-
-        for (const row of existingEmailsResult.recordset) {
-          let storedEmails = [];
-          try {
-            const parsed = JSON.parse(row.PERSON_EMAIL);
-            if (Array.isArray(parsed)) {
-              storedEmails = parsed
-                .map(e => (typeof e === "string" ? e : e?.email || e?.value || ""))
-                .map(e => e.trim().toLowerCase())
-                .filter(e => e.length > 0);
-            }
-          } catch (e) {
-            if (typeof row.PERSON_EMAIL === "string") {
-              storedEmails = [row.PERSON_EMAIL.trim().toLowerCase()];
-            }
+      if (emailList.length > 0) {
+        for (const email of emailList) {
+          const dupCheck = await new sql.Request(transaction)
+            .input("emailExact", sql.NVarChar(500), `"${email}"`)
+            .query(`
+              SELECT TOP 1 PERSON_CODE
+              FROM dbo.[${TABLES.COMP_PERSON}]
+              WHERE PERSON_EMAIL IS NOT NULL
+                AND PERSON_EMAIL <> ''
+                AND CHARINDEX(@emailExact, LOWER(PERSON_EMAIL)) > 0
+            `);
+          if (dupCheck.recordset.length > 0) {
+            await transaction.rollback();
+            return res.status(400).json({
+              success: false,
+              message: `Duplicate email "${email}" already exists.`,
+            });
           }
-
-          const match = emailList.find(e => storedEmails.includes(e));
-          if (match) {
-            duplicateEmail = match;
-            break;
-          }
-        }
-
-        if (duplicateEmail) {
-          await transaction.rollback();
-          return res.status(400).json({
-            success: false,
-            message: `Duplicate email "${duplicateEmail}" already exists".`,
-          });
         }
       }
     }
