@@ -264,8 +264,9 @@ exports.addCompany = async (req, res) => {
     const userResult = await new sql.Request(transaction)
       .input("USER_CODE", sql.VarChar, usercode)
       .query(`
-        SELECT ISNULL(DATA_COUNT, 0) AS DATA_COUNT 
-        FROM dbo.[${TABLES.USER}] 
+        UPDATE dbo.[${TABLES.USER}]
+        SET DATA_COUNT = ISNULL(DATA_COUNT, 0) + 1
+        OUTPUT INSERTED.DATA_COUNT
         WHERE USER_CODE = @USER_CODE
       `);
 
@@ -277,8 +278,7 @@ exports.addCompany = async (req, res) => {
       });
     }
 
-    const currentCount = userResult.recordset[0].DATA_COUNT || 0;
-    const nextCount = currentCount + 1;
+    const nextCount = userResult.recordset[0].DATA_COUNT;
     const COMPANY_CODE = `${usercode}${nextCount}`;
     const CREATED_DATE = new Date();
     const Status = 'A';
@@ -379,14 +379,6 @@ exports.addCompany = async (req, res) => {
         INSERT INTO dbo.[${TABLES.DATA_SOURCE}]  
         (SOURCE_CODE, SOURCE_PERSON, SOURCE_TYPE, CREATED_DATE, COMPANY_CODE)
         VALUES (@SOURCE_CODE, @SOURCE_PERSON, @SOURCE_TYPE, @CREATED_DATE, @COMPANY_CODE)
-      `);
-
-    await new sql.Request(transaction)
-      .input("USER_CODE", sql.VarChar, usercode)
-      .query(`
-        UPDATE dbo.[${TABLES.USER}] 
-        SET DATA_COUNT = ISNULL(DATA_COUNT, 0) + 1
-        WHERE USER_CODE = @USER_CODE
       `);
 
     if (Array.isArray(tags) && tags.length > 0) {
@@ -1097,8 +1089,6 @@ exports.addPerson = async (req, res) => {
       participantCategory = []
     } = req.body;
 
-    await transaction.begin();
-
     if (Array.isArray(emails) && emails.length > 0) {
       const emailList = emails
         .map(e => (typeof e === "string" ? e : e?.email || e?.value || ""))
@@ -1106,26 +1096,28 @@ exports.addPerson = async (req, res) => {
         .filter(e => e.length > 0);
 
       if (emailList.length > 0) {
-        for (const email of emailList) {
-          const dupCheck = await new sql.Request(transaction)
-            .input("emailExact", sql.NVarChar(500), `"${email}"`)
-            .query(`
-              SELECT TOP 1 PERSON_CODE
-              FROM dbo.[${TABLES.COMP_PERSON}]
-              WHERE PERSON_EMAIL IS NOT NULL
-                AND PERSON_EMAIL <> ''
-                AND CHARINDEX(@emailExact, LOWER(PERSON_EMAIL)) > 0
-            `);
-          if (dupCheck.recordset.length > 0) {
-            await transaction.rollback();
-            return res.status(400).json({
-              success: false,
-              message: `Duplicate email "${email}" already exists.`,
-            });
-          }
+        const dupReq = (await poolPromise).request();
+        const conditions = emailList.map((email, i) => {
+          dupReq.input(`emailExact${i}`, sql.NVarChar(500), `"${email}"`);
+          return `CHARINDEX(@emailExact${i}, LOWER(PERSON_EMAIL)) > 0`;
+        });
+        const dupCheck = await dupReq.query(`
+          SELECT TOP 1 PERSON_CODE
+          FROM dbo.[${TABLES.COMP_PERSON}]
+          WHERE PERSON_EMAIL IS NOT NULL
+            AND PERSON_EMAIL <> ''
+            AND (${conditions.join(' OR ')})
+        `);
+        if (dupCheck.recordset.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Duplicate email already exists.",
+          });
         }
       }
     }
+
+    await transaction.begin();
 
     const PERSON_CODE = generatePersonCode();
     const CREATED_DATE = new Date();
