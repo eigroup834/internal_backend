@@ -256,7 +256,8 @@ exports.addCompany = async (req, res) => {
       name, emails, website, phones, addresses, pincode,
       remarks, division, specialremarks, country, state, city,
       segment = [], usercode, sourcecode, sourceperson, sourcetype, oldname, tags = [],
-      nature, orgtype, assocmember, groupCode = null
+      nature, orgtype, assocmember, groupCode = null,
+      isdCode = "", stdCode = ""
     } = req.body;
 
     await transaction.begin();
@@ -314,10 +315,12 @@ exports.addCompany = async (req, res) => {
       .input("NATURE", sql.NVarChar(255), nature || "")
       .input("ORG_TYPE", sql.NVarChar(255), orgtype || "")
       .input("ASSOC_MEMBER", sql.NVarChar(255), assocmember || "")
+      .input("ISDCODE", sql.NVarChar(20), isdCode || "")
+      .input("STDCODE", sql.NVarChar(20), stdCode || "")
       .query(`
         INSERT INTO dbo.[${TABLES.COMPANY_DETAIL}]
-        (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, CREATED_DATE, NATURE, ORG_TYPE, ASSOC_MEMBER)
-        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @CREATED_DATE, @NATURE, @ORG_TYPE, @ASSOC_MEMBER)
+        (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, CREATED_DATE, NATURE, ORG_TYPE, ASSOC_MEMBER, ISDCODE, STDCODE)
+        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @CREATED_DATE, @NATURE, @ORG_TYPE, @ASSOC_MEMBER, @ISDCODE, @STDCODE)
       `);
 
     await new sql.Request(transaction)
@@ -448,7 +451,8 @@ exports.EditCompany = async (req, res) => {
       name, emails, website, phones, addresses, pincode,
       remarks, division, specialremarks, country, state, city,
       segment, oldname, usercode,
-      nature, orgtype, assocmember, groupCode = null
+      nature, orgtype, assocmember, groupCode = null,
+      isdCode = "", stdCode = ""
     } = req.body;
 
     if (!companyCode) {
@@ -492,6 +496,8 @@ exports.EditCompany = async (req, res) => {
       .input("NATURE", sql.NVarChar(255), nature || "")
       .input("ORG_TYPE", sql.NVarChar(255), orgtype || "")
       .input("ASSOC_MEMBER", sql.NVarChar(255), assocmember || "")
+      .input("ISDCODE", sql.NVarChar(20), isdCode || "")
+      .input("STDCODE", sql.NVarChar(20), stdCode || "")
       .query(`
         UPDATE dbo.[${TABLES.COMPANY_DETAIL}]
         SET COMPANY_NAME = @COMPANY_NAME,
@@ -508,7 +514,9 @@ exports.EditCompany = async (req, res) => {
             UPDATED_DATE = @UPDATED_DATE,
             NATURE = @NATURE,
             ORG_TYPE = @ORG_TYPE,
-            ASSOC_MEMBER = @ASSOC_MEMBER
+            ASSOC_MEMBER = @ASSOC_MEMBER,
+            ISDCODE = @ISDCODE,
+            STDCODE = @STDCODE
         WHERE COMPANY_CODE = @COMPANY_CODE
       `);
 
@@ -616,6 +624,8 @@ exports.GetCompanyDetail = async (req, res) => {
           d.NATURE,
           d.ORG_TYPE,
           d.ASSOC_MEMBER,
+          d.ISDCODE,
+          d.STDCODE,
           ds.SOURCE_CODE,
           ds.SOURCE_PERSON,
           ds.SOURCE_TYPE,
