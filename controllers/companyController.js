@@ -1360,7 +1360,12 @@ exports.getCompPersonList = async (req, res) => {
       : "";
 
     const dataQuery = `
-      WITH PersonData AS (
+      WITH HistoryCounts AS (
+        SELECT PERSON_CODE, COUNT(*) AS CNT
+        FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
+        GROUP BY PERSON_CODE
+      ),
+      PersonData AS (
         SELECT
           p.PERSON_CODE,
           p.COMPANY_CODE,
@@ -1378,18 +1383,12 @@ exports.getCompPersonList = async (req, res) => {
           p.ADDRESS,
           p.UPDATED_DATE,
           p.CREATED_DATE,
-
-          (
-            SELECT COUNT(*)
-            FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] ph
-            WHERE ph.PERSON_CODE = p.PERSON_CODE
-          ) AS HISTORY_COUNT,
-
+          ISNULL(hc.CNT, 0) AS HISTORY_COUNT,
           ROW_NUMBER() OVER (
             ORDER BY p.[${sortColumn}] ${sortDir}
           ) AS RowNum
-
         FROM dbo.[${TABLES.COMP_PERSON}] p
+        LEFT JOIN HistoryCounts hc ON hc.PERSON_CODE = p.PERSON_CODE
         ${whereSQL}
       )
 
@@ -1530,7 +1529,12 @@ exports.getPersonList = async (req, res) => {
         : "";
 
     const query = `
-      WITH LatestPersonUpdate AS (
+      WITH HistoryCounts AS (
+        SELECT PERSON_CODE, COUNT(*) AS CNT
+        FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
+        GROUP BY PERSON_CODE
+      ),
+      LatestPersonUpdate AS (
         SELECT PERSON_CODE, USER_CODE, UPDATED_DATE,
                ROW_NUMBER() OVER (PARTITION BY PERSON_CODE ORDER BY UPDATED_DATE DESC) AS rn
         FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
@@ -1546,6 +1550,7 @@ exports.getPersonList = async (req, res) => {
           p.DESIG,
           p.DEPT,
           p.MOBILE,
+          p.OLD_MOBILE,
           p.PERSON_EMAIL,
           p.DOB,
           p.REMARKS,
@@ -1554,12 +1559,7 @@ exports.getPersonList = async (req, res) => {
           p.ADDRESS,
           COALESCE(lu.UPDATED_DATE, p.UPDATED_DATE) AS UPDATED_DATE,
           p.CREATED_DATE,
-
-          (
-            SELECT COUNT(*)
-            FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] h
-            WHERE h.PERSON_CODE = p.PERSON_CODE
-          ) AS HISTORY_COUNT,
+          ISNULL(hc.CNT, 0) AS HISTORY_COUNT,
 
           ROW_NUMBER() OVER (
             ORDER BY ${orderByExpr}
@@ -1567,6 +1567,7 @@ exports.getPersonList = async (req, res) => {
 
         FROM dbo.[${TABLES.COMP_PERSON}] p
         LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
+        LEFT JOIN HistoryCounts hc ON hc.PERSON_CODE = p.PERSON_CODE
         LEFT JOIN LatestPersonUpdate lu ON lu.PERSON_CODE = p.PERSON_CODE AND lu.rn = 1
         LEFT JOIN dbo.[USER] usr ON usr.USER_CODE = COALESCE(lu.USER_CODE, p.USER_CODE)
         ${whereSQL}
@@ -1620,6 +1621,7 @@ exports.GetPersonDetail = async (req, res) => {
           m.DESIG,
           m.DEPT,
           m.MOBILE,
+          m.OLD_MOBILE,
           m.PERSON_EMAIL,
           m.DOB,
           m.REMARKS,
