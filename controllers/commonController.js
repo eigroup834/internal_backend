@@ -310,7 +310,7 @@ exports.getEvents = async (req, res) => {
     }
 
     query += `
-      ORDER BY EVENT_YEAR DESC, CREATED_DATE DESC
+      ORDER BY CREATED_DATE DESC
       OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
     `;
 
