@@ -835,6 +835,7 @@ exports.addCompanyHistory = async (req, res) => {
       EXH_NAME,
       EXH_YEAR,
       EXH_LOCATION,
+      EVENT,
       ATTENDEE,
       REVENUE,
       REV_UNIT,
@@ -906,6 +907,7 @@ exports.addCompanyHistory = async (req, res) => {
       .input("EXH_YEAR", sql.VarChar(50), EXH_YEAR)
       .input("ATTENDEE", sql.NVarChar(255), ATTENDEE || "")
       .input("EXH_LOCATION", sql.NVarChar(255), EXH_LOCATION)
+      .input("EVENT", sql.NVarChar(200), EVENT || "")
       .input("REVENUE", sql.Decimal(18, 2), REVENUE || 0)
       .input("REV_UNIT", sql.Decimal(18, 2), REV_UNIT || 0)
       .input("AREA", sql.Decimal(18, 2), AREA || 0)
@@ -921,9 +923,9 @@ exports.addCompanyHistory = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_EXH_HISTORY}]
-        (COMPANY_CODE, COMPANY_NAME, EXH_CODE, ATTENDEE, EXH_NAME, EXH_YEAR, EXH_LOCATION, REVENUE, REV_UNIT, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, USER_CODE, CREATED_DATE, UPDATED_DATE, FEEDBACK, Info_1, Info_2, Info_3)
+        (COMPANY_CODE, COMPANY_NAME, EXH_CODE, ATTENDEE, EXH_NAME, EXH_YEAR, EXH_LOCATION, EVENT, REVENUE, REV_UNIT, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, USER_CODE, CREATED_DATE, UPDATED_DATE, FEEDBACK, Info_1, Info_2, Info_3)
         VALUES
-        (@COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @ATTENDEE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @REVENUE, @REV_UNIT, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @USER_CODE, @CREATED_DATE, @UPDATED_DATE, @FEEDBACK, @Info_1, @Info_2, @Info_3)
+        (@COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @ATTENDEE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @EVENT, @REVENUE, @REV_UNIT, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @USER_CODE, @CREATED_DATE, @UPDATED_DATE, @FEEDBACK, @Info_1, @Info_2, @Info_3)
       `);
 
     await transaction.commit();
@@ -1914,6 +1916,7 @@ exports.addPersonHistory = async (req, res) => {
       EXH_CODE,
       EXH_NAME,
       EXH_YEAR,
+      EVENT,
       ATTENDEE,
       SPEAKER,
       PROSPECT,
@@ -1984,6 +1987,7 @@ exports.addPersonHistory = async (req, res) => {
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
       .input("EXH_YEAR", sql.VarChar(50), EXH_YEAR)
+      .input("EVENT", sql.NVarChar(200), EVENT || "")
       .input("ATTENDEE", sql.NVarChar(255), ATTENDEE || "")
       .input("SPEAKER", sql.NVarChar(10), SPEAKER || "No")
       .input("VISITOR", sql.NVarChar(10), VISITOR || "No")
@@ -2006,15 +2010,15 @@ exports.addPersonHistory = async (req, res) => {
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         (
-          PERSON_CODE, EXH_CODE, EXH_NAME, EXH_YEAR,
-          SPEAKER, VISITOR, INVITEE, MARKETING, PROSPECT, ATTENDEE, BUYER,  DELEGATE_INTERNATIONAL, 
+          PERSON_CODE, EXH_CODE, EXH_NAME, EXH_YEAR, EVENT,
+          SPEAKER, VISITOR, INVITEE, MARKETING, PROSPECT, ATTENDEE, BUYER,  DELEGATE_INTERNATIONAL,
           DELEGATE_NATIONAL, INVESTOR, MEDIA, ORGANISER, POTENTIAL_EXHIBITOR, VIP,
           USER_CODE, CREATED_DATE, UPDATED_DATE
         )
         VALUES
         (
-          @PERSON_CODE, @EXH_CODE, @EXH_NAME, @EXH_YEAR,
-          @SPEAKER, @VISITOR, @INVITEE, @MARKETING, @PROSPECT, @ATTENDEE, @BUYER,  @DELEGATE_INTERNATIONAL, 
+          @PERSON_CODE, @EXH_CODE, @EXH_NAME, @EXH_YEAR, @EVENT,
+          @SPEAKER, @VISITOR, @INVITEE, @MARKETING, @PROSPECT, @ATTENDEE, @BUYER,  @DELEGATE_INTERNATIONAL,
           @DELEGATE_NATIONAL, @INVESTOR, @MEDIA, @ORGANISER, @POTENTIAL_EXHIBITOR, @VIP,
           @USER_CODE, @CREATED_DATE, @UPDATED_DATE
         )
