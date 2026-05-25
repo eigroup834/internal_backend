@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "c:\\Projects\\Database-Software\\ex_internal\\frontend\\src\\features\\companies\\EditCompanyHistory"
+    ]
+  }
+}
