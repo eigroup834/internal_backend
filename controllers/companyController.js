@@ -1379,6 +1379,11 @@ exports.getCompPersonList = async (req, res) => {
         FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         GROUP BY PERSON_CODE
       ),
+      LatestPersonUpdate AS (
+        SELECT PERSON_CODE, USER_CODE, UPDATED_DATE,
+               ROW_NUMBER() OVER (PARTITION BY PERSON_CODE ORDER BY UPDATED_DATE DESC) AS rn
+        FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
+      ),
       PersonData AS (
         SELECT
           p.PERSON_CODE,
@@ -1389,13 +1394,15 @@ exports.getCompPersonList = async (req, res) => {
           p.DESIG,
           p.DEPT,
           p.MOBILE,
+          p.OLD_MOBILE,
           p.PERSON_EMAIL,
           p.DOB,
           p.REMARKS,
+          p.PERSON_CUPD_REMARK,
           p.MANAGEMENT_REMARKS,
           p.USER_CODE,
           p.ADDRESS,
-          p.UPDATED_DATE,
+          COALESCE(lu.UPDATED_DATE, p.UPDATED_DATE) AS UPDATED_DATE,
           p.CREATED_DATE,
           ISNULL(hc.CNT, 0) AS HISTORY_COUNT,
           ROW_NUMBER() OVER (
@@ -1403,6 +1410,7 @@ exports.getCompPersonList = async (req, res) => {
           ) AS RowNum
         FROM dbo.[${TABLES.COMP_PERSON}] p
         LEFT JOIN HistoryCounts hc ON hc.PERSON_CODE = p.PERSON_CODE
+        LEFT JOIN LatestPersonUpdate lu ON lu.PERSON_CODE = p.PERSON_CODE AND lu.rn = 1
         ${whereSQL}
       )
 
@@ -1568,6 +1576,7 @@ exports.getPersonList = async (req, res) => {
           p.PERSON_EMAIL,
           p.DOB,
           p.REMARKS,
+          p.PERSON_CUPD_REMARK,
           p.MANAGEMENT_REMARKS,
           ISNULL(usr.USERNAME, COALESCE(lu.USER_CODE, p.USER_CODE)) AS USER_CODE,
           p.ADDRESS,
@@ -1865,15 +1874,54 @@ exports.getPersonExhHistory = async (req, res) => {
       .input("OFFSET", sql.Int, offset)
       .input("LIMIT", sql.Int, parseInt(limit))
       .query(`
-        SELECT h.*, h.event AS EVENT, u.USERNAME AS ADDED_BY,
-          p.FNAME, p.LNAME, p.COMPANY_CODE,
+        SELECT
+          h.EXH_CODE,
+          h.PERSON_CODE,
+          h.SPEAKER,
+          h.VISITOR,
+          h.DELEGATE_NATIONAL,
+          h.INVITEE,
+          h.EXH_NAME,
+          h.EXH_YEAR,
+          h.ATTENDEE,
+          h.USER_CODE,
+          h.CREATED_DATE,
+          h.UPDATED_DATE,
+          h.MARKETING,
+          h.PROSPECT,
+          h.BUYER,
+          h.DELEGATE_INTERNATIONAL,
+          h.INVESTOR,
+          h.MEDIA,
+          h.ORGANISER,
+          h.POTENTIAL_EXHIBITOR,
+          h.VIP,
+          h.REMARKS,
+          h.event AS EVENT,
+
+          u.USERNAME AS ADDED_BY,
+
+          p.FNAME,
+          p.LNAME,
+          p.COMPANY_CODE,
+
           cd.COMPANY_NAME
+
         FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] h
-        LEFT JOIN dbo.[USER] u ON h.USER_CODE = u.USER_CODE
-        LEFT JOIN dbo.[${TABLES.COMP_PERSON}] p ON p.PERSON_CODE = h.PERSON_CODE
-        LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
+
+        LEFT JOIN dbo.[USER] u
+          ON h.USER_CODE = u.USER_CODE
+
+        LEFT JOIN dbo.[${TABLES.COMP_PERSON}] p
+          ON p.PERSON_CODE = h.PERSON_CODE
+
+        LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd
+          ON cd.COMPANY_CODE = p.COMPANY_CODE
+
         WHERE h.PERSON_CODE = @PERSON_CODE
+
         ORDER BY h.CREATED_DATE DESC
+
         OFFSET @OFFSET ROWS
         FETCH NEXT @LIMIT ROWS ONLY
       `);
