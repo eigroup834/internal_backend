@@ -1356,13 +1356,13 @@ exports.getCompPersonList = async (req, res) => {
 
     if (search) {
       const likeClauses = [
-        "[FNAME] LIKE @search",
-        "[LNAME] LIKE @search",
-        "(FNAME + ' ' + LNAME) LIKE @search",
-        "(LNAME + ' ' + FNAME) LIKE @search",
-        "[PERSON_EMAIL] LIKE @search",
-        "[USER_CODE] LIKE @search",
-        "[MOBILE] LIKE @search",
+        "p.[FNAME] LIKE @search",
+        "p.[LNAME] LIKE @search",
+        "(p.FNAME + ' ' + p.LNAME) LIKE @search",
+        "(p.LNAME + ' ' + p.FNAME) LIKE @search",
+        "p.[PERSON_EMAIL] LIKE @search",
+        "p.[USER_CODE] LIKE @search",
+        "p.[MOBILE] LIKE @search",
       ];
 
       whereClauses.push("(" + likeClauses.join(" OR ") + ")");
@@ -1384,47 +1384,50 @@ exports.getCompPersonList = async (req, res) => {
       WITH HistoryCounts AS (
         SELECT PERSON_CODE, COUNT(*) AS CNT
         FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
+        WHERE PERSON_CODE IN (
+          SELECT PERSON_CODE FROM dbo.[${TABLES.COMP_PERSON}] WHERE COMPANY_CODE = @companyCode
+        )
         GROUP BY PERSON_CODE
       ),
       LatestPersonUpdate AS (
-        SELECT PERSON_CODE, USER_CODE, UPDATED_DATE,
-               ROW_NUMBER() OVER (PARTITION BY PERSON_CODE ORDER BY UPDATED_DATE DESC) AS rn
-        FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
-      ),
-      PersonData AS (
-        SELECT
-          p.PERSON_CODE,
-          p.COMPANY_CODE,
-          p.PREFIX,
-          p.FNAME,
-          p.LNAME,
-          p.DESIG,
-          p.DEPT,
-          p.MOBILE,
-          p.OLD_MOBILE,
-          p.PERSON_EMAIL,
-          p.DOB,
-          p.REMARKS,
-          p.PERSON_CUPD_REMARK,
-          p.MANAGEMENT_REMARKS,
-          ISNULL(usr.USERNAME, COALESCE(lu.USER_CODE, p.USER_CODE)) AS USER_CODE,
-          p.ADDRESS,
-          COALESCE(lu.UPDATED_DATE, p.UPDATED_DATE) AS UPDATED_DATE,
-          p.CREATED_DATE,
-          ISNULL(hc.CNT, 0) AS HISTORY_COUNT,
-          ROW_NUMBER() OVER (
-            ORDER BY p.[${sortColumn}] ${sortDir}
-          ) AS RowNum
-        FROM dbo.[${TABLES.COMP_PERSON}] p
-        LEFT JOIN HistoryCounts hc ON hc.PERSON_CODE = p.PERSON_CODE
-        LEFT JOIN LatestPersonUpdate lu ON lu.PERSON_CODE = p.PERSON_CODE AND lu.rn = 1
-        LEFT JOIN dbo.[USER] usr ON usr.USER_CODE = COALESCE(lu.USER_CODE, p.USER_CODE)
-        ${whereSQL}
+        SELECT PERSON_CODE, USER_CODE, UPDATED_DATE
+        FROM (
+          SELECT PERSON_CODE, USER_CODE, UPDATED_DATE,
+                 ROW_NUMBER() OVER (PARTITION BY PERSON_CODE ORDER BY UPDATED_DATE DESC) AS rn
+          FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
+          WHERE PERSON_CODE IN (
+            SELECT PERSON_CODE FROM dbo.[${TABLES.COMP_PERSON}] WHERE COMPANY_CODE = @companyCode
+          )
+        ) t WHERE t.rn = 1
       )
 
-      SELECT *
-      FROM PersonData
-      WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
+      SELECT
+        p.PERSON_CODE,
+        p.COMPANY_CODE,
+        p.PREFIX,
+        p.FNAME,
+        p.LNAME,
+        p.DESIG,
+        p.DEPT,
+        p.MOBILE,
+        p.OLD_MOBILE,
+        p.PERSON_EMAIL,
+        p.DOB,
+        p.REMARKS,
+        p.PERSON_CUPD_REMARK,
+        p.MANAGEMENT_REMARKS,
+        ISNULL(usr.USERNAME, COALESCE(lu.USER_CODE, p.USER_CODE)) AS USER_CODE,
+        p.ADDRESS,
+        COALESCE(lu.UPDATED_DATE, p.UPDATED_DATE) AS UPDATED_DATE,
+        p.CREATED_DATE,
+        ISNULL(hc.CNT, 0) AS HISTORY_COUNT
+      FROM dbo.[${TABLES.COMP_PERSON}] p
+      LEFT JOIN HistoryCounts hc ON hc.PERSON_CODE = p.PERSON_CODE
+      LEFT JOIN LatestPersonUpdate lu ON lu.PERSON_CODE = p.PERSON_CODE
+      LEFT JOIN dbo.[USER] usr ON usr.USER_CODE = COALESCE(lu.USER_CODE, p.USER_CODE)
+      ${whereSQL}
+      ORDER BY p.[${sortColumn}] ${sortDir}
+      OFFSET ${offset} ROWS FETCH NEXT ${limitNum} ROWS ONLY;
     `;
 
     const countQuery = `
