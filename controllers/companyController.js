@@ -295,9 +295,9 @@ exports.addCompany = async (req, res) => {
       .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
       .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
       .query(`
-        INSERT INTO dbo.[${TABLES.COMP_MASTER}] 
-        (COMPANY_CODE, USER_CODE, CREATED_DATE, SOURCE_CODE, ACTIVE, REMARKS, MANAGEMENT_REMARKS)
-        VALUES (@COMPANY_CODE, @USER_CODE, @CREATED_DATE, @SOURCE_CODE, @ACTIVE, @REMARKS, @MANAGEMENT_REMARKS)
+        INSERT INTO dbo.[${TABLES.COMP_MASTER}]
+        (COMPANY_CODE, USER_CODE, USERNAME, CREATED_DATE, SOURCE_CODE, ACTIVE, REMARKS, MANAGEMENT_REMARKS)
+        VALUES (@COMPANY_CODE, @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @CREATED_DATE, @SOURCE_CODE, @ACTIVE, @REMARKS, @MANAGEMENT_REMARKS)
       `);
 
     await new sql.Request(transaction)
@@ -346,8 +346,8 @@ exports.addCompany = async (req, res) => {
       .input("ASSOC_MEMBER", sql.NVarChar(255), assocmember || "")
       .query(`
         INSERT INTO dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]
-        (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE, STATUS, NATURE, ORG_TYPE, ASSOC_MEMBER)
-        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE, @STATUS, @NATURE, @ORG_TYPE, @ASSOC_MEMBER)
+        (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE, USERNAME, STATUS, NATURE, ORG_TYPE, ASSOC_MEMBER)
+        VALUES (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @STATUS, @NATURE, @ORG_TYPE, @ASSOC_MEMBER)
       `);
 
     if (Array.isArray(segment) && segment.length > 0) {
@@ -470,14 +470,17 @@ exports.EditCompany = async (req, res) => {
 
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+      .input("USER_CODE", sql.VarChar(50), usercode)
       .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
       .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
-        UPDATE dbo.[${TABLES.COMP_MASTER}] 
+        UPDATE dbo.[${TABLES.COMP_MASTER}]
         SET REMARKS = @REMARKS,
             MANAGEMENT_REMARKS = @MANAGEMENT_REMARKS,
-            UPDATED_DATE = @UPDATED_DATE
+            UPDATED_DATE = @UPDATED_DATE,
+            USER_CODE = @USER_CODE,
+            USERNAME = (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE)
         WHERE COMPANY_CODE = @COMPANY_CODE
       `);
 
@@ -543,9 +546,9 @@ exports.EditCompany = async (req, res) => {
       .input("ASSOC_MEMBER", sql.NVarChar(255), assocmember || "")
       .query(`
         INSERT INTO dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]
-          (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE, STATUS, NATURE, ORG_TYPE, ASSOC_MEMBER)
+          (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, UPDATED_DATE, USER_CODE, USERNAME, STATUS, NATURE, ORG_TYPE, ASSOC_MEMBER)
         VALUES
-          (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE, @STATUS, @NATURE, @ORG_TYPE, @ASSOC_MEMBER)
+          (@COMPANY_CODE, @COMPANY_NAME, @DIVISION, @OLDNAME, @ADDRESS, @CITY, @PINCODE, @STATE, @COUNTRY, @PHONES, @EMAIL, @WEBSITE, @UPDATED_DATE, @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @STATUS, @NATURE, @ORG_TYPE, @ASSOC_MEMBER)
       `);
 
     await new sql.Request(transaction)
@@ -637,7 +640,7 @@ exports.GetCompanyDetail = async (req, res) => {
           -- LAST UPDATED DETAILS
           h.UPDATED_DATE AS LAST_UPDATED_DATE,
           h.USER_CODE AS LAST_UPDATED_BY_CODE,
-          u.USERNAME AS LAST_UPDATED_BY_USERNAME,
+          ISNULL(u.USERNAME, h.USER_CODE) AS LAST_UPDATED_BY_USERNAME,
 
           seg.INDUSTRY,
           seg.SEG_CODES,
@@ -925,9 +928,9 @@ exports.addCompanyHistory = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_EXH_HISTORY}]
-        (COMPANY_CODE, COMPANY_NAME, EXH_CODE, ATTENDEE, EXH_NAME, EXH_YEAR, EXH_LOCATION, EVENT, REVENUE, REV_UNIT, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, EXHIBIT, USER_CODE, CREATED_DATE, UPDATED_DATE, FEEDBACK, Info_1, Info_2, Info_3)
+        (COMPANY_CODE, COMPANY_NAME, EXH_CODE, ATTENDEE, EXH_NAME, EXH_YEAR, EXH_LOCATION, EVENT, REVENUE, REV_UNIT, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, EXHIBIT, USER_CODE, USERNAME, CREATED_DATE, UPDATED_DATE, FEEDBACK, Info_1, Info_2, Info_3)
         VALUES
-        (@COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @ATTENDEE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @EVENT, @REVENUE, @REV_UNIT, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @EXHIBIT, @USER_CODE, @CREATED_DATE, @UPDATED_DATE, @FEEDBACK, @Info_1, @Info_2, @Info_3)
+        (@COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @ATTENDEE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @EVENT, @REVENUE, @REV_UNIT, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @EXHIBIT, @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @CREATED_DATE, @UPDATED_DATE, @FEEDBACK, @Info_1, @Info_2, @Info_3)
       `);
 
     await transaction.commit();
@@ -975,7 +978,7 @@ exports.getCompanyExhHistory = async (req, res) => {
       .input("OFFSET", sql.Int, offset)
       .input("LIMIT", sql.Int, parseInt(limit))
       .query(`
-        SELECT h.*, h.event AS EVENT, u.USERNAME AS ADDED_BY
+        SELECT h.*, h.event AS EVENT, ISNULL(u.USERNAME, h.USER_CODE) AS ADDED_BY
         FROM dbo.[${TABLES.COMP_EXH_HISTORY}] h
         LEFT JOIN dbo.[USER] u ON h.USER_CODE = u.USER_CODE
         WHERE h.COMPANY_CODE = @COMPANY_CODE
@@ -1171,8 +1174,8 @@ exports.addPerson = async (req, res) => {
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON}]
-        (PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL, DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, ADDRESS, PERSON_CUPD_REMARK, UPDATED_DATE, CREATED_DATE, PARTICIPANT_CATEGORY)
-        VALUES (@PERSON_CODE, @COMPANY_CODE, @PREFIX, @FNAME, @LNAME, @DESIG, @DEPT, @MOBILE, @PERSON_EMAIL, @DOB, @REMARKS, @CONTACTDATE, @MANAGEMENT_REMARKS, @USER_CODE, @ADDRESS, @PERSON_CUPD_REMARK, @UPDATED_DATE, @CREATED_DATE, @PARTICIPANT_CATEGORY)
+        (PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL, DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, USERNAME, ADDRESS, PERSON_CUPD_REMARK, UPDATED_DATE, CREATED_DATE, PARTICIPANT_CATEGORY)
+        VALUES (@PERSON_CODE, @COMPANY_CODE, @PREFIX, @FNAME, @LNAME, @DESIG, @DEPT, @MOBILE, @PERSON_EMAIL, @DOB, @REMARKS, @CONTACTDATE, @MANAGEMENT_REMARKS, @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @ADDRESS, @PERSON_CUPD_REMARK, @UPDATED_DATE, @CREATED_DATE, @PARTICIPANT_CATEGORY)
       `);
 
     await new sql.Request(transaction)
@@ -1190,7 +1193,7 @@ exports.addPerson = async (req, res) => {
       .input("REMARKS", sql.VarChar(75), remarks || "")
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
       .input("MANAGEMENT_REMARKS", sql.VarChar(75), management_remarks || "")
-      .input("USER_CODE", sql.VarChar(10), usercode)
+      .input("USER_CODE", sql.VarChar(50), usercode)
       .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
@@ -1211,6 +1214,7 @@ exports.addPerson = async (req, res) => {
           CONTACTDATE,
           MANAGEMENT_REMARKS,
           USER_CODE,
+          USERNAME,
           ADDRESS,
           PERSON_CUPD_REMARK,
           UPDATED_DATE,
@@ -1232,6 +1236,7 @@ exports.addPerson = async (req, res) => {
           @CONTACTDATE,
           @MANAGEMENT_REMARKS,
           @USER_CODE,
+          (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE),
           @ADDRESS,
           @PERSON_CUPD_REMARK,
           @UPDATED_DATE,
@@ -1402,7 +1407,7 @@ exports.getCompPersonList = async (req, res) => {
           p.REMARKS,
           p.PERSON_CUPD_REMARK,
           p.MANAGEMENT_REMARKS,
-          p.USER_CODE,
+          ISNULL(usr.USERNAME, COALESCE(lu.USER_CODE, p.USER_CODE)) AS USER_CODE,
           p.ADDRESS,
           COALESCE(lu.UPDATED_DATE, p.UPDATED_DATE) AS UPDATED_DATE,
           p.CREATED_DATE,
@@ -1413,6 +1418,7 @@ exports.getCompPersonList = async (req, res) => {
         FROM dbo.[${TABLES.COMP_PERSON}] p
         LEFT JOIN HistoryCounts hc ON hc.PERSON_CODE = p.PERSON_CODE
         LEFT JOIN LatestPersonUpdate lu ON lu.PERSON_CODE = p.PERSON_CODE AND lu.rn = 1
+        LEFT JOIN dbo.[USER] usr ON usr.USER_CODE = COALESCE(lu.USER_CODE, p.USER_CODE)
         ${whereSQL}
       )
 
@@ -1662,7 +1668,7 @@ exports.GetPersonDetail = async (req, res) => {
 
           h.UPDATED_DATE AS LAST_UPDATED_DATE,
           h.USER_CODE AS LAST_UPDATED_BY_CODE,
-          u.USERNAME AS LAST_UPDATED_BY_USERNAME
+          ISNULL(u.USERNAME, h.USER_CODE) AS LAST_UPDATED_BY_USERNAME
 
         FROM dbo.[${TABLES.COMP_PERSON}] m
 
@@ -1745,7 +1751,7 @@ exports.EditPerson = async (req, res) => {
       .input("REMARKS", sql.VarChar(75), remarks || "")
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
       .input("MANAGEMENT_REMARKS", sql.VarChar(75), management_remarks || "")
-      .input("USER_CODE", sql.VarChar(10), usercode)
+      .input("USER_CODE", sql.VarChar(50), usercode)
       .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
@@ -1765,6 +1771,7 @@ exports.EditPerson = async (req, res) => {
           CONTACTDATE = @CONTACTDATE,
           MANAGEMENT_REMARKS = @MANAGEMENT_REMARKS,
           USER_CODE = @USER_CODE,
+          USERNAME = (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE),
           ADDRESS = @ADDRESS,
           PERSON_CUPD_REMARK = @PERSON_CUPD_REMARK,
           UPDATED_DATE = @UPDATED_DATE,
@@ -1787,7 +1794,7 @@ exports.EditPerson = async (req, res) => {
       .input("REMARKS", sql.VarChar(75), remarks || "")
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
       .input("MANAGEMENT_REMARKS", sql.VarChar(75), management_remarks || "")
-      .input("USER_CODE", sql.VarChar(10), usercode)
+      .input("USER_CODE", sql.VarChar(50), usercode)
       .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
@@ -1808,6 +1815,7 @@ exports.EditPerson = async (req, res) => {
           CONTACTDATE,
           MANAGEMENT_REMARKS,
           USER_CODE,
+          USERNAME,
           ADDRESS,
           PERSON_CUPD_REMARK,
           UPDATED_DATE,
@@ -1829,6 +1837,7 @@ exports.EditPerson = async (req, res) => {
           @CONTACTDATE,
           @MANAGEMENT_REMARKS,
           @USER_CODE,
+          (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE),
           @ADDRESS,
           @PERSON_CUPD_REMARK,
           @UPDATED_DATE,
@@ -1901,7 +1910,7 @@ exports.getPersonExhHistory = async (req, res) => {
           h.REMARKS,
           h.event AS EVENT,
 
-          u.USERNAME AS ADDED_BY,
+          ISNULL(u.USERNAME, h.USER_CODE) AS ADDED_BY,
 
           p.FNAME,
           p.LNAME,
@@ -2061,16 +2070,16 @@ exports.addPersonHistory = async (req, res) => {
         INSERT INTO dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         (
           PERSON_CODE, EXH_CODE, EXH_NAME, EXH_YEAR, EVENT,
-          SPEAKER, VISITOR, INVITEE, MARKETING, PROSPECT, ATTENDEE, BUYER,  DELEGATE_INTERNATIONAL,
+          SPEAKER, VISITOR, INVITEE, MARKETING, PROSPECT, ATTENDEE, BUYER, DELEGATE_INTERNATIONAL,
           DELEGATE_NATIONAL, INVESTOR, MEDIA, ORGANISER, POTENTIAL_EXHIBITOR, VIP,
-          USER_CODE, CREATED_DATE, UPDATED_DATE
+          USER_CODE, USERNAME, CREATED_DATE, UPDATED_DATE
         )
         VALUES
         (
           @PERSON_CODE, @EXH_CODE, @EXH_NAME, @EXH_YEAR, @EVENT,
-          @SPEAKER, @VISITOR, @INVITEE, @MARKETING, @PROSPECT, @ATTENDEE, @BUYER,  @DELEGATE_INTERNATIONAL,
+          @SPEAKER, @VISITOR, @INVITEE, @MARKETING, @PROSPECT, @ATTENDEE, @BUYER, @DELEGATE_INTERNATIONAL,
           @DELEGATE_NATIONAL, @INVESTOR, @MEDIA, @ORGANISER, @POTENTIAL_EXHIBITOR, @VIP,
-          @USER_CODE, @CREATED_DATE, @UPDATED_DATE
+          @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @CREATED_DATE, @UPDATED_DATE
         )
       `);
 
