@@ -1148,6 +1148,7 @@ exports.getSalesReport = async (req, res) => {
   try {
     const {
       exhName, yearFrom, yearTo, attendee, event,
+      exhType = "person",
       industries, segments,
       dateFrom, dateTo,
       export: doExport = "false",
@@ -1161,16 +1162,29 @@ exports.getSalesReport = async (req, res) => {
     const industryList = industries ? industries.split(",").filter(Boolean) : [];
     const segmentList  = segments  ? segments.split(",").filter(Boolean)  : [];
 
-    // Build exhibition sub-filter (used in INNER JOIN if any exh filter is active)
-    let exhWhere = "1=1";
+    // Exhibition join — conditionally joins person or company history table
     const needsExhJoin = !!(exhName || yearFrom || yearTo || attendee || event);
-    if (exhName)  { request.input("exhName",  sql.NVarChar, `%${exhName}%`);  exhWhere += " AND EXH_NAME LIKE @exhName"; }
-    if (yearFrom) { request.input("yearFrom", sql.Int, parseInt(yearFrom));    exhWhere += " AND EXH_YEAR >= @yearFrom"; }
-    if (yearTo)   { request.input("yearTo",   sql.Int, parseInt(yearTo));      exhWhere += " AND EXH_YEAR <= @yearTo"; }
-    if (attendee) { request.input("attendee", sql.NVarChar, `%${attendee}%`);  exhWhere += " AND ATTENDEE LIKE @attendee"; }
-    if (event)    { request.input("event",    sql.NVarChar, `%${event}%`);     exhWhere += " AND EVENT LIKE @event"; }
+    let exhJoinSQL = "";
+    let exhSelectSQL = "";
 
-    // Date filters
+    if (needsExhJoin) {
+      const exhConds = ["1=1"];
+      if (exhName)  { request.input("exhName",  sql.NVarChar, `%${exhName}%`);       exhConds.push("EH.EXH_NAME LIKE @exhName"); }
+      if (yearFrom) { request.input("yearFrom", sql.NVarChar, String(yearFrom));      exhConds.push("EH.EXH_YEAR >= @yearFrom"); }
+      if (yearTo)   { request.input("yearTo",   sql.NVarChar, String(yearTo));        exhConds.push("EH.EXH_YEAR <= @yearTo"); }
+      if (attendee) { request.input("attendee", sql.NVarChar, `%${attendee}%`);       exhConds.push("EH.ATTENDEE LIKE @attendee"); }
+      if (event)    { request.input("event",    sql.NVarChar, `%${event}%`);          exhConds.push("EH.EVENT LIKE @event"); }
+
+      const exhOnClause = exhConds.join(" AND ");
+      if (exhType === "company") {
+        exhJoinSQL = `INNER JOIN dbo.[${TABLES.COMP_EXH_HISTORY}] EH ON EH.COMPANY_CODE = CP.COMPANY_CODE AND ${exhOnClause}`;
+      } else {
+        exhJoinSQL = `INNER JOIN dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] EH ON EH.PERSON_CODE = CP.PERSON_CODE AND ${exhOnClause}`;
+      }
+      exhSelectSQL = `,\n        EH.EXH_NAME AS EXH_NAME, EH.EXH_YEAR AS EXH_YEAR, EH.EVENT AS EXH_EVENT, EH.ATTENDEE AS EXH_ATTENDEE`;
+    }
+
+    // Date filters on person updated date
     if (dateFrom) { request.input("dateFrom", sql.Date, dateFrom); whereClauses.push("CAST(CP.UPDATED_DATE AS DATE) >= @dateFrom"); }
     if (dateTo)   { request.input("dateTo",   sql.Date, dateTo);   whereClauses.push("CAST(CP.UPDATED_DATE AS DATE) <= @dateTo"); }
 
@@ -1183,11 +1197,8 @@ exports.getSalesReport = async (req, res) => {
       whereClauses.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m3 WHERE m3.COMPANY_CODE=CP.COMPANY_CODE AND m3.SEG_CODE IN (${p.join(",")}))`);
     }
 
-    const whereSQL   = "WHERE " + whereClauses.join(" AND ");
-    const topClause  = isExport ? "" : "TOP 300";
-    const exhJoinSQL = needsExhJoin
-      ? `INNER JOIN (SELECT DISTINCT COMPANY_CODE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] WHERE ${exhWhere}) CE ON CE.COMPANY_CODE = CP.COMPANY_CODE`
-      : "";
+    const whereSQL  = "WHERE " + whereClauses.join(" AND ");
+    const topClause = isExport ? "" : "TOP 300";
 
     const query = `
       WITH CompSegInfo AS (
@@ -1203,11 +1214,12 @@ exports.getSalesReport = async (req, res) => {
         LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
         CASE WHEN ISJSON(CP.DESIG)=1 THEN JSON_VALUE(CP.DESIG,'$[0].value') ELSE CP.DESIG END AS DESIGNATION,
         CASE WHEN ISJSON(CP.DESIG)=1 THEN JSON_VALUE(CP.DESIG,'$[0].rank')  ELSE NULL      END AS RANK_,
-        CP.DEPT,
+        CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT, '$[0]')       ELSE CP.DEPT   END AS DEPT_1,
+        CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT, '$[1]')       ELSE NULL       END AS DEPT_2,
         CD.COMPANY_NAME, CD.DIVISION,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line1') ELSE NULL END AS ADD_1,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line2') ELSE NULL END AS ADD_2,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line3') ELSE NULL END AS ADD_3,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line1') ELSE NULL END AS COMP_ADD_1,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line2') ELSE NULL END AS COMP_ADD_2,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line3') ELSE NULL END AS COMP_ADD_3,
         CD.CITY, CD.STATE, CD.COUNTRY, CD.PINCODE, CD.WEBSITE,
         CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[0]') ELSE NULL END AS COMP_EMAIL1,
         CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[1]') ELSE NULL END AS COMP_EMAIL2,
@@ -1221,9 +1233,12 @@ exports.getSalesReport = async (req, res) => {
         CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[1].number') ELSE NULL END AS MOBILE2,
         CP.OLD_MOBILE,
         CP.REMARKS, CP.CONTACTDATE, CP.PERSON_CUPD_REMARK,
-        CP.USER_CODE, CP.UPDATED_DATE, CP.CREATED_DATE,
+        CP.USER_CODE,
+        CP.UPDATED_DATE AS PERSON_UPDATED_DATE,
+        CP.CREATED_DATE AS PERSON_CREATED_DATE,
         CM.REMARKS AS MASTER_REMARKS,
         CSI.INDUSTRIES, CSI.SEGMENTS
+        ${exhSelectSQL}
       FROM dbo.[${TABLES.COMP_PERSON}] CP
       LEFT JOIN dbo.[${TABLES.COMP_MASTER}]    CM  ON CM.COMPANY_CODE  = CP.COMPANY_CODE
       LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD  ON CD.COMPANY_CODE  = CP.COMPANY_CODE
@@ -1241,7 +1256,7 @@ exports.getSalesReport = async (req, res) => {
     }
 
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Sales Report");
+    const sheet = workbook.addWorksheet("Custom Report");
     if (rows.length > 0) {
       const headers = Object.keys(rows[0]);
       const headerRow = sheet.addRow(headers);
@@ -1250,10 +1265,10 @@ exports.getSalesReport = async (req, res) => {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A56DB" } };
       });
       rows.forEach(row => sheet.addRow(headers.map(h => row[h])));
-      sheet.columns.forEach(col => { col.width = 18; });
+      sheet.columns.forEach(col => { col.width = 20; });
     }
 
-    res.setHeader("Content-Disposition", `attachment; filename=sales-report-${Date.now()}.xlsx`);
+    res.setHeader("Content-Disposition", `attachment; filename=custom-report-${Date.now()}.xlsx`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     await workbook.xlsx.write(res);
     res.end();
