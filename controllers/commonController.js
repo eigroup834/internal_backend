@@ -1144,6 +1144,126 @@ exports.getDashboardActivity = async (req, res) => {
   }
 };
 
+exports.getSalesReport = async (req, res) => {
+  try {
+    const {
+      exhName, yearFrom, yearTo, attendee, event,
+      industries, segments,
+      dateFrom, dateTo,
+      export: doExport = "false",
+    } = req.query;
+
+    const isExport = doExport === "true";
+    const pool = await poolPromise;
+    const request = pool.request();
+    const whereClauses = ["1=1"];
+
+    const industryList = industries ? industries.split(",").filter(Boolean) : [];
+    const segmentList  = segments  ? segments.split(",").filter(Boolean)  : [];
+
+    // Build exhibition sub-filter (used in INNER JOIN if any exh filter is active)
+    let exhWhere = "1=1";
+    const needsExhJoin = !!(exhName || yearFrom || yearTo || attendee || event);
+    if (exhName)  { request.input("exhName",  sql.NVarChar, `%${exhName}%`);  exhWhere += " AND EXH_NAME LIKE @exhName"; }
+    if (yearFrom) { request.input("yearFrom", sql.Int, parseInt(yearFrom));    exhWhere += " AND EXH_YEAR >= @yearFrom"; }
+    if (yearTo)   { request.input("yearTo",   sql.Int, parseInt(yearTo));      exhWhere += " AND EXH_YEAR <= @yearTo"; }
+    if (attendee) { request.input("attendee", sql.NVarChar, `%${attendee}%`);  exhWhere += " AND ATTENDEE LIKE @attendee"; }
+    if (event)    { request.input("event",    sql.NVarChar, `%${event}%`);     exhWhere += " AND EVENT LIKE @event"; }
+
+    // Date filters
+    if (dateFrom) { request.input("dateFrom", sql.Date, dateFrom); whereClauses.push("CAST(CP.UPDATED_DATE AS DATE) >= @dateFrom"); }
+    if (dateTo)   { request.input("dateTo",   sql.Date, dateTo);   whereClauses.push("CAST(CP.UPDATED_DATE AS DATE) <= @dateTo"); }
+
+    if (industryList.length > 0) {
+      const p = industryList.map((v, i) => { request.input(`ind_${i}`, sql.NVarChar, v); return `@ind_${i}`; });
+      whereClauses.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m2 JOIN dbo.[${TABLES.INDSEGMENT}] s2 ON m2.SEG_CODE=s2.SEG_CODE WHERE m2.COMPANY_CODE=CP.COMPANY_CODE AND s2.INDUSTRY IN (${p.join(",")}))`);
+    }
+    if (segmentList.length > 0) {
+      const p = segmentList.map((v, i) => { request.input(`seg_${i}`, sql.NVarChar, v); return `@seg_${i}`; });
+      whereClauses.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m3 WHERE m3.COMPANY_CODE=CP.COMPANY_CODE AND m3.SEG_CODE IN (${p.join(",")}))`);
+    }
+
+    const whereSQL   = "WHERE " + whereClauses.join(" AND ");
+    const topClause  = isExport ? "" : "TOP 300";
+    const exhJoinSQL = needsExhJoin
+      ? `INNER JOIN (SELECT DISTINCT COMPANY_CODE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] WHERE ${exhWhere}) CE ON CE.COMPANY_CODE = CP.COMPANY_CODE`
+      : "";
+
+    const query = `
+      WITH CompSegInfo AS (
+        SELECT m.COMPANY_CODE,
+          STRING_AGG(s.SEGMENT,  ', ') AS SEGMENTS,
+          STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRIES
+        FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m
+        JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
+        GROUP BY m.COMPANY_CODE
+      )
+      SELECT ${topClause}
+        CP.PERSON_CODE, CP.COMPANY_CODE,
+        LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
+        CASE WHEN ISJSON(CP.DESIG)=1 THEN JSON_VALUE(CP.DESIG,'$[0].value') ELSE CP.DESIG END AS DESIGNATION,
+        CASE WHEN ISJSON(CP.DESIG)=1 THEN JSON_VALUE(CP.DESIG,'$[0].rank')  ELSE NULL      END AS RANK_,
+        CP.DEPT,
+        CD.COMPANY_NAME, CD.DIVISION,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line1') ELSE NULL END AS ADD_1,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line2') ELSE NULL END AS ADD_2,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line3') ELSE NULL END AS ADD_3,
+        CD.CITY, CD.STATE, CD.COUNTRY, CD.PINCODE, CD.WEBSITE,
+        CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[0]') ELSE NULL END AS COMP_EMAIL1,
+        CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[1]') ELSE NULL END AS COMP_EMAIL2,
+        CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[2]') ELSE NULL END AS COMP_EMAIL3,
+        CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[0].number') ELSE NULL END AS COMP_PHONE1,
+        CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[1].number') ELSE NULL END AS COMP_PHONE2,
+        CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[2].number') ELSE NULL END AS COMP_PHONE3,
+        CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE NULL END AS PERSON_EMAIL1,
+        CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[1]') ELSE NULL END AS PERSON_EMAIL2,
+        CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS MOBILE1,
+        CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[1].number') ELSE NULL END AS MOBILE2,
+        CP.OLD_MOBILE,
+        CP.REMARKS, CP.CONTACTDATE, CP.PERSON_CUPD_REMARK,
+        CP.USER_CODE, CP.UPDATED_DATE, CP.CREATED_DATE,
+        CM.REMARKS AS MASTER_REMARKS,
+        CSI.INDUSTRIES, CSI.SEGMENTS
+      FROM dbo.[${TABLES.COMP_PERSON}] CP
+      LEFT JOIN dbo.[${TABLES.COMP_MASTER}]    CM  ON CM.COMPANY_CODE  = CP.COMPANY_CODE
+      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD  ON CD.COMPANY_CODE  = CP.COMPANY_CODE
+      LEFT JOIN CompSegInfo                    CSI ON CSI.COMPANY_CODE = CP.COMPANY_CODE
+      ${exhJoinSQL}
+      ${whereSQL}
+      ORDER BY CP.COMPANY_CODE, CP.PERSON_CODE
+    `;
+
+    const result = await request.query(query);
+    const rows = result.recordset;
+
+    if (!isExport) {
+      return res.json({ data: rows, total: rows.length, capped: rows.length === 300 });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Sales Report");
+    if (rows.length > 0) {
+      const headers = Object.keys(rows[0]);
+      const headerRow = sheet.addRow(headers);
+      headerRow.eachCell(cell => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A56DB" } };
+      });
+      rows.forEach(row => sheet.addRow(headers.map(h => row[h])));
+      sheet.columns.forEach(col => { col.width = 18; });
+    }
+
+    res.setHeader("Content-Disposition", `attachment; filename=sales-report-${Date.now()}.xlsx`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error("getSalesReport error:", err);
+    res.status(500).json({ error: "Server Error" });
+  }
+};
+
 exports.getActivityReport = async (req, res) => {
   try {
     const { from, to } = req.query;
