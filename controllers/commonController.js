@@ -1144,6 +1144,77 @@ exports.getDashboardActivity = async (req, res) => {
   }
 };
 
+exports.getActivityReport = async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ error: "from and to dates are required" });
+
+    const pool = await poolPromise;
+    const query = `
+      WITH
+      CompAdded AS (
+        SELECT USER_CODE, COUNT(DISTINCT COMPANY_CODE) AS CNT
+        FROM dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]
+        WHERE STATUS = 'A'
+          AND CAST(UPDATED_DATE AS DATE) BETWEEN @from AND @to
+        GROUP BY USER_CODE
+      ),
+      CompUpdated AS (
+        SELECT USER_CODE, COUNT(DISTINCT COMPANY_CODE) AS CNT
+        FROM dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]
+        WHERE STATUS = 'U'
+          AND CAST(UPDATED_DATE AS DATE) BETWEEN @from AND @to
+        GROUP BY USER_CODE
+      ),
+      PersonAdded AS (
+        SELECT USER_CODE, COUNT(DISTINCT PERSON_CODE) AS CNT
+        FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
+        WHERE STATUS = 'A'
+          AND CAST(UPDATED_DATE AS DATE) BETWEEN @from AND @to
+        GROUP BY USER_CODE
+      ),
+      PersonUpdated AS (
+        SELECT USER_CODE, COUNT(DISTINCT PERSON_CODE) AS CNT
+        FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
+        WHERE STATUS = 'U'
+          AND CAST(UPDATED_DATE AS DATE) BETWEEN @from AND @to
+        GROUP BY USER_CODE
+      ),
+      AllUsers AS (
+        SELECT USER_CODE FROM CompAdded
+        UNION SELECT USER_CODE FROM CompUpdated
+        UNION SELECT USER_CODE FROM PersonAdded
+        UNION SELECT USER_CODE FROM PersonUpdated
+      )
+      SELECT
+        U.USERNAME,
+        A.USER_CODE,
+        ISNULL(CA.CNT, 0) AS COMP_ADDED,
+        ISNULL(CU.CNT, 0) AS COMP_UPDATED,
+        ISNULL(PA.CNT, 0) AS PERSON_ADDED,
+        ISNULL(PU.CNT, 0) AS PERSON_UPDATED,
+        ISNULL(CA.CNT, 0) + ISNULL(CU.CNT, 0) + ISNULL(PA.CNT, 0) + ISNULL(PU.CNT, 0) AS TOTAL
+      FROM AllUsers A
+      JOIN dbo.[${TABLES.USER}] U ON U.USER_CODE = A.USER_CODE
+      LEFT JOIN CompAdded CA ON CA.USER_CODE = A.USER_CODE
+      LEFT JOIN CompUpdated CU ON CU.USER_CODE = A.USER_CODE
+      LEFT JOIN PersonAdded PA ON PA.USER_CODE = A.USER_CODE
+      LEFT JOIN PersonUpdated PU ON PU.USER_CODE = A.USER_CODE
+      ORDER BY TOTAL DESC
+    `;
+
+    const result = await pool.request()
+      .input("from", sql.Date, from)
+      .input("to", sql.Date, to)
+      .query(query);
+
+    res.json(result.recordset);
+  } catch (err) {
+    console.error("getActivityReport error:", err);
+    res.status(500).json({ error: "Server Error" });
+  }
+};
+
 exports.exportData = async (req, res) => {
   try {
     const {
