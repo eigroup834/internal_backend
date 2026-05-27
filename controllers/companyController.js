@@ -1514,7 +1514,10 @@ exports.getPersonList = async (req, res) => {
     if (search && search.trim() !== "") {
       const term = search.trim();
 
-      if (searchBy && searchableColumns[searchBy]) {
+      if (searchBy === "PHONE") {
+        whereClauses.push(`(UPPER(p.OLD_MOBILE) LIKE UPPER(@search) OR UPPER(p.MOBILE) LIKE UPPER(@search))`);
+        request.input("search", `%${term}%`);
+      } else if (searchBy && searchableColumns[searchBy]) {
         const col = searchableColumns[searchBy];
         whereClauses.push(`UPPER(${col}) LIKE UPPER(@search)`);
         if (searchBy === "NAME") {
