@@ -1147,7 +1147,7 @@ exports.getDashboardActivity = async (req, res) => {
 exports.getSalesReport = async (req, res) => {
   try {
     const {
-      exhName, yearFrom, yearTo, attendee, event,
+      exhName, attendee, event,
       exhType = "person",
       industries, segments,
       dateFrom, dateTo,
@@ -1162,26 +1162,22 @@ exports.getSalesReport = async (req, res) => {
     const industryList = industries ? industries.split(",").filter(Boolean) : [];
     const segmentList  = segments  ? segments.split(",").filter(Boolean)  : [];
 
-    // Exhibition join — conditionally joins person or company history table
-    const needsExhJoin = !!(exhName || yearFrom || yearTo || attendee || event);
-    let exhJoinSQL = "";
-    let exhSelectSQL = "";
+    // Exhibition filter — IN subquery so each person/company appears once
+    const needsExhFilter = !!(exhName || attendee || event);
 
-    if (needsExhJoin) {
-      const exhConds = ["1=1"];
-      if (exhName)  { request.input("exhName",  sql.NVarChar, `%${exhName}%`);       exhConds.push("EH.EXH_NAME LIKE @exhName"); }
-      if (yearFrom) { request.input("yearFrom", sql.NVarChar, String(yearFrom));      exhConds.push("EH.EXH_YEAR >= @yearFrom"); }
-      if (yearTo)   { request.input("yearTo",   sql.NVarChar, String(yearTo));        exhConds.push("EH.EXH_YEAR <= @yearTo"); }
-      if (attendee) { request.input("attendee", sql.NVarChar, `%${attendee}%`);       exhConds.push("EH.ATTENDEE LIKE @attendee"); }
-      if (event)    { request.input("event",    sql.NVarChar, `%${event}%`);          exhConds.push("EH.EVENT LIKE @event"); }
+    if (needsExhFilter) {
+      const exhConds = [];
+      if (exhName)  { request.input("exhName",  sql.NVarChar, `%${exhName}%`);  exhConds.push("EXH_NAME LIKE @exhName"); }
+      if (attendee) { request.input("attendee", sql.NVarChar, `%${attendee}%`); exhConds.push("ATTENDEE LIKE @attendee"); }
+      if (event)    { request.input("event",    sql.NVarChar, `%${event}%`);    exhConds.push("EVENT LIKE @event"); }
 
-      const exhOnClause = exhConds.join(" AND ");
+      const exhWhere = exhConds.length ? "WHERE " + exhConds.join(" AND ") : "";
+
       if (exhType === "company") {
-        exhJoinSQL = `INNER JOIN dbo.[${TABLES.COMP_EXH_HISTORY}] EH ON EH.COMPANY_CODE = CP.COMPANY_CODE AND ${exhOnClause}`;
+        whereClauses.push(`CP.COMPANY_CODE IN (SELECT COMPANY_CODE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] ${exhWhere})`);
       } else {
-        exhJoinSQL = `INNER JOIN dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] EH ON EH.PERSON_CODE = CP.PERSON_CODE AND ${exhOnClause}`;
+        whereClauses.push(`CP.PERSON_CODE IN (SELECT PERSON_CODE FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] ${exhWhere})`);
       }
-      exhSelectSQL = `,\n        EH.EXH_NAME AS EXH_NAME, EH.EXH_YEAR AS EXH_YEAR, EH.EVENT AS EXH_EVENT, EH.ATTENDEE AS EXH_ATTENDEE`;
     }
 
     // Date filters on person updated date
@@ -1238,12 +1234,10 @@ exports.getSalesReport = async (req, res) => {
         CP.CREATED_DATE AS PERSON_CREATED_DATE,
         CM.REMARKS AS MASTER_REMARKS,
         CSI.INDUSTRIES, CSI.SEGMENTS
-        ${exhSelectSQL}
       FROM dbo.[${TABLES.COMP_PERSON}] CP
       LEFT JOIN dbo.[${TABLES.COMP_MASTER}]    CM  ON CM.COMPANY_CODE  = CP.COMPANY_CODE
       LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD  ON CD.COMPANY_CODE  = CP.COMPANY_CODE
       LEFT JOIN CompSegInfo                    CSI ON CSI.COMPANY_CODE = CP.COMPANY_CODE
-      ${exhJoinSQL}
       ${whereSQL}
       ORDER BY CP.COMPANY_CODE, CP.PERSON_CODE
     `;
