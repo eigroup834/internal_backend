@@ -2018,14 +2018,18 @@ exports.addPersonHistory = async (req, res) => {
     const personResult = await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
       .query(`
-        SELECT FNAME
-        FROM dbo.[${TABLES.COMP_PERSON}]
-        WHERE PERSON_CODE = @PERSON_CODE
+        SELECT p.FNAME, p.COMPANY_CODE, cd.COMPANY_NAME
+        FROM dbo.[${TABLES.COMP_PERSON}] p
+        LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
+        WHERE p.PERSON_CODE = @PERSON_CODE
       `);
 
     if (!personResult.recordset.length) {
       throw new Error("Invalid person code, person not found");
     }
+
+    const COMPANY_CODE = personResult.recordset[0].COMPANY_CODE;
+    const COMPANY_NAME = personResult.recordset[0].COMPANY_NAME || "";
 
     const existingRecord = await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
@@ -2049,6 +2053,8 @@ exports.addPersonHistory = async (req, res) => {
 
     await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+      .input("COMPANY_NAME", sql.NVarChar(255), COMPANY_NAME)
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
       .input("EXH_YEAR", sql.VarChar(50), EXH_YEAR)
@@ -2059,7 +2065,6 @@ exports.addPersonHistory = async (req, res) => {
       .input("INVITEE", sql.NVarChar(10), INVITEE || "No")
       .input("MARKETING", sql.NVarChar(10), MARKETING || "No")
       .input("PROSPECT", sql.NVarChar(10), PROSPECT || "No")
-
       .input("BUYER", sql.NVarChar(10), BUYER || "No")
       .input("DELEGATE_INTERNATIONAL", sql.NVarChar(10), DELEGATE_INTERNATIONAL || "No")
       .input("DELEGATE_NATIONAL", sql.NVarChar(10), DELEGATE_NATIONAL || "No")
@@ -2068,21 +2073,20 @@ exports.addPersonHistory = async (req, res) => {
       .input("ORGANISER", sql.NVarChar(10), ORGANISER || "No")
       .input("POTENTIAL_EXHIBITOR", sql.NVarChar(10), POTENTIAL_EXHIBITOR || "No")
       .input("VIP", sql.NVarChar(10), VIP || "No")
-
       .input("USER_CODE", sql.VarChar(50), USER_CODE)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         (
-          PERSON_CODE, EXH_CODE, EXH_NAME, EXH_YEAR, EVENT,
+          PERSON_CODE, COMPANY_CODE, COMPANY_NAME, EXH_CODE, EXH_NAME, EXH_YEAR, EVENT,
           SPEAKER, VISITOR, INVITEE, MARKETING, PROSPECT, ATTENDEE, BUYER, DELEGATE_INTERNATIONAL,
           DELEGATE_NATIONAL, INVESTOR, MEDIA, ORGANISER, POTENTIAL_EXHIBITOR, VIP,
           USER_CODE, USERNAME, CREATED_DATE, UPDATED_DATE
         )
         VALUES
         (
-          @PERSON_CODE, @EXH_CODE, @EXH_NAME, @EXH_YEAR, @EVENT,
+          @PERSON_CODE, @COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @EXH_NAME, @EXH_YEAR, @EVENT,
           @SPEAKER, @VISITOR, @INVITEE, @MARKETING, @PROSPECT, @ATTENDEE, @BUYER, @DELEGATE_INTERNATIONAL,
           @DELEGATE_NATIONAL, @INVESTOR, @MEDIA, @ORGANISER, @POTENTIAL_EXHIBITOR, @VIP,
           @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @CREATED_DATE, @UPDATED_DATE
