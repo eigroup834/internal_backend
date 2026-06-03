@@ -1073,16 +1073,14 @@ exports.updateCompanyHistory = async (req, res) => {
     return res.status(400).json({ success: false, message: "EXH_CODE, COMPANY_CODE, and USER_CODE are required" });
   }
 
-  const targetCompany = (NEW_COMPANY_CODE && NEW_COMPANY_CODE !== COMPANY_CODE) ? NEW_COMPANY_CODE : COMPANY_CODE;
+  const targetCompany = (NEW_COMPANY_CODE && NEW_COMPANY_CODE.trim() !== COMPANY_CODE.trim()) ? NEW_COMPANY_CODE.trim() : COMPANY_CODE.trim();
 
   try {
     const pool = await poolPromise;
-    await pool.request()
-      .input("EXH_CODE", sql.VarChar(50), exhCode)
-      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+    const result = await pool.request()
+      .input("EXH_CODE", sql.VarChar(50), exhCode.trim())
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE.trim())
       .input("TARGET_COMPANY_CODE", sql.VarChar(50), targetCompany)
-      .input("EVENT", sql.NVarChar(200), EVENT || "")
-      .input("ATTENDEE", sql.NVarChar(255), ATTENDEE || "")
       .input("REVENUE", sql.Decimal(18, 2), REVENUE || 0)
       .input("REV_UNIT", sql.Decimal(18, 2), REV_UNIT || 0)
       .input("AREA", sql.Decimal(18, 2), AREA || 0)
@@ -1098,9 +1096,7 @@ exports.updateCompanyHistory = async (req, res) => {
       .query(`
         UPDATE dbo.[${TABLES.COMP_EXH_HISTORY}]
         SET COMPANY_CODE = @TARGET_COMPANY_CODE,
-            COMPANY_NAME = (SELECT TOP 1 COMPANY_NAME FROM dbo.[${TABLES.COMPANY_DETAIL}] WHERE COMPANY_CODE = @TARGET_COMPANY_CODE),
-            EVENT = @EVENT,
-            ATTENDEE = @ATTENDEE,
+            COMPANY_NAME = (SELECT TOP 1 COMPANY_NAME FROM dbo.[${TABLES.COMPANY_DETAIL}] WHERE LTRIM(RTRIM(COMPANY_CODE)) = LTRIM(RTRIM(@TARGET_COMPANY_CODE))),
             REVENUE = @REVENUE,
             REV_UNIT = @REV_UNIT,
             AREA = @AREA,
@@ -1114,7 +1110,8 @@ exports.updateCompanyHistory = async (req, res) => {
             USER_CODE = @USER_CODE,
             USERNAME = (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE),
             UPDATED_DATE = @UPDATED_DATE
-        WHERE EXH_CODE = @EXH_CODE AND COMPANY_CODE = @COMPANY_CODE
+        WHERE LTRIM(RTRIM(EXH_CODE)) = LTRIM(RTRIM(@EXH_CODE))
+          AND LTRIM(RTRIM(COMPANY_CODE)) = LTRIM(RTRIM(@COMPANY_CODE))
       `);
 
     res.status(200).json({ success: true, message: "Exhibition history updated successfully" });
@@ -1157,13 +1154,13 @@ exports.updatePersonHistory = async (req, res) => {
     return res.status(400).json({ success: false, message: "EXH_CODE, PERSON_CODE, and USER_CODE are required" });
   }
 
-  const targetPerson = (NEW_PERSON_CODE && NEW_PERSON_CODE !== PERSON_CODE) ? NEW_PERSON_CODE : PERSON_CODE;
+  const targetPerson = (NEW_PERSON_CODE && NEW_PERSON_CODE.trim() !== PERSON_CODE.trim()) ? NEW_PERSON_CODE.trim() : PERSON_CODE.trim();
 
   try {
     const pool = await poolPromise;
-    await pool.request()
-      .input("EXH_CODE", sql.VarChar(50), exhCode)
-      .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
+    const result = await pool.request()
+      .input("EXH_CODE", sql.VarChar(50), exhCode.trim())
+      .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE.trim())
       .input("TARGET_PERSON_CODE", sql.VarChar(50), targetPerson)
       .input("EVENT", sql.NVarChar(200), EVENT || "")
       .input("ATTENDEE", sql.NVarChar(255), ATTENDEE || "")
@@ -1185,13 +1182,11 @@ exports.updatePersonHistory = async (req, res) => {
       .query(`
         UPDATE dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         SET PERSON_CODE  = @TARGET_PERSON_CODE,
-            COMPANY_CODE = (SELECT TOP 1 COMPANY_CODE FROM dbo.[${TABLES.COMP_PERSON}] WHERE PERSON_CODE = @TARGET_PERSON_CODE),
+            COMPANY_CODE = (SELECT TOP 1 COMPANY_CODE FROM dbo.[${TABLES.COMP_PERSON}] WHERE LTRIM(RTRIM(PERSON_CODE)) = LTRIM(RTRIM(@TARGET_PERSON_CODE))),
             COMPANY_NAME = (SELECT TOP 1 cd.COMPANY_NAME
                             FROM dbo.[${TABLES.COMP_PERSON}] p
                             JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
-                            WHERE p.PERSON_CODE = @TARGET_PERSON_CODE),
-            EVENT = @EVENT,
-            ATTENDEE = @ATTENDEE,
+                            WHERE LTRIM(RTRIM(p.PERSON_CODE)) = LTRIM(RTRIM(@TARGET_PERSON_CODE))),
             SPEAKER = @SPEAKER,
             VISITOR = @VISITOR,
             INVITEE = @INVITEE,
@@ -1208,7 +1203,8 @@ exports.updatePersonHistory = async (req, res) => {
             USER_CODE = @USER_CODE,
             USERNAME = (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE),
             UPDATED_DATE = @UPDATED_DATE
-        WHERE EXH_CODE = @EXH_CODE AND PERSON_CODE = @PERSON_CODE
+        WHERE LTRIM(RTRIM(EXH_CODE)) = LTRIM(RTRIM(@EXH_CODE))
+          AND LTRIM(RTRIM(PERSON_CODE)) = LTRIM(RTRIM(@PERSON_CODE))
       `);
 
     res.status(200).json({ success: true, message: "Person exhibition history updated successfully" });
