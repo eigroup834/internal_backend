@@ -1158,6 +1158,16 @@ exports.updatePersonHistory = async (req, res) => {
 
   try {
     const pool = await poolPromise;
+
+    // if (targetPerson !== PERSON_CODE.trim()) {
+    //   const personCheck = await pool.request()
+    //     .input("TARGET_PERSON_CODE", sql.VarChar(50), targetPerson)
+    //     .query(`SELECT TOP 1 PERSON_CODE FROM dbo.[${TABLES.COMP_PERSON}] WHERE LTRIM(RTRIM(PERSON_CODE)) = LTRIM(RTRIM(@TARGET_PERSON_CODE))`);
+    //   if (!personCheck.recordset.length) {
+    //     return res.status(400).json({ success: false, message: "Target person not found" });
+    //   }
+    // }
+
     const result = await pool.request()
       .input("EXH_CODE", sql.VarChar(50), exhCode.trim())
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE.trim())
@@ -1206,6 +1216,10 @@ exports.updatePersonHistory = async (req, res) => {
         WHERE LTRIM(RTRIM(EXH_CODE)) = LTRIM(RTRIM(@EXH_CODE))
           AND LTRIM(RTRIM(PERSON_CODE)) = LTRIM(RTRIM(@PERSON_CODE))
       `);
+
+    if (!result.rowsAffected[0]) {
+      return res.status(404).json({ success: false, message: "No matching record found to update" });
+    }
 
     res.status(200).json({ success: true, message: "Person exhibition history updated successfully" });
   } catch (err) {
