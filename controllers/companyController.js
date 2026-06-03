@@ -39,6 +39,7 @@ exports.getCompanies = async (req, res) => {
       EMAIL:        "c.[EMAIL]",
       WEBSITE:      "c.[WEBSITE]",
       PHONES:       "c.[PHONES]",
+      ADDRESS:      "c.[ADDRESS]",
     };
 
     const sortableColumns = new Set([
@@ -1061,6 +1062,68 @@ exports.deleteExhibitionHistory = async (req, res) => {
   }
 };
 
+exports.updateCompanyHistory = async (req, res) => {
+  const { exhCode } = req.params;
+  const {
+    COMPANY_CODE, NEW_COMPANY_CODE, USER_CODE, EVENT, ATTENDEE, REVENUE, REV_UNIT,
+    AREA, SPONSOR, EARLYBIRD_DIS, EXHIBIT, FEEDBACK, Info_1, Info_2, Info_3,
+  } = req.body;
+
+  if (!exhCode || !COMPANY_CODE || !USER_CODE) {
+    return res.status(400).json({ success: false, message: "EXH_CODE, COMPANY_CODE, and USER_CODE are required" });
+  }
+
+  const targetCompany = (NEW_COMPANY_CODE && NEW_COMPANY_CODE !== COMPANY_CODE) ? NEW_COMPANY_CODE : COMPANY_CODE;
+
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input("EXH_CODE", sql.VarChar(50), exhCode)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+      .input("TARGET_COMPANY_CODE", sql.VarChar(50), targetCompany)
+      .input("EVENT", sql.NVarChar(200), EVENT || "")
+      .input("ATTENDEE", sql.NVarChar(255), ATTENDEE || "")
+      .input("REVENUE", sql.Decimal(18, 2), REVENUE || 0)
+      .input("REV_UNIT", sql.Decimal(18, 2), REV_UNIT || 0)
+      .input("AREA", sql.Decimal(18, 2), AREA || 0)
+      .input("SPONSOR", sql.NVarChar(50), SPONSOR || "")
+      .input("EARLYBIRD_DIS", sql.NVarChar(50), EARLYBIRD_DIS || "")
+      .input("EXHIBIT", sql.NVarChar(50), EXHIBIT || "")
+      .input("FEEDBACK", sql.NVarChar(sql.MAX), FEEDBACK || "")
+      .input("Info_1", sql.NVarChar(sql.MAX), Info_1 || "")
+      .input("Info_2", sql.NVarChar(sql.MAX), Info_2 || "")
+      .input("Info_3", sql.NVarChar(sql.MAX), Info_3 || "")
+      .input("USER_CODE", sql.VarChar(50), USER_CODE)
+      .input("UPDATED_DATE", sql.DateTime, new Date())
+      .query(`
+        UPDATE dbo.[${TABLES.COMP_EXH_HISTORY}]
+        SET COMPANY_CODE = @TARGET_COMPANY_CODE,
+            COMPANY_NAME = (SELECT TOP 1 COMPANY_NAME FROM dbo.[${TABLES.COMPANY_DETAIL}] WHERE COMPANY_CODE = @TARGET_COMPANY_CODE),
+            EVENT = @EVENT,
+            ATTENDEE = @ATTENDEE,
+            REVENUE = @REVENUE,
+            REV_UNIT = @REV_UNIT,
+            AREA = @AREA,
+            SPONSOR = @SPONSOR,
+            EARLYBIRD_DIS = @EARLYBIRD_DIS,
+            EXHIBIT = @EXHIBIT,
+            FEEDBACK = @FEEDBACK,
+            Info_1 = @Info_1,
+            Info_2 = @Info_2,
+            Info_3 = @Info_3,
+            USER_CODE = @USER_CODE,
+            USERNAME = (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE),
+            UPDATED_DATE = @UPDATED_DATE
+        WHERE EXH_CODE = @EXH_CODE AND COMPANY_CODE = @COMPANY_CODE
+      `);
+
+    res.status(200).json({ success: true, message: "Exhibition history updated successfully" });
+  } catch (err) {
+    console.error("Error updating company exhibition history:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 exports.deletePersonExhibitionHistory = async (req, res) => {
   const { exhCode } = req.params;
 
@@ -1077,6 +1140,80 @@ exports.deletePersonExhibitionHistory = async (req, res) => {
     res.status(200).json({ success: true, message: "Exhibition history deleted successfully" });
   } catch (err) {
     console.error("Error deleting exhibition history:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.updatePersonHistory = async (req, res) => {
+  const { exhCode } = req.params;
+  const {
+    PERSON_CODE, NEW_PERSON_CODE, USER_CODE, EVENT, ATTENDEE,
+    SPEAKER, VISITOR, INVITEE, MARKETING, PROSPECT,
+    BUYER, DELEGATE_INTERNATIONAL, DELEGATE_NATIONAL,
+    INVESTOR, MEDIA, ORGANISER, POTENTIAL_EXHIBITOR, VIP,
+  } = req.body;
+
+  if (!exhCode || !PERSON_CODE || !USER_CODE) {
+    return res.status(400).json({ success: false, message: "EXH_CODE, PERSON_CODE, and USER_CODE are required" });
+  }
+
+  const targetPerson = (NEW_PERSON_CODE && NEW_PERSON_CODE !== PERSON_CODE) ? NEW_PERSON_CODE : PERSON_CODE;
+
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input("EXH_CODE", sql.VarChar(50), exhCode)
+      .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
+      .input("TARGET_PERSON_CODE", sql.VarChar(50), targetPerson)
+      .input("EVENT", sql.NVarChar(200), EVENT || "")
+      .input("ATTENDEE", sql.NVarChar(255), ATTENDEE || "")
+      .input("SPEAKER", sql.NVarChar(10), SPEAKER || "No")
+      .input("VISITOR", sql.NVarChar(10), VISITOR || "No")
+      .input("INVITEE", sql.NVarChar(10), INVITEE || "No")
+      .input("MARKETING", sql.NVarChar(10), MARKETING || "No")
+      .input("PROSPECT", sql.NVarChar(10), PROSPECT || "No")
+      .input("BUYER", sql.NVarChar(10), BUYER || "No")
+      .input("DELEGATE_INTERNATIONAL", sql.NVarChar(10), DELEGATE_INTERNATIONAL || "No")
+      .input("DELEGATE_NATIONAL", sql.NVarChar(10), DELEGATE_NATIONAL || "No")
+      .input("INVESTOR", sql.NVarChar(10), INVESTOR || "No")
+      .input("MEDIA", sql.NVarChar(10), MEDIA || "No")
+      .input("ORGANISER", sql.NVarChar(10), ORGANISER || "No")
+      .input("POTENTIAL_EXHIBITOR", sql.NVarChar(10), POTENTIAL_EXHIBITOR || "No")
+      .input("VIP", sql.NVarChar(10), VIP || "No")
+      .input("USER_CODE", sql.VarChar(50), USER_CODE)
+      .input("UPDATED_DATE", sql.DateTime, new Date())
+      .query(`
+        UPDATE dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
+        SET PERSON_CODE  = @TARGET_PERSON_CODE,
+            COMPANY_CODE = (SELECT TOP 1 COMPANY_CODE FROM dbo.[${TABLES.COMP_PERSON}] WHERE PERSON_CODE = @TARGET_PERSON_CODE),
+            COMPANY_NAME = (SELECT TOP 1 cd.COMPANY_NAME
+                            FROM dbo.[${TABLES.COMP_PERSON}] p
+                            JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
+                            WHERE p.PERSON_CODE = @TARGET_PERSON_CODE),
+            EVENT = @EVENT,
+            ATTENDEE = @ATTENDEE,
+            SPEAKER = @SPEAKER,
+            VISITOR = @VISITOR,
+            INVITEE = @INVITEE,
+            MARKETING = @MARKETING,
+            PROSPECT = @PROSPECT,
+            BUYER = @BUYER,
+            DELEGATE_INTERNATIONAL = @DELEGATE_INTERNATIONAL,
+            DELEGATE_NATIONAL = @DELEGATE_NATIONAL,
+            INVESTOR = @INVESTOR,
+            MEDIA = @MEDIA,
+            ORGANISER = @ORGANISER,
+            POTENTIAL_EXHIBITOR = @POTENTIAL_EXHIBITOR,
+            VIP = @VIP,
+            USER_CODE = @USER_CODE,
+            USERNAME = (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE),
+            UPDATED_DATE = @UPDATED_DATE
+        WHERE EXH_CODE = @EXH_CODE AND PERSON_CODE = @PERSON_CODE
+      `);
+
+    res.status(200).json({ success: true, message: "Person exhibition history updated successfully" });
+  } catch (err) {
+    console.error("Error updating person exhibition history:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -1785,6 +1922,17 @@ exports.EditPerson = async (req, res) => {
         WHERE PERSON_CODE = @PERSON_CODE
       `);
 
+    // Cascade company change to exhibition history
+    await new sql.Request(transaction)
+      .input("PERSON_CODE", sql.VarChar(50), personCode)
+      .input("COMPANY_CODE", sql.VarChar(50), companycode)
+      .query(`
+        UPDATE dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
+        SET COMPANY_CODE = @COMPANY_CODE,
+            COMPANY_NAME = (SELECT TOP 1 COMPANY_NAME FROM dbo.[${TABLES.COMPANY_DETAIL}] WHERE COMPANY_CODE = @COMPANY_CODE)
+        WHERE PERSON_CODE = @PERSON_CODE
+      `);
+
     await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), personCode)
       .input("COMPANY_CODE", sql.VarChar(50), companycode)
@@ -1870,6 +2018,50 @@ exports.EditPerson = async (req, res) => {
     });
   }
 };
+
+// exports.getPersonUpdateHistory = async (req, res) => {
+//   const { personCode } = req.params;
+//   if (!personCode) return res.status(400).json({ success: false, message: "personCode is required" });
+
+//   try {
+//     const pool = await poolPromise;
+
+//     // Fetch one extra record so the oldest visible record can compute its diff against the one before it
+//     const result = await pool.request()
+//       .input("PERSON_CODE", sql.VarChar(50), personCode)
+//       .query(`
+//         SELECT
+//           h.PERSON_CODE,
+//           h.COMPANY_CODE,
+//           cd.COMPANY_NAME,
+//           h.PREFIX,
+//           h.FNAME,
+//           h.LNAME,
+//           h.DESIG,
+//           h.DEPT,
+//           h.MOBILE,
+//           h.PERSON_EMAIL,
+//           h.DOB,
+//           h.REMARKS,
+//           h.MANAGEMENT_REMARKS,
+//           h.PERSON_CUPD_REMARK,
+//           h.UPDATED_DATE,
+//           h.STATUS,
+//           h.USER_CODE,
+//           ISNULL(u.USERNAME, h.USER_CODE) AS UPDATED_BY
+//         FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}] h
+//         LEFT JOIN dbo.[USER] u ON h.USER_CODE = u.USER_CODE
+//         LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON h.COMPANY_CODE = cd.COMPANY_CODE
+//         WHERE h.PERSON_CODE = @PERSON_CODE
+//         ORDER BY h.UPDATED_DATE DESC
+//       `);
+
+//     res.status(200).json({ success: true, data: result.recordset, total: result.recordset.length });
+//   } catch (err) {
+//     console.error("Error fetching person update history:", err);
+//     res.status(500).json({ success: false, error: err.message });
+//   }
+// };
 
 exports.getPersonExhHistory = async (req, res) => {
   try {
