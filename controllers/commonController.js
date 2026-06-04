@@ -208,8 +208,8 @@ exports.getStats = async (req, res) => {
     `;
 
     const [companyResult, personResult] = await Promise.all([
-      pool.request().input("user_code", sql.VarChar(10), user_code).query(companyQuery),
-      pool.request().input("user_code", sql.VarChar(10), user_code).query(personQuery),
+      pool.request().input("user_code", sql.VarChar(50), user_code).query(companyQuery),
+      pool.request().input("user_code", sql.VarChar(50), user_code).query(personQuery),
     ]);
 
     const companyStats = companyResult.recordset[0];
@@ -261,8 +261,8 @@ exports.getActivity = async (req, res) => {
     `;
 
     const [companyRes, personRes] = await Promise.all([
-      pool.request().input("user_code", sql.VarChar(10), user_code).query(companyQuery),
-      pool.request().input("user_code", sql.VarChar(10), user_code).query(personQuery),
+      pool.request().input("user_code", sql.VarChar(50), user_code).query(companyQuery),
+      pool.request().input("user_code", sql.VarChar(50), user_code).query(personQuery),
     ]);
 
     const activityMap = {};
@@ -681,7 +681,7 @@ exports.addTags = async (req, res) => {
         .padStart(8, "0");
 
       const chk = await pool.request()
-        .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
+        .input("TAG_CODE", sql.VarChar(50), TAG_CODE)
         .query(`SELECT 1 FROM dbo.${TABLES.TAGS} WHERE TAG_CODE = @TAG_CODE`);
 
       exists = chk.recordset.length > 0;
@@ -689,8 +689,8 @@ exports.addTags = async (req, res) => {
 
     await pool.request()
       .input("TAG_NAME", sql.VarChar(100), TAG_NAME)
-      .input("USER_CODE", sql.VarChar(10), usercode)
-      .input("TAG_CODE", sql.VarChar(10), TAG_CODE)
+      .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("TAG_CODE", sql.VarChar(50), TAG_CODE)
       .input("ACTIVE", sql.Bit, ACTIVE ?? 1)
       .query(`
         INSERT INTO dbo.${TABLES.TAGS} (TAG_NAME, USER_CODE, ACTIVE, TAG_CODE)
@@ -788,13 +788,13 @@ exports.addGroup = async (req, res) => {
     while (exists) {
       GROUP_CODE = "GRP" + Math.floor(Math.random() * 0xffffffff).toString(16).toUpperCase().padStart(8, "0");
       const chk = await pool.request()
-        .input("GROUP_CODE", sql.VarChar(20), GROUP_CODE)
+        .input("GROUP_CODE", sql.VarChar(50), GROUP_CODE)
         .query(`SELECT 1 FROM dbo.[${TABLES.COMPANY_GROUP}] WHERE GROUP_CODE = @GROUP_CODE`);
       exists = chk.recordset.length > 0;
     }
 
     await pool.request()
-      .input("GROUP_CODE", sql.VarChar(20), GROUP_CODE)
+      .input("GROUP_CODE", sql.VarChar(50), GROUP_CODE)
       .input("GROUP_NAME", sql.NVarChar(255), GROUP_NAME)
       .input("USER_CODE", sql.VarChar(50), usercode)
       .input("ACTIVE", sql.Bit, ACTIVE ?? 1)
@@ -815,7 +815,7 @@ exports.updateGroup = async (req, res) => {
 
     const pool = await poolPromise;
     await pool.request()
-      .input("GROUP_CODE", sql.VarChar(20), groupCode)
+      .input("GROUP_CODE", sql.VarChar(50), groupCode)
       .input("GROUP_NAME", sql.NVarChar(255), GROUP_NAME)
       .input("ACTIVE", sql.Bit, ACTIVE)
       .input("USER_CODE", sql.VarChar(50), usercode)
@@ -834,7 +834,7 @@ exports.deleteGroup = async (req, res) => {
     const pool = await poolPromise;
 
     const memberCheck = await pool.request()
-      .input("GROUP_CODE", sql.VarChar(20), groupCode)
+      .input("GROUP_CODE", sql.VarChar(50), groupCode)
       .query(`SELECT COUNT(*) AS cnt FROM dbo.[${TABLES.COMPANY_GROUP_MEMBER}] WHERE GROUP_CODE = @GROUP_CODE`);
 
     const count = memberCheck.recordset[0].cnt;
@@ -843,7 +843,7 @@ exports.deleteGroup = async (req, res) => {
     }
 
     await pool.request()
-      .input("GROUP_CODE", sql.VarChar(20), groupCode)
+      .input("GROUP_CODE", sql.VarChar(50), groupCode)
       .query(`DELETE FROM dbo.[${TABLES.COMPANY_GROUP}] WHERE GROUP_CODE = @GROUP_CODE`);
 
     res.json({ message: "Group deleted successfully" });
@@ -878,7 +878,7 @@ exports.addEditor = async (req, res) => {
       .input("USERNAME", sql.VarChar(100), name)
       .input("EMAIL", sql.VarChar(100), email)
       .input("PHONE", sql.VarChar(50), phone)
-      .input("USER_CODE", sql.VarChar(10), usercode)
+      .input("USER_CODE", sql.VarChar(50), usercode)
       .query(`
         SELECT USERNAME, EMAIL, PHONE, USER_CODE
         FROM dbo.[${TABLES.USER}]
@@ -914,7 +914,7 @@ exports.addEditor = async (req, res) => {
       .input("PASSWORD", sql.VarChar(255), password)
       .input("DEPARTMENT", sql.VarChar(50), department)
       .input("ACCESS_LEVEL", sql.Char(1), role)
-      .input("USER_CODE", sql.VarChar(10), usercode)
+      .input("USER_CODE", sql.VarChar(50), usercode)
       .input("DATA_COUNT", sql.Decimal(18, 0), data_count)
       .input("EMAIL", sql.VarChar(100), email)
       .input("PHONE", sql.VarChar(50), phone)
@@ -972,7 +972,7 @@ exports.editEditor = async (req, res) => {
     const ID = idResult.recordset[0].NextID;
 
     const existingCode = await pool.request()
-      .input("USER_CODE", sql.VarChar(10), USER_CODE)
+      .input("USER_CODE", sql.VarChar(50), USER_CODE)
       .query(`SELECT 1 FROM dbo.[${TABLES.USER}] WHERE USER_CODE = @USER_CODE`);
 
     if (existingCode.recordset.length > 0) {
@@ -986,7 +986,7 @@ exports.editEditor = async (req, res) => {
       .input("DEPARTMENT", sql.VarChar(50), DEPARTMENT)
       .input("DEPARTMENT_HEAD", sql.VarChar(50), DEPARTMENT_HEAD)
       .input("ACCESS_LEVEL", sql.Char(1), ACCESS_LEVEL)
-      .input("USER_CODE", sql.VarChar(10), USER_CODE)
+      .input("USER_CODE", sql.VarChar(50), USER_CODE)
       .input("DATA_COUNT", sql.Decimal(18, 0), DATA_COUNT)
       .input("EMAIL", sql.VarChar(100), EMAIL)
       .input("PHONE", sql.VarChar(50), PHONE)

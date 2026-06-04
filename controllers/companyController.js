@@ -418,7 +418,7 @@ exports.addCompany = async (req, res) => {
     if (groupCode) {
       await new sql.Request(transaction)
         .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
-        .input("GROUP_CODE", sql.VarChar(20), groupCode)
+        .input("GROUP_CODE", sql.VarChar(50), groupCode)
         .input("USER_CODE", sql.VarChar, usercode)
         .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
         .query(`INSERT INTO dbo.[${TABLES.COMPANY_GROUP_MEMBER}] (COMPANY_CODE, GROUP_CODE, USER_CODE, CREATED_DATE) VALUES (@COMPANY_CODE, @GROUP_CODE, @USER_CODE, @CREATED_DATE)`);
@@ -576,7 +576,7 @@ exports.EditCompany = async (req, res) => {
     if (groupCode) {
       await new sql.Request(transaction)
         .input("COMPANY_CODE", sql.VarChar(50), companyCode)
-        .input("GROUP_CODE", sql.VarChar(20), groupCode)
+        .input("GROUP_CODE", sql.VarChar(50), groupCode)
         .input("USER_CODE", sql.VarChar(50), usercode)
         .query(`INSERT INTO dbo.[${TABLES.COMPANY_GROUP_MEMBER}] (COMPANY_CODE, GROUP_CODE, USER_CODE, CREATED_DATE) VALUES (@COMPANY_CODE, @GROUP_CODE, @USER_CODE, GETDATE())`);
     }
@@ -1329,19 +1329,19 @@ exports.addPerson = async (req, res) => {
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
       .input("COMPANY_CODE", sql.VarChar(50), companycode)
       .input("PREFIX", sql.VarChar(20), salutation || "")
-      .input("FNAME", sql.VarChar(40), firstname || "")
-      .input("LNAME", sql.VarChar(40), lastname || "")
+      .input("FNAME", sql.VarChar(50), firstname || "")
+      .input("LNAME", sql.VarChar(50), lastname || "")
       .input("DESIG", sql.NVarChar(sql.MAX), JSON.stringify(designations || []))
       .input("DEPT", sql.NVarChar(sql.MAX), JSON.stringify(departments || []))
       .input("MOBILE", sql.NVarChar(sql.MAX), JSON.stringify(phones || []))
       .input("PERSON_EMAIL", sql.NVarChar(sql.MAX), JSON.stringify(emails || []))
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses || []))
       .input("DOB", sql.SmallDateTime, dob || null)
-      .input("REMARKS", sql.VarChar(75), remarks || "")
+      .input("REMARKS", sql.VarChar(255), remarks || "")
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
-      .input("MANAGEMENT_REMARKS", sql.VarChar(75), management_remarks || "")
+      .input("MANAGEMENT_REMARKS", sql.VarChar(255), management_remarks || "")
       .input("USER_CODE", sql.VarChar(50), usercode)
-      .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
+      .input("PERSON_CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
@@ -1893,19 +1893,19 @@ exports.EditPerson = async (req, res) => {
       .input("PERSON_CODE", sql.VarChar(50), personCode)
       .input("COMPANY_CODE", sql.VarChar(50), companycode)
       .input("PREFIX", sql.VarChar(20), salutation || "")
-      .input("FNAME", sql.VarChar(40), firstname || "")
-      .input("LNAME", sql.VarChar(40), lastname || "")
+      .input("FNAME", sql.VarChar(50), firstname || "")
+      .input("LNAME", sql.VarChar(50), lastname || "")
       .input("DESIG", sql.NVarChar(sql.MAX), JSON.stringify(designations || []))
       .input("DEPT", sql.NVarChar(sql.MAX), JSON.stringify(departments || []))
       .input("MOBILE", sql.NVarChar(sql.MAX), JSON.stringify(phones || []))
       .input("PERSON_EMAIL", sql.NVarChar(sql.MAX), JSON.stringify(emails || []))
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses || []))
       .input("DOB", sql.SmallDateTime, dob || null)
-      .input("REMARKS", sql.VarChar(75), remarks || "")
+      .input("REMARKS", sql.VarChar(255), remarks || "")
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
-      .input("MANAGEMENT_REMARKS", sql.VarChar(75), management_remarks || "")
+      .input("MANAGEMENT_REMARKS", sql.VarChar(255), management_remarks || "")
       .input("USER_CODE", sql.VarChar(50), usercode)
-      .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
+      .input("PERSON_CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
       .query(`
@@ -1947,19 +1947,19 @@ exports.EditPerson = async (req, res) => {
       .input("PERSON_CODE", sql.VarChar(50), personCode)
       .input("COMPANY_CODE", sql.VarChar(50), companycode)
       .input("PREFIX", sql.VarChar(20), salutation || "")
-      .input("FNAME", sql.VarChar(40), firstname || "")
-      .input("LNAME", sql.VarChar(40), lastname || "")
+      .input("FNAME", sql.VarChar(50), firstname || "")
+      .input("LNAME", sql.VarChar(50), lastname || "")
       .input("DESIG", sql.NVarChar(sql.MAX), JSON.stringify(designations || []))
       .input("DEPT", sql.NVarChar(sql.MAX), JSON.stringify(departments || []))
       .input("MOBILE", sql.NVarChar(sql.MAX), JSON.stringify(phones || []))
       .input("PERSON_EMAIL", sql.NVarChar(sql.MAX), JSON.stringify(emails || []))
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses || []))
       .input("DOB", sql.SmallDateTime, dob || null)
-      .input("REMARKS", sql.VarChar(75), remarks || "")
+      .input("REMARKS", sql.VarChar(255), remarks || "")
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
-      .input("MANAGEMENT_REMARKS", sql.VarChar(75), management_remarks || "")
+      .input("MANAGEMENT_REMARKS", sql.VarChar(255), management_remarks || "")
       .input("USER_CODE", sql.VarChar(50), usercode)
-      .input("PERSON_CUPD_REMARK", sql.VarChar(50), cupd_remark || "")
+      .input("PERSON_CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
@@ -2028,50 +2028,6 @@ exports.EditPerson = async (req, res) => {
     });
   }
 };
-
-// exports.getPersonUpdateHistory = async (req, res) => {
-//   const { personCode } = req.params;
-//   if (!personCode) return res.status(400).json({ success: false, message: "personCode is required" });
-
-//   try {
-//     const pool = await poolPromise;
-
-//     // Fetch one extra record so the oldest visible record can compute its diff against the one before it
-//     const result = await pool.request()
-//       .input("PERSON_CODE", sql.VarChar(50), personCode)
-//       .query(`
-//         SELECT
-//           h.PERSON_CODE,
-//           h.COMPANY_CODE,
-//           cd.COMPANY_NAME,
-//           h.PREFIX,
-//           h.FNAME,
-//           h.LNAME,
-//           h.DESIG,
-//           h.DEPT,
-//           h.MOBILE,
-//           h.PERSON_EMAIL,
-//           h.DOB,
-//           h.REMARKS,
-//           h.MANAGEMENT_REMARKS,
-//           h.PERSON_CUPD_REMARK,
-//           h.UPDATED_DATE,
-//           h.STATUS,
-//           h.USER_CODE,
-//           ISNULL(u.USERNAME, h.USER_CODE) AS UPDATED_BY
-//         FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}] h
-//         LEFT JOIN dbo.[USER] u ON h.USER_CODE = u.USER_CODE
-//         LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON h.COMPANY_CODE = cd.COMPANY_CODE
-//         WHERE h.PERSON_CODE = @PERSON_CODE
-//         ORDER BY h.UPDATED_DATE DESC
-//       `);
-
-//     res.status(200).json({ success: true, data: result.recordset, total: result.recordset.length });
-//   } catch (err) {
-//     console.error("Error fetching person update history:", err);
-//     res.status(500).json({ success: false, error: err.message });
-//   }
-// };
 
 exports.getPersonExhHistory = async (req, res) => {
   try {
