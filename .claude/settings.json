@@ -6,6 +6,9 @@
       "c:\\Projects\\Database-Software\\ex_internal\\frontend\\src\\features\\persons\\EditPersonHistory",
       "c:\\Projects\\Database-Software\\ex_internal\\frontend\\src\\utils",
       "c:\\Projects\\Database-Software\\ex_internal\\frontend\\src\\features\\companies\\CompanyList"
+    ],
+    "allow": [
+      "Bash(grep -n \"segInsertReq\\\\|sn\\\\`\" \"c:/Projects/Database-Software/ex_internal/backend/controllers/companyController.js\")"
     ]
   }
 }

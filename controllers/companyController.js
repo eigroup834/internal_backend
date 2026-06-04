@@ -293,8 +293,8 @@ exports.addCompany = async (req, res) => {
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("SOURCE_CODE", sql.VarChar(50), sourcecode)
       .input("ACTIVE", sql.Bit, 1)
-      .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
-      .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
+      .input("REMARKS", sql.NVarChar(255), remarks || "")
+      .input("MANAGEMENT_REMARKS", sql.NVarChar(255), specialremarks || "")
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_MASTER}]
         (COMPANY_CODE, USER_CODE, USERNAME, CREATED_DATE, SOURCE_CODE, ACTIVE, REMARKS, MANAGEMENT_REMARKS)
@@ -303,23 +303,23 @@ exports.addCompany = async (req, res) => {
 
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-      .input("COMPANY_NAME", sql.NVarChar, name)
-      .input("DIVISION", sql.NVarChar, division)
-      .input("OLDNAME", sql.NVarChar, oldname)
+      .input("COMPANY_NAME", sql.NVarChar(255), name)
+      .input("DIVISION", sql.NVarChar(100), division)
+      .input("OLDNAME", sql.NVarChar(100), oldname)
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
-      .input("CITY", sql.NVarChar, city)
+      .input("CITY", sql.NVarChar(50), city)
       .input("PINCODE", sql.VarChar(20), pincode)
-      .input("STATE", sql.NVarChar, state)
-      .input("COUNTRY", sql.NVarChar, country)
+      .input("STATE", sql.NVarChar(255), state)
+      .input("COUNTRY", sql.NVarChar(50), country)
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
       .input("EMAIL", sql.VarChar(sql.MAX), JSON.stringify(emails))
-      .input("WEBSITE", sql.NVarChar, website)
+      .input("WEBSITE", sql.NVarChar(255), website)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("NATURE", sql.NVarChar(255), nature || "")
       .input("ORG_TYPE", sql.NVarChar(255), orgtype || "")
       .input("ASSOC_MEMBER", sql.NVarChar(255), assocmember || "")
-      .input("ISDCODE", sql.NVarChar(20), isdCode || "")
-      .input("STDCODE", sql.NVarChar(20), stdCode || "")
+      .input("ISDCODE", sql.VarChar(10), isdCode || "")
+      .input("STDCODE", sql.VarChar(10), stdCode || "")
       .query(`
         INSERT INTO dbo.[${TABLES.COMPANY_DETAIL}]
         (COMPANY_CODE, COMPANY_NAME, DIVISION, OLDNAME, ADDRESS, CITY, PINCODE, STATE, COUNTRY, PHONES, EMAIL, WEBSITE, CREATED_DATE, NATURE, ORG_TYPE, ASSOC_MEMBER, ISDCODE, STDCODE)
@@ -328,17 +328,17 @@ exports.addCompany = async (req, res) => {
 
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-      .input("COMPANY_NAME", sql.NVarChar, name)
-      .input("DIVISION", sql.NVarChar, division)
-      .input("OLDNAME", sql.NVarChar, oldname)
+      .input("COMPANY_NAME", sql.NVarChar(255), name)
+      .input("DIVISION", sql.NVarChar(100), division)
+      .input("OLDNAME", sql.NVarChar(255), oldname)
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
-      .input("CITY", sql.NVarChar, city)
+      .input("CITY", sql.NVarChar(50), city)
       .input("PINCODE", sql.VarChar(20), pincode)
-      .input("STATE", sql.NVarChar, state)
-      .input("COUNTRY", sql.NVarChar, country)
+      .input("STATE", sql.NVarChar(50), state)
+      .input("COUNTRY", sql.NVarChar(50), country)
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
       .input("EMAIL", sql.VarChar(sql.MAX), JSON.stringify(emails))
-      .input("WEBSITE", sql.NVarChar, website)
+      .input("WEBSITE", sql.NVarChar(255), website)
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("USER_CODE", sql.VarChar(50), usercode)
       .input("STATUS", sql.VarChar(50), Status)
@@ -365,7 +365,7 @@ exports.addCompany = async (req, res) => {
       const segInsertReq = new sql.Request(transaction);
       segInsertReq.input('CC', sql.VarChar(50), COMPANY_CODE);
       const segValueClauses = segment.map((segCode, i) => {
-        segInsertReq.input(`sn${i}`, sql.NVarChar, segNameMap[segCode] || segCode);
+        segInsertReq.input(`sn${i}`, sql.NVarChar(100), segNameMap[segCode] || segCode);
         segInsertReq.input(`sc${i}`, sql.VarChar(50), segCode);
         return `(@CC, @sn${i}, @sc${i})`;
       });
@@ -378,8 +378,8 @@ exports.addCompany = async (req, res) => {
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .input("SOURCE_CODE", sql.VarChar(50), sourcecode)
-      .input("SOURCE_PERSON", sql.NVarChar, sourceperson)
-      .input("SOURCE_TYPE", sql.NVarChar, sourcetype)
+      .input("SOURCE_PERSON", sql.NVarChar(255), sourceperson)
+      .input("SOURCE_TYPE", sql.NVarChar(100), sourcetype)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
         INSERT INTO dbo.[${TABLES.DATA_SOURCE}]
@@ -404,7 +404,7 @@ exports.addCompany = async (req, res) => {
         tagInsertReq.input('TCC', sql.VarChar(50), COMPANY_CODE);
         tagInsertReq.input('TCD', sql.DateTime, CREATED_DATE);
         const tagValueClauses = validTags.map((tagCode, i) => {
-          tagInsertReq.input(`tn${i}`, sql.NVarChar, tagNameMap[tagCode] || tagCode);
+          tagInsertReq.input(`tn${i}`, sql.NVarChar(255), tagNameMap[tagCode] || tagCode);
           tagInsertReq.input(`tc${i}`, sql.VarChar(50), tagCode);
           return `(@tn${i}, @tc${i}, @TCC, NULL, @TCD, @TCD)`;
         });
@@ -472,8 +472,8 @@ exports.EditCompany = async (req, res) => {
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .input("USER_CODE", sql.VarChar(50), usercode)
-      .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
-      .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
+      .input("REMARKS", sql.NVarChar(255), remarks || "")
+      .input("MANAGEMENT_REMARKS", sql.NVarChar(255), specialremarks || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
         UPDATE dbo.[${TABLES.COMP_MASTER}]
@@ -488,13 +488,13 @@ exports.EditCompany = async (req, res) => {
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .input("COMPANY_NAME", sql.NVarChar(255), name)
-      .input("DIVISION", sql.NVarChar(255), division)
-      .input("OLDNAME", sql.NVarChar(255), oldname)
+      .input("DIVISION", sql.NVarChar(100), division)
+      .input("OLDNAME", sql.NVarChar(100), oldname)
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
-      .input("CITY", sql.NVarChar(100), city)
+      .input("CITY", sql.NVarChar(50), city)
       .input("PINCODE", sql.VarChar(20), pincode)
-      .input("STATE", sql.NVarChar(100), state)
-      .input("COUNTRY", sql.NVarChar(100), country)
+      .input("STATE", sql.NVarChar(255), state)
+      .input("COUNTRY", sql.NVarChar(50), country)
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
       .input("EMAIL", sql.NVarChar(sql.MAX), JSON.stringify(emails))
       .input("WEBSITE", sql.NVarChar(255), website)
@@ -502,8 +502,8 @@ exports.EditCompany = async (req, res) => {
       .input("NATURE", sql.NVarChar(255), nature || "")
       .input("ORG_TYPE", sql.NVarChar(255), orgtype || "")
       .input("ASSOC_MEMBER", sql.NVarChar(255), assocmember || "")
-      .input("ISDCODE", sql.NVarChar(20), isdCode || "")
-      .input("STDCODE", sql.NVarChar(20), stdCode || "")
+      .input("ISDCODE", sql.VarChar(10), isdCode || "")
+      .input("STDCODE", sql.VarChar(10), stdCode || "")
       .query(`
         UPDATE dbo.[${TABLES.COMPANY_DETAIL}]
         SET COMPANY_NAME = @COMPANY_NAME,
@@ -529,13 +529,13 @@ exports.EditCompany = async (req, res) => {
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), companyCode)
       .input("COMPANY_NAME", sql.NVarChar(255), name)
-      .input("DIVISION", sql.NVarChar(255), division)
+      .input("DIVISION", sql.NVarChar(100), division)
       .input("OLDNAME", sql.NVarChar(255), oldname)
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
-      .input("CITY", sql.NVarChar(100), city)
+      .input("CITY", sql.NVarChar(50), city)
       .input("PINCODE", sql.VarChar(20), pincode)
-      .input("STATE", sql.NVarChar(100), state)
-      .input("COUNTRY", sql.NVarChar(100), country)
+      .input("STATE", sql.NVarChar(50), state)
+      .input("COUNTRY", sql.NVarChar(50), country)
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
       .input("EMAIL", sql.NVarChar(sql.MAX), JSON.stringify(emails))
       .input("WEBSITE", sql.NVarChar(255), website)
@@ -911,20 +911,20 @@ exports.addCompanyHistory = async (req, res) => {
       .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
       .input("EXH_YEAR", sql.VarChar(50), EXH_YEAR)
       .input("ATTENDEE", sql.NVarChar(255), ATTENDEE || "")
-      .input("EXH_LOCATION", sql.NVarChar(255), EXH_LOCATION)
-      .input("EVENT", sql.NVarChar(200), EVENT || "")
-      .input("REVENUE", sql.Decimal(18, 2), REVENUE || 0)
-      .input("REV_UNIT", sql.Decimal(18, 2), REV_UNIT || 0)
-      .input("AREA", sql.Decimal(18, 2), AREA || 0)
-      .input("EXH_INFO", sql.NVarChar(sql.MAX), EXH_INFO || "")
-      .input("SPONSOR", sql.NVarChar(50), SPONSOR || "")
-      .input("EARLYBIRD_DIS", sql.NVarChar(50), EARLYBIRD_DIS || "No")
-      .input("EXHIBIT", sql.NVarChar(50), EXHIBIT || "")
+      .input("EXH_LOCATION", sql.VarChar(255), EXH_LOCATION)
+      .input("EVENT", sql.NVarChar(255), EVENT || "")
+      .input("REVENUE", sql.Decimal(18, 0), REVENUE || 0)
+      .input("REV_UNIT", sql.NVarChar(50), REV_UNIT || "")
+      .input("AREA", sql.Decimal(18, 0), AREA || 0)
+      .input("EXH_INFO", sql.VarChar(255), EXH_INFO || "")
+      .input("SPONSOR", sql.VarChar(20), SPONSOR || "")
+      .input("EARLYBIRD_DIS", sql.VarChar(10), EARLYBIRD_DIS || "No")
+      .input("EXHIBIT", sql.VarChar(10), EXHIBIT || "")
       .input("USER_CODE", sql.VarChar(50), USER_CODE)
-      .input("FEEDBACK", sql.NVarChar(sql.MAX), FEEDBACK || "")
-      .input("Info_1", sql.NVarChar(sql.MAX), Info_1 || "")
-      .input("Info_2", sql.NVarChar(sql.MAX), Info_2 || "")
-      .input("Info_3", sql.NVarChar(sql.MAX), Info_3 || "")
+      .input("FEEDBACK", sql.VarChar(255), FEEDBACK || "")
+      .input("Info_1", sql.NVarChar(255), Info_1 || "")
+      .input("Info_2", sql.NVarChar(255), Info_2 || "")
+      .input("Info_3", sql.NVarChar(255), Info_3 || "")
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
@@ -1081,16 +1081,16 @@ exports.updateCompanyHistory = async (req, res) => {
       .input("EXH_CODE", sql.VarChar(50), exhCode.trim())
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE.trim())
       .input("TARGET_COMPANY_CODE", sql.VarChar(50), targetCompany)
-      .input("REVENUE", sql.Decimal(18, 2), REVENUE || 0)
-      .input("REV_UNIT", sql.Decimal(18, 2), REV_UNIT || 0)
-      .input("AREA", sql.Decimal(18, 2), AREA || 0)
-      .input("SPONSOR", sql.NVarChar(50), SPONSOR || "")
-      .input("EARLYBIRD_DIS", sql.NVarChar(50), EARLYBIRD_DIS || "")
-      .input("EXHIBIT", sql.NVarChar(50), EXHIBIT || "")
-      .input("FEEDBACK", sql.NVarChar(sql.MAX), FEEDBACK || "")
-      .input("Info_1", sql.NVarChar(sql.MAX), Info_1 || "")
-      .input("Info_2", sql.NVarChar(sql.MAX), Info_2 || "")
-      .input("Info_3", sql.NVarChar(sql.MAX), Info_3 || "")
+      .input("REVENUE", sql.Decimal(18, 0), REVENUE || 0)
+      .input("REV_UNIT", sql.NVarChar(50), REV_UNIT || "")
+      .input("AREA", sql.Decimal(18, 0), AREA || 0)
+      .input("SPONSOR", sql.VarChar(20), SPONSOR || "")
+      .input("EARLYBIRD_DIS", sql.VarChar(10), EARLYBIRD_DIS || "")
+      .input("EXHIBIT", sql.VarChar(10), EXHIBIT || "")
+      .input("FEEDBACK", sql.VarChar(255), FEEDBACK || "")
+      .input("Info_1", sql.NVarChar(255), Info_1 || "")
+      .input("Info_2", sql.NVarChar(255), Info_2 || "")
+      .input("Info_3", sql.NVarChar(255), Info_3 || "")
       .input("USER_CODE", sql.VarChar(50), USER_CODE)
       .input("UPDATED_DATE", sql.DateTime, new Date())
       .query(`
@@ -1303,19 +1303,19 @@ exports.addPerson = async (req, res) => {
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
       .input("COMPANY_CODE", sql.VarChar(50), companycode)
       .input("PREFIX", sql.NVarChar(50), salutation || "")
-      .input("FNAME", sql.NVarChar(255), firstname || "")
-      .input("LNAME", sql.NVarChar(255), lastname || "")
+      .input("FNAME", sql.NVarChar(100), firstname || "")
+      .input("LNAME", sql.NVarChar(100), lastname || "")
       .input("DESIG", sql.NVarChar(sql.MAX), desigJson)
       .input("DEPT", sql.NVarChar(sql.MAX), deptJson)
       .input("MOBILE", sql.NVarChar(sql.MAX), mobileJson)
       .input("PERSON_EMAIL", sql.NVarChar(sql.MAX), emailJson)
       .input("DOB", sql.Date, dobDate)
-      .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
+      .input("REMARKS", sql.NVarChar(255), remarks || "")
       .input("CONTACTDATE", sql.Date, contactDate)
-      .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), management_remarks || "")
+      .input("MANAGEMENT_REMARKS", sql.NVarChar(500), management_remarks || "")
       .input("USER_CODE", sql.VarChar(50), usercode)
       .input("ADDRESS", sql.NVarChar(sql.MAX), addrJson)
-      .input("PERSON_CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
+      .input("PERSON_CUPD_REMARK", sql.NVarChar(255), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
@@ -1341,7 +1341,7 @@ exports.addPerson = async (req, res) => {
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
       .input("MANAGEMENT_REMARKS", sql.VarChar(255), management_remarks || "")
       .input("USER_CODE", sql.VarChar(50), usercode)
-      .input("PERSON_CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
+      .input("PERSON_CUPD_REMARK", sql.NVarChar(255), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
@@ -1410,7 +1410,7 @@ exports.addPerson = async (req, res) => {
         tagInsertReq.input('TPC', sql.VarChar(50), PERSON_CODE);
         tagInsertReq.input('TCD', sql.DateTime, CREATED_DATE);
         const tagValueClauses = validTags.map((tagCode, i) => {
-          tagInsertReq.input(`tn${i}`, sql.NVarChar, tagNameMap[tagCode] || tagCode);
+          tagInsertReq.input(`tn${i}`, sql.NVarChar(255), tagNameMap[tagCode] || tagCode);
           tagInsertReq.input(`tc${i}`, sql.VarChar(50), tagCode);
           return `(@tn${i}, @tc${i}, NULL, @TPC, @TCD, @TCD)`;
         });
@@ -1424,8 +1424,8 @@ exports.addPerson = async (req, res) => {
     await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
       .input("SOURCE_CODE", sql.VarChar(50), sourcecode)
-      .input("SOURCE_PERSON", sql.NVarChar, sourceperson)
-      .input("SOURCE_TYPE", sql.NVarChar, sourcetype)
+      .input("SOURCE_PERSON", sql.NVarChar(255), sourceperson)
+      .input("SOURCE_TYPE", sql.NVarChar(100), sourcetype)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
         INSERT INTO dbo.[${TABLES.DATA_SOURCE}]
@@ -1905,7 +1905,7 @@ exports.EditPerson = async (req, res) => {
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
       .input("MANAGEMENT_REMARKS", sql.VarChar(255), management_remarks || "")
       .input("USER_CODE", sql.VarChar(50), usercode)
-      .input("PERSON_CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
+      .input("PERSON_CUPD_REMARK", sql.NVarChar(255), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
       .query(`
@@ -1959,7 +1959,7 @@ exports.EditPerson = async (req, res) => {
       .input("CONTACTDATE", sql.SmallDateTime, contactdate || null)
       .input("MANAGEMENT_REMARKS", sql.VarChar(255), management_remarks || "")
       .input("USER_CODE", sql.VarChar(50), usercode)
-      .input("PERSON_CUPD_REMARK", sql.NVarChar(sql.MAX), cupd_remark || "")
+      .input("PERSON_CUPD_REMARK", sql.NVarChar(255), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
@@ -2212,7 +2212,7 @@ exports.addPersonHistory = async (req, res) => {
     await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-      .input("COMPANY_NAME", sql.NVarChar(255), COMPANY_NAME)
+      .input("COMPANY_NAME", sql.NVarChar(100), COMPANY_NAME)
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
       .input("EXH_YEAR", sql.VarChar(50), EXH_YEAR)
