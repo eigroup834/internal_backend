@@ -1451,8 +1451,6 @@ exports.exportData = async (req, res) => {
       sqlQuery += ` WHERE ${whereClauses.join(" AND ")}`;
     }
 
-    console.log("======== sqlQuery",sqlQuery);
-
     const pool = await poolPromise;
     const result = await pool.request().query(sqlQuery);
     const rows = result.recordset;

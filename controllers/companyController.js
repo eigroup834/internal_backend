@@ -266,7 +266,7 @@ exports.addCompany = async (req, res) => {
     await transaction.begin();
 
     const userResult = await new sql.Request(transaction)
-      .input("USER_CODE", sql.VarChar, usercode)
+      .input("USER_CODE", sql.VarChar(50), usercode)
       .query(`
         UPDATE dbo.[${TABLES.USER}]
         SET DATA_COUNT = ISNULL(DATA_COUNT, 0) + 1
@@ -288,10 +288,10 @@ exports.addCompany = async (req, res) => {
     const Status = 'A';
 
     await new sql.Request(transaction)
-      .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
-      .input("USER_CODE", sql.VarChar, usercode)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+      .input("USER_CODE", sql.VarChar(50), usercode)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
-      .input("SOURCE_CODE", sql.VarChar, sourcecode)
+      .input("SOURCE_CODE", sql.VarChar(50), sourcecode)
       .input("ACTIVE", sql.Bit, 1)
       .input("REMARKS", sql.NVarChar(sql.MAX), remarks || "")
       .input("MANAGEMENT_REMARKS", sql.NVarChar(sql.MAX), specialremarks || "")
@@ -302,7 +302,7 @@ exports.addCompany = async (req, res) => {
       `);
 
     await new sql.Request(transaction)
-      .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .input("COMPANY_NAME", sql.NVarChar, name)
       .input("DIVISION", sql.NVarChar, division)
       .input("OLDNAME", sql.NVarChar, oldname)
@@ -327,20 +327,20 @@ exports.addCompany = async (req, res) => {
       `);
 
     await new sql.Request(transaction)
-      .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
       .input("COMPANY_NAME", sql.NVarChar, name)
       .input("DIVISION", sql.NVarChar, division)
       .input("OLDNAME", sql.NVarChar, oldname)
       .input("ADDRESS", sql.NVarChar(sql.MAX), JSON.stringify(addresses))
       .input("CITY", sql.NVarChar, city)
-      .input("PINCODE", sql.VarChar, pincode)
+      .input("PINCODE", sql.VarChar(20), pincode)
       .input("STATE", sql.NVarChar, state)
       .input("COUNTRY", sql.NVarChar, country)
       .input("PHONES", sql.VarChar(sql.MAX), JSON.stringify(phones))
       .input("EMAIL", sql.VarChar(sql.MAX), JSON.stringify(emails))
       .input("WEBSITE", sql.NVarChar, website)
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
-      .input("USER_CODE", sql.VarChar, usercode)
+      .input("USER_CODE", sql.VarChar(50), usercode)
       .input("STATUS", sql.VarChar(50), Status)
       .input("NATURE", sql.NVarChar(255), nature || "")
       .input("ORG_TYPE", sql.NVarChar(255), orgtype || "")
@@ -353,7 +353,7 @@ exports.addCompany = async (req, res) => {
 
     if (Array.isArray(segment) && segment.length > 0) {
       const segLookupReq = new sql.Request(transaction);
-      segment.forEach((code, i) => segLookupReq.input(`seg${i}`, sql.VarChar, code));
+      segment.forEach((code, i) => segLookupReq.input(`seg${i}`, sql.VarChar(50), code));
       const segNamesResult = await segLookupReq.query(`
         SELECT SEG_CODE, SEGMENT FROM dbo.[INDSEGMENT]
         WHERE SEG_CODE IN (${segment.map((_, i) => `@seg${i}`).join(', ')})
@@ -363,10 +363,10 @@ exports.addCompany = async (req, res) => {
       );
 
       const segInsertReq = new sql.Request(transaction);
-      segInsertReq.input('CC', sql.VarChar, COMPANY_CODE);
+      segInsertReq.input('CC', sql.VarChar(50), COMPANY_CODE);
       const segValueClauses = segment.map((segCode, i) => {
         segInsertReq.input(`sn${i}`, sql.NVarChar, segNameMap[segCode] || segCode);
-        segInsertReq.input(`sc${i}`, sql.VarChar, segCode);
+        segInsertReq.input(`sc${i}`, sql.VarChar(50), segCode);
         return `(@CC, @sn${i}, @sc${i})`;
       });
       await segInsertReq.query(`
@@ -376,13 +376,13 @@ exports.addCompany = async (req, res) => {
     }
 
     await new sql.Request(transaction)
-      .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
-      .input("SOURCE_CODE", sql.VarChar, sourcecode)
+      .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
+      .input("SOURCE_CODE", sql.VarChar(50), sourcecode)
       .input("SOURCE_PERSON", sql.NVarChar, sourceperson)
       .input("SOURCE_TYPE", sql.NVarChar, sourcetype)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
-        INSERT INTO dbo.[${TABLES.DATA_SOURCE}]  
+        INSERT INTO dbo.[${TABLES.DATA_SOURCE}]
         (SOURCE_CODE, SOURCE_PERSON, SOURCE_TYPE, CREATED_DATE, COMPANY_CODE)
         VALUES (@SOURCE_CODE, @SOURCE_PERSON, @SOURCE_TYPE, @CREATED_DATE, @COMPANY_CODE)
       `);
@@ -391,7 +391,7 @@ exports.addCompany = async (req, res) => {
       const validTags = tags.filter(Boolean);
       if (validTags.length > 0) {
         const tagLookupReq = new sql.Request(transaction);
-        validTags.forEach((code, i) => tagLookupReq.input(`tag${i}`, sql.VarChar, code));
+        validTags.forEach((code, i) => tagLookupReq.input(`tag${i}`, sql.VarChar(50), code));
         const tagNamesResult = await tagLookupReq.query(`
           SELECT TAG_CODE, TAG_NAME FROM dbo.[${TABLES.TAGS}]
           WHERE TAG_CODE IN (${validTags.map((_, i) => `@tag${i}`).join(', ')})
@@ -401,11 +401,11 @@ exports.addCompany = async (req, res) => {
         );
 
         const tagInsertReq = new sql.Request(transaction);
-        tagInsertReq.input('TCC', sql.VarChar, COMPANY_CODE);
+        tagInsertReq.input('TCC', sql.VarChar(50), COMPANY_CODE);
         tagInsertReq.input('TCD', sql.DateTime, CREATED_DATE);
         const tagValueClauses = validTags.map((tagCode, i) => {
           tagInsertReq.input(`tn${i}`, sql.NVarChar, tagNameMap[tagCode] || tagCode);
-          tagInsertReq.input(`tc${i}`, sql.VarChar, tagCode);
+          tagInsertReq.input(`tc${i}`, sql.VarChar(50), tagCode);
           return `(@tn${i}, @tc${i}, @TCC, NULL, @TCD, @TCD)`;
         });
         await tagInsertReq.query(`
@@ -417,9 +417,9 @@ exports.addCompany = async (req, res) => {
 
     if (groupCode) {
       await new sql.Request(transaction)
-        .input("COMPANY_CODE", sql.VarChar, COMPANY_CODE)
+        .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
         .input("GROUP_CODE", sql.VarChar(50), groupCode)
-        .input("USER_CODE", sql.VarChar, usercode)
+        .input("USER_CODE", sql.VarChar(50), usercode)
         .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
         .query(`INSERT INTO dbo.[${TABLES.COMPANY_GROUP_MEMBER}] (COMPANY_CODE, GROUP_CODE, USER_CODE, CREATED_DATE) VALUES (@COMPANY_CODE, @GROUP_CODE, @USER_CODE, @CREATED_DATE)`);
     }
@@ -1397,7 +1397,7 @@ exports.addPerson = async (req, res) => {
       const validTags = tags.filter(Boolean);
       if (validTags.length > 0) {
         const tagLookupReq = new sql.Request(transaction);
-        validTags.forEach((code, i) => tagLookupReq.input(`tag${i}`, sql.VarChar, code));
+        validTags.forEach((code, i) => tagLookupReq.input(`tag${i}`, sql.VarChar(50), code));
         const tagNamesResult = await tagLookupReq.query(`
           SELECT TAG_CODE, TAG_NAME FROM dbo.[${TABLES.TAGS}]
           WHERE TAG_CODE IN (${validTags.map((_, i) => `@tag${i}`).join(', ')})
@@ -1407,11 +1407,11 @@ exports.addPerson = async (req, res) => {
         );
 
         const tagInsertReq = new sql.Request(transaction);
-        tagInsertReq.input('TPC', sql.VarChar, PERSON_CODE);
+        tagInsertReq.input('TPC', sql.VarChar(50), PERSON_CODE);
         tagInsertReq.input('TCD', sql.DateTime, CREATED_DATE);
         const tagValueClauses = validTags.map((tagCode, i) => {
           tagInsertReq.input(`tn${i}`, sql.NVarChar, tagNameMap[tagCode] || tagCode);
-          tagInsertReq.input(`tc${i}`, sql.VarChar, tagCode);
+          tagInsertReq.input(`tc${i}`, sql.VarChar(50), tagCode);
           return `(@tn${i}, @tc${i}, NULL, @TPC, @TCD, @TCD)`;
         });
         await tagInsertReq.query(`
@@ -1422,13 +1422,13 @@ exports.addPerson = async (req, res) => {
     }
 
     await new sql.Request(transaction)
-      .input("PERSON_CODE", sql.VarChar, PERSON_CODE)
-      .input("SOURCE_CODE", sql.VarChar, sourcecode)
+      .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
+      .input("SOURCE_CODE", sql.VarChar(50), sourcecode)
       .input("SOURCE_PERSON", sql.NVarChar, sourceperson)
       .input("SOURCE_TYPE", sql.NVarChar, sourcetype)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .query(`
-        INSERT INTO dbo.[${TABLES.DATA_SOURCE}]  
+        INSERT INTO dbo.[${TABLES.DATA_SOURCE}]
         (SOURCE_CODE, SOURCE_PERSON, SOURCE_TYPE, CREATED_DATE, PERSON_CODE)
         VALUES (@SOURCE_CODE, @SOURCE_PERSON, @SOURCE_TYPE, @CREATED_DATE, @PERSON_CODE)
       `);
