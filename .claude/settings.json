@@ -1,14 +1,15 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(grep -n \"segInsertReq\\\\|sn\\\\`\" \"c:/Projects/Database-Software/ex_internal/backend/controllers/companyController.js\")",
+      "Bash(npm install *)"
+    ],
     "additionalDirectories": [
       "c:\\Projects\\Database-Software\\ex_internal\\frontend\\src\\features\\companies\\EditCompanyHistory",
       "c:\\Projects\\Database-Software\\ex_internal\\frontend\\src\\features\\persons\\PersonList",
       "c:\\Projects\\Database-Software\\ex_internal\\frontend\\src\\features\\persons\\EditPersonHistory",
       "c:\\Projects\\Database-Software\\ex_internal\\frontend\\src\\utils",
       "c:\\Projects\\Database-Software\\ex_internal\\frontend\\src\\features\\companies\\CompanyList"
-    ],
-    "allow": [
-      "Bash(grep -n \"segInsertReq\\\\|sn\\\\`\" \"c:/Projects/Database-Software/ex_internal/backend/controllers/companyController.js\")"
     ]
   }
 }

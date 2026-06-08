@@ -8,6 +8,8 @@ const authRoutes = require('./routes/auth');
 const companyRoutes = require('./routes/company');
 const commonRoutes = require('./routes/commonRoutes');
 
+require('./jobs/duplicateCheckJob');
+
 const app = express();
 
 app.use(compression());
