@@ -1,111 +1,139 @@
 const cron = require("node-cron");
 const nodemailer = require("nodemailer");
-const { poolPromise } = require("../db");
+const { getPool, withRetry } = require("../db");
 const { TABLES } = require("../helper");
 
-function parseJsonField(val) {
-  if (!val) return [];
-  try {
-    const parsed = typeof val === "string" ? JSON.parse(val) : val;
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function extractEmails(emailJson) {
-  return parseJsonField(emailJson)
-    .map((e) => (typeof e === "string" ? e : e?.email || e?.value || ""))
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function extractPhones(phoneJson) {
-  return parseJsonField(phoneJson)
-    .map((p) => {
-      if (typeof p === "string") return p.replace(/\s+/g, "");
-      const isd = (p.isd || "").toString().replace(/\D/g, "");
-      const num = (p.number || "").toString().replace(/\D/g, "");
-      return isd ? `+${isd}${num}` : num;
-    })
-    .filter(Boolean);
-}
+// All duplicate detection is done in SQL via OPENJSON so no large arrays
+// are loaded into Node.js memory.
 
 async function findDuplicates() {
-  const pool = await poolPromise;
+  const pool = await getPool();
 
-  // ── Companies ──
-  const companyRows = await pool.request().query(`
-    SELECT COMPANY_CODE, COMPANY_NAME, EMAIL, PHONES, WEBSITE
-    FROM dbo.[${TABLES.COMPANY_DETAIL}]
+  const run = (query) => withRetry(() => pool.request().query(query));
+
+  // ── Company: duplicate emails ────────────────────────────────────────────
+  const companyEmailRows = await run(`
+    SELECT
+      LOWER(TRIM(email)) AS value,
+      COUNT(*)           AS cnt,
+      STRING_AGG(c.COMPANY_CODE + N' — ' + ISNULL(c.COMPANY_NAME, N''), N', ') AS companies
+    FROM dbo.[${TABLES.COMPANY_DETAIL}] c WITH (NOLOCK)
+    CROSS APPLY OPENJSON(c.EMAIL) j
+    CROSS APPLY (SELECT
+      COALESCE(
+        JSON_VALUE(j.value, '$.email'),
+        JSON_VALUE(j.value, '$.value'),
+        CASE WHEN ISJSON(j.value) = 0 THEN j.value END
+      ) AS email
+    ) x
+    WHERE c.EMAIL IS NOT NULL
+      AND LEN(c.EMAIL) > 2
+      AND x.email IS NOT NULL
+      AND LEN(TRIM(x.email)) > 0
+    GROUP BY LOWER(TRIM(x.email))
+    HAVING COUNT(*) > 1
+    ORDER BY cnt DESC
   `);
 
-  const emailToCompanies = {};
-  const phoneToCompanies = {};
+  // ── Company: duplicate phones ────────────────────────────────────────────
+  const companyPhoneRows = await run(`
+    SELECT
+      phone              AS value,
+      COUNT(*)           AS cnt,
+      STRING_AGG(c.COMPANY_CODE + N' — ' + ISNULL(c.COMPANY_NAME, N''), N', ') AS companies
+    FROM dbo.[${TABLES.COMPANY_DETAIL}] c WITH (NOLOCK)
+    CROSS APPLY OPENJSON(c.PHONES) j
+    CROSS APPLY (SELECT
+      CASE
+        WHEN ISJSON(j.value) = 0 THEN j.value
+        WHEN JSON_VALUE(j.value, '$.isd') IS NOT NULL
+          THEN N'+' + JSON_VALUE(j.value, '$.isd') + JSON_VALUE(j.value, '$.number')
+        ELSE JSON_VALUE(j.value, '$.number')
+      END AS phone
+    ) x
+    WHERE c.PHONES IS NOT NULL
+      AND LEN(c.PHONES) > 2
+      AND x.phone IS NOT NULL
+      AND LEN(TRIM(x.phone)) > 0
+    GROUP BY x.phone
+    HAVING COUNT(*) > 1
+    ORDER BY cnt DESC
+  `);
 
-  for (const row of companyRows.recordset) {
-    const ref = { code: row.COMPANY_CODE, name: row.COMPANY_NAME || "" };
-    for (const email of extractEmails(row.EMAIL)) {
-      (emailToCompanies[email] = emailToCompanies[email] || []).push(ref);
-    }
-    for (const phone of extractPhones(row.PHONES)) {
-      (phoneToCompanies[phone] = phoneToCompanies[phone] || []).push(ref);
-    }
-  }
-
-  // Website duplicates via SQL (simpler, no JSON)
-  const websiteRows = await pool.request().query(`
-    SELECT WEBSITE, COUNT(*) AS cnt,
-      STRING_AGG(COMPANY_CODE + ' — ' + ISNULL(COMPANY_NAME, ''), ', ') AS companies
-    FROM dbo.[${TABLES.COMPANY_DETAIL}]
-    WHERE WEBSITE IS NOT NULL AND LTRIM(RTRIM(WEBSITE)) != ''
+  // ── Company: duplicate websites ──────────────────────────────────────────
+  const companyWebsiteRows = await run(`
+    SELECT
+      WEBSITE           AS value,
+      COUNT(*)          AS cnt,
+      STRING_AGG(COMPANY_CODE + N' — ' + ISNULL(COMPANY_NAME, N''), N', ') AS companies
+    FROM dbo.[${TABLES.COMPANY_DETAIL}] WITH (NOLOCK)
+    WHERE WEBSITE IS NOT NULL AND LTRIM(RTRIM(WEBSITE)) != N''
     GROUP BY WEBSITE
     HAVING COUNT(*) > 1
     ORDER BY cnt DESC
   `);
 
-  // ── Persons ──
-  const personRows = await pool.request().query(`
-    SELECT PERSON_CODE, FNAME, LNAME, COMPANY_CODE, PERSON_EMAIL, MOBILE
-    FROM dbo.[${TABLES.COMP_PERSON}]
+  // ── Person: duplicate emails ─────────────────────────────────────────────
+  const personEmailRows = await run(`
+    SELECT
+      LOWER(TRIM(x.email)) AS value,
+      COUNT(*)              AS cnt,
+      STRING_AGG(
+        p.PERSON_CODE + N' — ' + ISNULL(p.FNAME, N'') + N' ' + ISNULL(p.LNAME, N'') +
+        N' (' + ISNULL(p.COMPANY_CODE, N'') + N')', N', '
+      ) AS persons
+    FROM dbo.[${TABLES.COMP_PERSON}] p WITH (NOLOCK)
+    CROSS APPLY OPENJSON(p.PERSON_EMAIL) j
+    CROSS APPLY (SELECT
+      COALESCE(
+        JSON_VALUE(j.value, '$.email'),
+        JSON_VALUE(j.value, '$.value'),
+        CASE WHEN ISJSON(j.value) = 0 THEN j.value END
+      ) AS email
+    ) x
+    WHERE p.PERSON_EMAIL IS NOT NULL
+      AND LEN(p.PERSON_EMAIL) > 2
+      AND x.email IS NOT NULL
+      AND LEN(TRIM(x.email)) > 0
+    GROUP BY LOWER(TRIM(x.email))
+    HAVING COUNT(*) > 1
+    ORDER BY cnt DESC
   `);
 
-  const emailToPersons = {};
-  const phoneToPersons = {};
-
-  for (const row of personRows.recordset) {
-    const name = `${row.FNAME || ""} ${row.LNAME || ""}`.trim();
-    const ref = { code: row.PERSON_CODE, name, company: row.COMPANY_CODE || "" };
-    for (const email of extractEmails(row.PERSON_EMAIL)) {
-      (emailToPersons[email] = emailToPersons[email] || []).push(ref);
-    }
-    for (const phone of extractPhones(row.MOBILE)) {
-      (phoneToPersons[phone] = phoneToPersons[phone] || []).push(ref);
-    }
-  }
+  // ── Person: duplicate phones ─────────────────────────────────────────────
+  const personPhoneRows = await run(`
+    SELECT
+      x.phone            AS value,
+      COUNT(*)           AS cnt,
+      STRING_AGG(
+        p.PERSON_CODE + N' — ' + ISNULL(p.FNAME, N'') + N' ' + ISNULL(p.LNAME, N'') +
+        N' (' + ISNULL(p.COMPANY_CODE, N'') + N')', N', '
+      ) AS persons
+    FROM dbo.[${TABLES.COMP_PERSON}] p WITH (NOLOCK)
+    CROSS APPLY OPENJSON(p.MOBILE) j
+    CROSS APPLY (SELECT
+      CASE
+        WHEN ISJSON(j.value) = 0 THEN j.value
+        WHEN JSON_VALUE(j.value, '$.isd') IS NOT NULL
+          THEN N'+' + JSON_VALUE(j.value, '$.isd') + JSON_VALUE(j.value, '$.number')
+        ELSE JSON_VALUE(j.value, '$.number')
+      END AS phone
+    ) x
+    WHERE p.MOBILE IS NOT NULL
+      AND LEN(p.MOBILE) > 2
+      AND x.phone IS NOT NULL
+      AND LEN(TRIM(x.phone)) > 0
+    GROUP BY x.phone
+    HAVING COUNT(*) > 1
+    ORDER BY cnt DESC
+  `);
 
   return {
-    companyEmail: Object.entries(emailToCompanies)
-      .filter(([, a]) => a.length > 1)
-      .map(([value, records]) => ({ value, records })),
-
-    companyPhone: Object.entries(phoneToCompanies)
-      .filter(([, a]) => a.length > 1)
-      .map(([value, records]) => ({ value, records })),
-
-    companyWebsite: websiteRows.recordset.map((r) => ({
-      value: r.WEBSITE,
-      count: r.cnt,
-      companies: r.companies,
-    })),
-
-    personEmail: Object.entries(emailToPersons)
-      .filter(([, a]) => a.length > 1)
-      .map(([value, records]) => ({ value, records })),
-
-    personPhone: Object.entries(phoneToPersons)
-      .filter(([, a]) => a.length > 1)
-      .map(([value, records]) => ({ value, records })),
+    companyEmail:   companyEmailRows.recordset,
+    companyPhone:   companyPhoneRows.recordset,
+    companyWebsite: companyWebsiteRows.recordset,
+    personEmail:    personEmailRows.recordset,
+    personPhone:    personPhoneRows.recordset,
   };
 }
 
@@ -137,8 +165,7 @@ function buildHtmlReport(results, date) {
     results.companyEmail,
     () => `<tr><th ${th}>Email</th><th ${th}>Companies</th></tr>`,
     (r, i) => `<tr style="${i % 2 ? "background:#f7f9fc;" : ""}">
-      <td ${td}>${r.value}</td>
-      <td ${td}>${r.records.map((c) => `<b>${c.code}</b> — ${c.name}`).join("<br>")}</td>
+      <td ${td}>${r.value}</td><td ${td}>${r.companies}</td>
     </tr>`
   );
 
@@ -147,8 +174,7 @@ function buildHtmlReport(results, date) {
     results.companyPhone,
     () => `<tr><th ${th}>Phone</th><th ${th}>Companies</th></tr>`,
     (r, i) => `<tr style="${i % 2 ? "background:#f7f9fc;" : ""}">
-      <td ${td}>${r.value}</td>
-      <td ${td}>${r.records.map((c) => `<b>${c.code}</b> — ${c.name}`).join("<br>")}</td>
+      <td ${td}>${r.value}</td><td ${td}>${r.companies}</td>
     </tr>`
   );
 
@@ -157,9 +183,7 @@ function buildHtmlReport(results, date) {
     results.companyWebsite,
     () => `<tr><th ${th}>Website</th><th ${th}>Count</th><th ${th}>Companies</th></tr>`,
     (r, i) => `<tr style="${i % 2 ? "background:#f7f9fc;" : ""}">
-      <td ${td}>${r.value}</td>
-      <td ${td}>${r.count}</td>
-      <td ${td}>${r.companies}</td>
+      <td ${td}>${r.value}</td><td ${td}>${r.cnt}</td><td ${td}>${r.companies}</td>
     </tr>`
   );
 
@@ -168,8 +192,7 @@ function buildHtmlReport(results, date) {
     results.personEmail,
     () => `<tr><th ${th}>Email</th><th ${th}>Persons</th></tr>`,
     (r, i) => `<tr style="${i % 2 ? "background:#f7f9fc;" : ""}">
-      <td ${td}>${r.value}</td>
-      <td ${td}>${r.records.map((p) => `<b>${p.code}</b> — ${p.name} (${p.company})`).join("<br>")}</td>
+      <td ${td}>${r.value}</td><td ${td}>${r.persons}</td>
     </tr>`
   );
 
@@ -178,8 +201,7 @@ function buildHtmlReport(results, date) {
     results.personPhone,
     () => `<tr><th ${th}>Phone</th><th ${th}>Persons</th></tr>`,
     (r, i) => `<tr style="${i % 2 ? "background:#f7f9fc;" : ""}">
-      <td ${td}>${r.value}</td>
-      <td ${td}>${r.records.map((p) => `<b>${p.code}</b> — ${p.name} (${p.company})`).join("<br>")}</td>
+      <td ${td}>${r.value}</td><td ${td}>${r.persons}</td>
     </tr>`
   );
 
