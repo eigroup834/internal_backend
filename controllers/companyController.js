@@ -1045,16 +1045,26 @@ exports.getExhibitionNames = async (req, res) => {
 
 exports.deleteExhibitionHistory = async (req, res) => {
   const { exhCode } = req.params;
+  const { companyCode } = req.query;
 
   if (!exhCode) {
     return res.status(400).json({ success: false, message: "EXH_CODE is required" });
+  }
+
+  if (!companyCode) {
+    return res.status(400).json({ success: false, message: "COMPANY_CODE is required" });
   }
 
   try {
     const pool = await poolPromise;
     await pool.request()
       .input("EXH_CODE", sql.VarChar(50), exhCode)
-      .query(`DELETE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] WHERE EXH_CODE = @EXH_CODE`);
+      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+      .query(`
+        DELETE FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
+        WHERE LTRIM(RTRIM(EXH_CODE)) = LTRIM(RTRIM(@EXH_CODE))
+          AND LTRIM(RTRIM(COMPANY_CODE)) = LTRIM(RTRIM(@COMPANY_CODE))
+      `);
 
     res.status(200).json({ success: true, message: "Exhibition history deleted successfully" });
   } catch (err) {
@@ -1124,16 +1134,26 @@ exports.updateCompanyHistory = async (req, res) => {
 
 exports.deletePersonExhibitionHistory = async (req, res) => {
   const { exhCode } = req.params;
+  const { personCode } = req.query;
 
   if (!exhCode) {
     return res.status(400).json({ success: false, message: "EXH_CODE is required" });
+  }
+
+  if (!personCode) {
+    return res.status(400).json({ success: false, message: "PERSON_CODE is required" });
   }
 
   try {
     const pool = await poolPromise;
     await pool.request()
       .input("EXH_CODE", sql.VarChar(50), exhCode)
-      .query(`DELETE FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] WHERE EXH_CODE = @EXH_CODE`);
+      .input("PERSON_CODE", sql.VarChar(50), personCode)
+      .query(`
+        DELETE FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
+        WHERE LTRIM(RTRIM(EXH_CODE)) = LTRIM(RTRIM(@EXH_CODE))
+          AND LTRIM(RTRIM(PERSON_CODE)) = LTRIM(RTRIM(@PERSON_CODE))
+      `);
 
     res.status(200).json({ success: true, message: "Exhibition history deleted successfully" });
   } catch (err) {
@@ -1159,15 +1179,6 @@ exports.updatePersonHistory = async (req, res) => {
 
   try {
     const pool = await poolPromise;
-
-    // if (targetPerson !== PERSON_CODE.trim()) {
-    //   const personCheck = await pool.request()
-    //     .input("TARGET_PERSON_CODE", sql.VarChar(50), targetPerson)
-    //     .query(`SELECT TOP 1 PERSON_CODE FROM dbo.[${TABLES.COMP_PERSON}] WHERE LTRIM(RTRIM(PERSON_CODE)) = LTRIM(RTRIM(@TARGET_PERSON_CODE))`);
-    //   if (!personCheck.recordset.length) {
-    //     return res.status(400).json({ success: false, message: "Target person not found" });
-    //   }
-    // }
 
     const result = await pool.request()
       .input("EXH_CODE", sql.VarChar(50), exhCode.trim())

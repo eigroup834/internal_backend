@@ -573,10 +573,29 @@ exports.deleteEvent = async (req, res) => {
 
     const check = await pool.request()
       .input("ID", sql.Int, id)
-      .query(`SELECT COUNT(*) AS cnt FROM dbo.[${TABLES.EVENTS}] WHERE ID = @ID`);
+      .query(`SELECT EVENT_CODE FROM dbo.[${TABLES.EVENTS}] WHERE ID = @ID`);
 
-    if (check.recordset[0].cnt === 0) {
+    if (check.recordset.length === 0) {
       return res.status(404).json({ error: "Exhibition not found." });
+    }
+
+    const eventCode = check.recordset[0].EVENT_CODE;
+
+    const historyCheck = await pool.request()
+      .input("EVENT_CODE", sql.VarChar(100), eventCode)
+      .query(`
+        SELECT
+          (SELECT COUNT(*) FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
+            WHERE LTRIM(RTRIM(EXH_CODE)) = LTRIM(RTRIM(@EVENT_CODE))) AS companyCount,
+          (SELECT COUNT(*) FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
+            WHERE LTRIM(RTRIM(EXH_CODE)) = LTRIM(RTRIM(@EVENT_CODE))) AS personCount
+      `);
+
+    const { companyCount, personCount } = historyCheck.recordset[0];
+    if (companyCount > 0 || personCount > 0) {
+      return res.status(400).json({
+        error: `Cannot delete — this exhibition is used in ${companyCount} company history and ${personCount} person history record(s). Remove those history records first.`
+      });
     }
 
     await pool.request()
