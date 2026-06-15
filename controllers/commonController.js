@@ -1389,14 +1389,26 @@ exports.getMyDailyEntries = async (req, res) => {
     const userCode = req.user?.user_code;
     if (!userCode) return res.status(401).json({ error: "Unauthorized" });
 
+    const ymd = (dt) => {
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, "0");
+      const d = String(dt.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    };
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const earliest = new Date(today);
+    earliest.setDate(earliest.getDate() - 10); 
+
     let { date } = req.query;
-    if (!date) {
-      const now = new Date();
-      const y = now.getFullYear();
-      const m = String(now.getMonth() + 1).padStart(2, "0");
-      const d = String(now.getDate()).padStart(2, "0");
-      date = `${y}-${m}-${d}`;
+    if (!date) date = ymd(today);
+
+    const picked = new Date(`${date}T00:00:00`);
+    if (isNaN(picked.getTime()) || picked > today || picked < earliest) {
+      return res.status(400).json({ error: "Only the last 10 days are available." });
     }
+    date = ymd(picked);
 
     const pool = await poolPromise;
 
