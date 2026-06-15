@@ -3,15 +3,11 @@ const nodemailer = require("nodemailer");
 const { getPool, withRetry } = require("../db");
 const { TABLES } = require("../helper");
 
-// All duplicate detection is done in SQL via OPENJSON so no large arrays
-// are loaded into Node.js memory.
-
 async function findDuplicates() {
   const pool = await getPool();
 
   const run = (query) => withRetry(() => pool.request().query(query));
 
-  // ── Company: duplicate emails ────────────────────────────────────────────
   const companyEmailRows = await run(`
     SELECT
       LOWER(TRIM(email)) AS value,
@@ -161,7 +157,7 @@ function buildHtmlReport(results, date) {
   }
 
   const companyEmailHtml = section(
-    "📧", "Duplicate Company Emails", "#c0392b",
+    "", "Duplicate Company Emails", "#c0392b",
     results.companyEmail,
     () => `<tr><th ${th}>Email</th><th ${th}>Companies</th></tr>`,
     (r, i) => `<tr style="${i % 2 ? "background:#f7f9fc;" : ""}">
@@ -170,7 +166,7 @@ function buildHtmlReport(results, date) {
   );
 
   const companyPhoneHtml = section(
-    "📞", "Duplicate Company Phones", "#e67e22",
+    "", "Duplicate Company Phones", "#e67e22",
     results.companyPhone,
     () => `<tr><th ${th}>Phone</th><th ${th}>Companies</th></tr>`,
     (r, i) => `<tr style="${i % 2 ? "background:#f7f9fc;" : ""}">
@@ -179,7 +175,7 @@ function buildHtmlReport(results, date) {
   );
 
   const companyWebsiteHtml = section(
-    "🌐", "Duplicate Company Websites", "#8e44ad",
+    "", "Duplicate Company Websites", "#8e44ad",
     results.companyWebsite,
     () => `<tr><th ${th}>Website</th><th ${th}>Count</th><th ${th}>Companies</th></tr>`,
     (r, i) => `<tr style="${i % 2 ? "background:#f7f9fc;" : ""}">
@@ -188,7 +184,7 @@ function buildHtmlReport(results, date) {
   );
 
   const personEmailHtml = section(
-    "👤", "Duplicate Person Emails", "#c0392b",
+    "", "Duplicate Person Emails", "#c0392b",
     results.personEmail,
     () => `<tr><th ${th}>Email</th><th ${th}>Persons</th></tr>`,
     (r, i) => `<tr style="${i % 2 ? "background:#f7f9fc;" : ""}">
@@ -197,7 +193,7 @@ function buildHtmlReport(results, date) {
   );
 
   const personPhoneHtml = section(
-    "📱", "Duplicate Person Phones", "#e67e22",
+    "", "Duplicate Person Phones", "#e67e22",
     results.personPhone,
     () => `<tr><th ${th}>Phone</th><th ${th}>Persons</th></tr>`,
     (r, i) => `<tr style="${i % 2 ? "background:#f7f9fc;" : ""}">

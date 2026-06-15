@@ -10,7 +10,6 @@ router.post("/addPerson", authenticateToken, companyController.addPerson);
 router.get("/getPersonList", authenticateToken, companyController.getPersonList);
 router.get("/getCompPersonList", authenticateToken, companyController.getCompPersonList);
 router.get("/getPersonDetails/:personCode", authenticateToken, companyController.GetPersonDetail);
-// router.get("/personUpdateHistory/:personCode", authenticateToken, companyController.getPersonUpdateHistory);
 router.put("/updatePerson/:personCode", authenticateToken, companyController.EditPerson);
 
 router.post("/updateHistory", authenticateToken, companyController.addCompanyHistory);

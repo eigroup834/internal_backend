@@ -1162,7 +1162,6 @@ exports.getSalesReport = async (req, res) => {
     const industryList = industries ? industries.split(",").filter(Boolean) : [];
     const segmentList  = segments  ? segments.split(",").filter(Boolean)  : [];
 
-    // Exhibition filter — IN subquery for dedup, OUTER APPLY for display columns
     const needsExhFilter = !!(exhName || attendee || event);
     let exhApplySQL = "";
     let exhSelectSQL = "";
@@ -1187,7 +1186,6 @@ exports.getSalesReport = async (req, res) => {
       }
     }
 
-    // Date filters on person updated date
     if (dateFrom) { request.input("dateFrom", sql.Date, dateFrom); whereClauses.push("CAST(CP.UPDATED_DATE AS DATE) >= @dateFrom"); }
     if (dateTo)   { request.input("dateTo",   sql.Date, dateTo);   whereClauses.push("CAST(CP.UPDATED_DATE AS DATE) <= @dateTo"); }
 
@@ -1308,7 +1306,7 @@ exports.getActivityReport = async (req, res) => {
     if (fromDate > toDate) {
       return res.status(400).json({ error: "'from' date must be on or before 'to' date." });
     }
-    // Cap the range to a maximum of 1 year to avoid heavy scans.
+    
     const MAX_RANGE_DAYS = 366;
     const rangeDays = Math.round((toDate - fromDate) / 86400000);
     if (rangeDays > MAX_RANGE_DAYS) {
