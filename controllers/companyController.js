@@ -984,7 +984,7 @@ exports.getCompanyExhHistory = async (req, res) => {
         FROM dbo.[${TABLES.COMP_EXH_HISTORY}] h
         LEFT JOIN dbo.[USER] u ON h.USER_CODE = u.USER_CODE
         WHERE h.COMPANY_CODE = @COMPANY_CODE
-        ORDER BY h.CREATED_DATE DESC
+        ORDER BY COALESCE(h.UPDATED_DATE, h.CREATED_DATE) DESC
         OFFSET @OFFSET ROWS
         FETCH NEXT @LIMIT ROWS ONLY
       `);
@@ -2096,7 +2096,7 @@ exports.getPersonExhHistory = async (req, res) => {
 
         WHERE h.PERSON_CODE = @PERSON_CODE
 
-        ORDER BY h.CREATED_DATE DESC
+        ORDER BY COALESCE(h.UPDATED_DATE, h.CREATED_DATE) DESC
 
         OFFSET @OFFSET ROWS
         FETCH NEXT @LIMIT ROWS ONLY
