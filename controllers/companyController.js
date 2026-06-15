@@ -36,6 +36,7 @@ exports.getCompanies = async (req, res) => {
     const searchableColumns = {
       COMPANY_CODE: "c.[COMPANY_CODE]",
       COMPANY_NAME: "c.[COMPANY_NAME]",
+      DIVISION:     "c.[DIVISION]",
       EMAIL:        "c.[EMAIL]",
       WEBSITE:      "c.[WEBSITE]",
       PHONES:       "c.[PHONES]",

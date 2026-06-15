@@ -35,6 +35,7 @@ router.post('/editEditor', authenticateToken, commonController.editEditor);
 
 router.get('/dashboard/stats', authenticateToken, commonController.getDashboardStats);
 router.get('/dashboard/activity', authenticateToken, commonController.getDashboardActivity);
+router.get('/dashboard/myEntries', authenticateToken, commonController.getMyDailyEntries);
 router.get('/reports/activityReport', authenticateToken, commonController.getActivityReport);
 router.get('/reports/salesReport',    authenticateToken, commonController.getSalesReport);
 

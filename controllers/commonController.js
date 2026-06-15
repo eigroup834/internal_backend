@@ -1300,6 +1300,21 @@ exports.getActivityReport = async (req, res) => {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).json({ error: "from and to dates are required" });
 
+    const fromDate = new Date(from);
+    const toDate = new Date(to);
+    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+      return res.status(400).json({ error: "Invalid date format. Use YYYY-MM-DD." });
+    }
+    if (fromDate > toDate) {
+      return res.status(400).json({ error: "'from' date must be on or before 'to' date." });
+    }
+    // Cap the range to a maximum of 1 year to avoid heavy scans.
+    const MAX_RANGE_DAYS = 366;
+    const rangeDays = Math.round((toDate - fromDate) / 86400000);
+    if (rangeDays > MAX_RANGE_DAYS) {
+      return res.status(400).json({ error: "Date range cannot exceed 1 year." });
+    }
+
     const pool = await poolPromise;
     const query = `
       WITH
@@ -1307,28 +1322,28 @@ exports.getActivityReport = async (req, res) => {
         SELECT USER_CODE, COUNT(DISTINCT COMPANY_CODE) AS CNT
         FROM dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]
         WHERE STATUS = 'A'
-          AND CAST(UPDATED_DATE AS DATE) BETWEEN @from AND @to
+          AND UPDATED_DATE >= @from AND UPDATED_DATE < @toExclusive
         GROUP BY USER_CODE
       ),
       CompUpdated AS (
         SELECT USER_CODE, COUNT(DISTINCT COMPANY_CODE) AS CNT
         FROM dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]
         WHERE STATUS = 'U'
-          AND CAST(UPDATED_DATE AS DATE) BETWEEN @from AND @to
+          AND UPDATED_DATE >= @from AND UPDATED_DATE < @toExclusive
         GROUP BY USER_CODE
       ),
       PersonAdded AS (
         SELECT USER_CODE, COUNT(DISTINCT PERSON_CODE) AS CNT
         FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
         WHERE STATUS = 'A'
-          AND CAST(UPDATED_DATE AS DATE) BETWEEN @from AND @to
+          AND UPDATED_DATE >= @from AND UPDATED_DATE < @toExclusive
         GROUP BY USER_CODE
       ),
       PersonUpdated AS (
         SELECT USER_CODE, COUNT(DISTINCT PERSON_CODE) AS CNT
         FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
         WHERE STATUS = 'U'
-          AND CAST(UPDATED_DATE AS DATE) BETWEEN @from AND @to
+          AND UPDATED_DATE >= @from AND UPDATED_DATE < @toExclusive
         GROUP BY USER_CODE
       ),
       AllUsers AS (
@@ -1354,14 +1369,87 @@ exports.getActivityReport = async (req, res) => {
       ORDER BY TOTAL DESC
     `;
 
+    const toExclusive = new Date(toDate);
+    toExclusive.setDate(toExclusive.getDate() + 1);
+
     const result = await pool.request()
       .input("from", sql.Date, from)
-      .input("to", sql.Date, to)
+      .input("toExclusive", sql.Date, toExclusive)
       .query(query);
 
     res.json(result.recordset);
   } catch (err) {
     console.error("getActivityReport error:", err);
+    res.status(500).json({ error: "Server Error", detail: err.message });
+  }
+};
+
+exports.getMyDailyEntries = async (req, res) => {
+  try {
+    const userCode = req.user?.user_code;
+    if (!userCode) return res.status(401).json({ error: "Unauthorized" });
+
+    let { date } = req.query;
+    if (!date) {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, "0");
+      const d = String(now.getDate()).padStart(2, "0");
+      date = `${y}-${m}-${d}`;
+    }
+
+    const pool = await poolPromise;
+
+    const companyQuery = `
+      WITH H AS (
+        SELECT COMPANY_CODE,
+               MAX(CASE WHEN STATUS = 'A' THEN 1 ELSE 0 END) AS WAS_ADDED,
+               MAX(CASE WHEN STATUS = 'U' THEN 1 ELSE 0 END) AS WAS_UPDATED,
+               MAX(UPDATED_DATE) AS LAST_TIME
+        FROM dbo.[${TABLES.COMPANY_UPDATE_HISTORY}]
+        WHERE USER_CODE = @userCode
+          AND CAST(UPDATED_DATE AS DATE) = @date
+        GROUP BY COMPANY_CODE
+      )
+      SELECT H.COMPANY_CODE, d.COMPANY_NAME, d.CITY, d.COUNTRY,
+             H.WAS_ADDED, H.WAS_UPDATED, H.LAST_TIME
+      FROM H
+      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] d ON d.COMPANY_CODE = H.COMPANY_CODE
+      ORDER BY H.LAST_TIME DESC;
+    `;
+
+    const personQuery = `
+      WITH H AS (
+        SELECT PERSON_CODE,
+               MAX(CASE WHEN STATUS = 'A' THEN 1 ELSE 0 END) AS WAS_ADDED,
+               MAX(CASE WHEN STATUS = 'U' THEN 1 ELSE 0 END) AS WAS_UPDATED,
+               MAX(UPDATED_DATE) AS LAST_TIME
+        FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
+        WHERE USER_CODE = @userCode
+          AND CAST(UPDATED_DATE AS DATE) = @date
+        GROUP BY PERSON_CODE
+      )
+      SELECT H.PERSON_CODE, p.PREFIX, p.FNAME, p.LNAME,
+             p.COMPANY_CODE, c.COMPANY_NAME,
+             H.WAS_ADDED, H.WAS_UPDATED, H.LAST_TIME
+      FROM H
+      LEFT JOIN dbo.[${TABLES.COMP_PERSON}] p ON p.PERSON_CODE = H.PERSON_CODE
+      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] c ON c.COMPANY_CODE = p.COMPANY_CODE
+      ORDER BY H.LAST_TIME DESC;
+    `;
+
+    const [companyResult, personResult] = await Promise.all([
+      pool.request().input("userCode", userCode).input("date", sql.Date, date).query(companyQuery),
+      pool.request().input("userCode", userCode).input("date", sql.Date, date).query(personQuery),
+    ]);
+
+    res.json({
+      date,
+      companies: companyResult.recordset,
+      persons: personResult.recordset,
+    });
+  } catch (err) {
+    console.error("getMyDailyEntries error:", err);
     res.status(500).json({ error: "Server Error" });
   }
 };
