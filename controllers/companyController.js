@@ -901,13 +901,11 @@ exports.addCompanyHistory = async (req, res) => {
       });
     }
 
-    const COMPANY_NAME = companyResult.recordset[0].COMPANY_NAME;
     const CREATED_DATE = new Date();
     const UPDATED_DATE = new Date();
 
     await new sql.Request(transaction)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-      .input("COMPANY_NAME", sql.NVarChar(255), COMPANY_NAME)
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
       .input("EXH_YEAR", sql.VarChar(50), EXH_YEAR)
@@ -930,9 +928,9 @@ exports.addCompanyHistory = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_EXH_HISTORY}]
-        (COMPANY_CODE, COMPANY_NAME, EXH_CODE, ATTENDEE, EXH_NAME, EXH_YEAR, EXH_LOCATION, EVENT, REVENUE, REV_UNIT, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, EXHIBIT, USER_CODE, USERNAME, CREATED_DATE, UPDATED_DATE, FEEDBACK, Info_1, Info_2, Info_3)
+        (COMPANY_CODE, EXH_CODE, ATTENDEE, EXH_NAME, EXH_YEAR, EXH_LOCATION, EVENT, REVENUE, REV_UNIT, AREA, EXH_INFO, SPONSOR, EARLYBIRD_DIS, EXHIBIT, USER_CODE, USERNAME, CREATED_DATE, UPDATED_DATE, FEEDBACK, Info_1, Info_2, Info_3)
         VALUES
-        (@COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @ATTENDEE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @EVENT, @REVENUE, @REV_UNIT, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @EXHIBIT, @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @CREATED_DATE, @UPDATED_DATE, @FEEDBACK, @Info_1, @Info_2, @Info_3)
+        (@COMPANY_CODE, @EXH_CODE, @ATTENDEE, @EXH_NAME, @EXH_YEAR, @EXH_LOCATION, @EVENT, @REVENUE, @REV_UNIT, @AREA, @EXH_INFO, @SPONSOR, @EARLYBIRD_DIS, @EXHIBIT, @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @CREATED_DATE, @UPDATED_DATE, @FEEDBACK, @Info_1, @Info_2, @Info_3)
       `);
 
     await transaction.commit();
@@ -2199,7 +2197,6 @@ exports.addPersonHistory = async (req, res) => {
     }
 
     const COMPANY_CODE = personResult.recordset[0].COMPANY_CODE;
-    const COMPANY_NAME = personResult.recordset[0].COMPANY_NAME || "";
 
     const existingRecord = await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
@@ -2224,7 +2221,6 @@ exports.addPersonHistory = async (req, res) => {
     await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), PERSON_CODE)
       .input("COMPANY_CODE", sql.VarChar(50), COMPANY_CODE)
-      .input("COMPANY_NAME", sql.NVarChar(100), COMPANY_NAME)
       .input("EXH_CODE", sql.VarChar(50), EXH_CODE)
       .input("EXH_NAME", sql.NVarChar(255), EXH_NAME)
       .input("EXH_YEAR", sql.VarChar(50), EXH_YEAR)
@@ -2249,14 +2245,14 @@ exports.addPersonHistory = async (req, res) => {
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         (
-          PERSON_CODE, COMPANY_CODE, COMPANY_NAME, EXH_CODE, EXH_NAME, EXH_YEAR, EVENT,
+          PERSON_CODE, COMPANY_CODE, EXH_CODE, EXH_NAME, EXH_YEAR, EVENT,
           SPEAKER, VISITOR, INVITEE, MARKETING, PROSPECT, ATTENDEE, BUYER, DELEGATE_INTERNATIONAL,
           DELEGATE_NATIONAL, INVESTOR, MEDIA, ORGANISER, POTENTIAL_EXHIBITOR, VIP,
           USER_CODE, USERNAME, CREATED_DATE, UPDATED_DATE
         )
         VALUES
         (
-          @PERSON_CODE, @COMPANY_CODE, @COMPANY_NAME, @EXH_CODE, @EXH_NAME, @EXH_YEAR, @EVENT,
+          @PERSON_CODE, @COMPANY_CODE, @EXH_CODE, @EXH_NAME, @EXH_YEAR, @EVENT,
           @SPEAKER, @VISITOR, @INVITEE, @MARKETING, @PROSPECT, @ATTENDEE, @BUYER, @DELEGATE_INTERNATIONAL,
           @DELEGATE_NATIONAL, @INVESTOR, @MEDIA, @ORGANISER, @POTENTIAL_EXHIBITOR, @VIP,
           @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @CREATED_DATE, @UPDATED_DATE
