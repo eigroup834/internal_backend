@@ -7,6 +7,7 @@ require('dotenv').config({ path: __dirname + '/.env' });
 const authRoutes = require('./routes/auth');
 const companyRoutes = require('./routes/company');
 const commonRoutes = require('./routes/commonRoutes');
+const visitorRoutes = require('./routes/visitor');
 
 // require('./jobs/duplicateCheckJob');
 
@@ -19,6 +20,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api', commonRoutes);
+app.use('/api/visitor', visitorRoutes);
 
 app.use(express.static(
   path.join(__dirname, '../frontend/build')
