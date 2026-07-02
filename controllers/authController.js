@@ -2,6 +2,19 @@ const { poolPromise, sql } = require('../db');
 const jwt = require('jsonwebtoken');
 const { TABLES } = require('../helper');
 
+function getTokenExpiryInSeconds() {
+  const now = new Date();
+  const nowIST = new Date(
+    now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+  );
+  const expiryIST = new Date(nowIST);
+  expiryIST.setHours(20, 0, 0, 0);
+  if (nowIST >= expiryIST) {
+    expiryIST.setDate(expiryIST.getDate() + 1);
+  }
+  return Math.floor((expiryIST - nowIST) / 1000);
+}
+
 exports.login = async (req, res) => {
   const { username, password } = req.body;
 
@@ -34,6 +47,8 @@ exports.login = async (req, res) => {
       return res.status(403).json({ message: 'User account is inactive. Please contact admin.' });
     }
 
+    const expiresIn = getTokenExpiryInSeconds();
+
     const token = jwt.sign(
       {
         id: user.ID,
@@ -43,7 +58,7 @@ exports.login = async (req, res) => {
         department: user.DEPARTMENT,
       },
       process.env.JWT_SECRET,
-      { expiresIn: '4h' }
+      { expiresIn }
     );
 
     const { PASSWORD, ...userData } = user;

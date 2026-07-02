@@ -1634,7 +1634,8 @@ exports.getPersonList = async (req, res) => {
     const request = (await poolPromise).request();
 
     const searchableColumns = {
-      NAME: "(p.FNAME + ' ' + p.LNAME)",
+      FNAME: "p.FNAME",
+      LNAME: "p.LNAME",
       EMAIL: "p.PERSON_EMAIL",
       PHONE: "p.MOBILE",
       PERSON_CODE: "p.PERSON_CODE",
@@ -1660,7 +1661,7 @@ exports.getPersonList = async (req, res) => {
     const safeSortOrder =
       String(sortOrder).toUpperCase() === "DESC" ? "DESC" : "ASC";
 
-    const aggregateSortColumns = new Set(["HISTORY_COUNT"]);
+     const aggregateSortColumns = new Set(["HISTORY_COUNT"]);
 
     const orderByExpr = aggregateSortColumns.has(safeSortBy)
       ? `[${safeSortBy}] ${safeSortOrder}`
@@ -1672,12 +1673,14 @@ exports.getPersonList = async (req, res) => {
       const term = search.trim();
 
       if (searchBy === "PHONE") {
-        whereClauses.push(`(UPPER(p.OLD_MOBILE) LIKE UPPER(@search) OR UPPER(p.MOBILE) LIKE UPPER(@search))`);
+        whereClauses.push(`(p.OLD_MOBILE LIKE @search OR p.MOBILE LIKE @search)`);
         request.input("search", `%${term}%`);
       } else if (searchBy && searchableColumns[searchBy]) {
         const col = searchableColumns[searchBy];
-        whereClauses.push(`UPPER(${col}) LIKE UPPER(@search)`);
-        if (searchBy === "NAME") {
+        whereClauses.push(`${col} LIKE @search`);
+        if (searchBy === "FNAME") {
+          request.input("search", `${term}%`);
+        } else if (searchBy === "LNAME") {
           request.input("search", `${term}%`);
         } else {
           request.input("search", `%${term}%`);
@@ -1726,8 +1729,7 @@ exports.getPersonList = async (req, res) => {
         SELECT PERSON_CODE, COUNT(*) AS CNT
         FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         GROUP BY PERSON_CODE
-      ),
-      LatestPersonUpdate AS (
+      ), LatestPersonUpdate AS (
         SELECT PERSON_CODE, USER_CODE, UPDATED_DATE,
                ROW_NUMBER() OVER (PARTITION BY PERSON_CODE ORDER BY UPDATED_DATE DESC) AS rn
         FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
@@ -1757,7 +1759,8 @@ exports.getPersonList = async (req, res) => {
 
           ROW_NUMBER() OVER (
             ORDER BY ${orderByExpr}
-          ) AS RowNum
+          ) AS RowNum,
+          COUNT(*) OVER () AS TotalCount
 
         FROM dbo.[${TABLES.COMP_PERSON}] p
         LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
@@ -1771,18 +1774,16 @@ exports.getPersonList = async (req, res) => {
       FROM PersonData
       WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
 
-      SELECT COUNT(*) AS total
-      FROM dbo.[${TABLES.COMP_PERSON}] p
-      ${whereSQL};
     `;
 
     const result = await request.query(query);
+    const rows = result.recordset;
 
     res.json({
-      data: result.recordsets[0],
-      total: result.recordsets[1][0].total,
-      page: pageNum,
-      limit: limitNum,
+        data: rows.map(({ TotalCount, RowNum, ...rest }) => rest),
+        total: rows.length > 0 ? rows[0].TotalCount : 0,
+        page: pageNum,
+        limit: limitNum,
     });
 
   } catch (err) {

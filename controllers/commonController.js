@@ -619,7 +619,7 @@ exports.getTags = async (req, res) => {
     const offset = (page - 1) * limit;
 
     let query = `
-      SELECT TAG_CODE, TAG_NAME, CREATED_DATE, USER_CODE, ACTIVE
+      SELECT TAG_CODE, TAG_NAME, CREATED_DATE, USER_CODE, ACTIVE, REMARKS, SOURCE, YEAR
       FROM dbo.[${TABLES.TAGS}]
       WHERE 1=1
     `;
@@ -665,7 +665,7 @@ exports.getTags = async (req, res) => {
 
 exports.addTags = async (req, res) => {
   try {
-    const { TAG_NAME, ACTIVE, usercode } = req.body;
+    const { TAG_NAME, ACTIVE, ATTENDEE, REMARKS, TAG_YEAR, usercode } = req.body;
 
     if (!TAG_NAME) {
       return res.status(400).json({ error: "Tagname is required" });
@@ -706,14 +706,19 @@ exports.addTags = async (req, res) => {
       exists = chk.recordset.length > 0;
     }
 
+    const attendeeJson = JSON.stringify(ATTENDEE || []);
+
     await pool.request()
       .input("TAG_NAME", sql.VarChar(100), TAG_NAME)
       .input("USER_CODE", sql.VarChar(50), usercode)
       .input("TAG_CODE", sql.VarChar(50), TAG_CODE)
       .input("ACTIVE", sql.Bit, ACTIVE ?? 1)
+      .input("YEAR", sql.Int, TAG_YEAR)
+      .input("SOURCE", sql.NVarChar(sql.MAX), attendeeJson)
+      .input("REMARKS", sql.VarChar(255), REMARKS)
       .query(`
-        INSERT INTO dbo.${TABLES.TAGS} (TAG_NAME, USER_CODE, ACTIVE, TAG_CODE)
-        VALUES (@TAG_NAME, @USER_CODE, @ACTIVE, @TAG_CODE)
+        INSERT INTO dbo.${TABLES.TAGS} (TAG_NAME, USER_CODE, ACTIVE, TAG_CODE, YEAR, SOURCE, REMARKS )
+        VALUES (@TAG_NAME, @USER_CODE, @ACTIVE, @TAG_CODE, @YEAR, @SOURCE, @REMARKS)
       `);
 
     return res.status(200).json({
@@ -730,21 +735,24 @@ exports.addTags = async (req, res) => {
 exports.updateTag = async (req, res) => {
   try {
     const { tagCode } = req.params;
-    const { TAG_NAME, ACTIVE, usercode } = req.body;
+    const { TAG_NAME, ACTIVE, ATTENDEE, REMARKS, TAG_YEAR, usercode } = req.body;
 
     if (!TAG_NAME) {
       return res.status(400).json({ error: "Tag name is required" });
     }
-
+    const attendeeJson = JSON.stringify(ATTENDEE || []);
     const pool = await poolPromise;
     await pool.request()
       .input("TAG_NAME", sql.VarChar(100), TAG_NAME)
       .input("ACTIVE", sql.Bit, ACTIVE)
       .input("TAG_CODE", sql.VarChar(50), tagCode)
       .input("USER_CODE", sql.VarChar(50), usercode)
+      .input("YEAR", sql.Int, TAG_YEAR)
+      .input("SOURCE", sql.NVarChar(sql.MAX), attendeeJson)
+      .input("REMARKS", sql.VarChar(255), REMARKS)
       .query(`
         UPDATE dbo.[${TABLES.TAGS}]
-        SET TAG_NAME = @TAG_NAME, ACTIVE = @ACTIVE, USER_CODE = @USER_CODE, UPDATED_DATE = GETDATE()
+        SET TAG_NAME = @TAG_NAME, YEAR = @YEAR, REMARKS = @REMARKS, SOURCE = @SOURCE, ACTIVE = @ACTIVE, USER_CODE = @USER_CODE, UPDATED_DATE = GETDATE()
         WHERE TAG_CODE = @TAG_CODE
       `);
 
