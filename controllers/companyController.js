@@ -1719,6 +1719,26 @@ exports.getPersonList = async (req, res) => {
       }
     }
 
+    const industryVals = Array.isArray(filterObj.INDUSTRY) ? filterObj.INDUSTRY.filter(Boolean) : [];
+    const segmentVals = Array.isArray(filterObj.SEGMENT) ? filterObj.SEGMENT.filter(Boolean) : [];
+    if (industryVals.length || segmentVals.length) {
+      const segWhere = [];
+      if (industryVals.length) {
+        const names = industryVals.map((v, i) => { request.input(`pind_${i}`, v); return `@pind_${i}`; });
+        segWhere.push(`s.INDUSTRY IN (${names.join(", ")})`);
+      }
+      if (segmentVals.length) {
+        const codes = segmentVals.map((v, i) => { request.input(`pseg_${i}`, v); return `@pseg_${i}`; });
+        segWhere.push(`m.SEG_CODE IN (${codes.join(", ")})`);
+      }
+      whereClauses.push(`EXISTS (
+        SELECT 1
+        FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m
+        INNER JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
+        WHERE m.COMPANY_CODE = p.COMPANY_CODE AND ${segWhere.join(" AND ")}
+      )`);
+    }
+
     const whereSQL =
       whereClauses.length > 0
         ? "WHERE " + whereClauses.join(" AND ")
@@ -1729,11 +1749,7 @@ exports.getPersonList = async (req, res) => {
         SELECT PERSON_CODE, COUNT(*) AS CNT
         FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         GROUP BY PERSON_CODE
-      ), LatestPersonUpdate AS (
-        SELECT PERSON_CODE, USER_CODE, UPDATED_DATE,
-               ROW_NUMBER() OVER (PARTITION BY PERSON_CODE ORDER BY UPDATED_DATE DESC) AS rn
-        FROM dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}]
-      ),
+      ), 
       PersonData AS (
         SELECT
           p.PERSON_CODE,
@@ -1751,9 +1767,7 @@ exports.getPersonList = async (req, res) => {
           p.REMARKS,
           p.PERSON_CUPD_REMARK,
           p.MANAGEMENT_REMARKS,
-          ISNULL(usr.USERNAME, COALESCE(lu.USER_CODE, p.USER_CODE)) AS USER_CODE,
           p.ADDRESS,
-          COALESCE(lu.UPDATED_DATE, p.UPDATED_DATE) AS UPDATED_DATE,
           p.CREATED_DATE,
           ISNULL(hc.CNT, 0) AS HISTORY_COUNT,
 
@@ -1765,8 +1779,6 @@ exports.getPersonList = async (req, res) => {
         FROM dbo.[${TABLES.COMP_PERSON}] p
         LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
         LEFT JOIN HistoryCounts hc ON hc.PERSON_CODE = p.PERSON_CODE
-        LEFT JOIN LatestPersonUpdate lu ON lu.PERSON_CODE = p.PERSON_CODE AND lu.rn = 1
-        LEFT JOIN dbo.[USER] usr ON usr.USER_CODE = COALESCE(lu.USER_CODE, p.USER_CODE)
         ${whereSQL}
       )
 

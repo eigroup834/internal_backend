@@ -418,6 +418,133 @@ exports.getEventsAttendee = async (req, res) => {
   }
 };
 
+const fetchLinkedRecords = async ({ type, sourceCte, page, limit, search }) => {
+  const pool = await poolPromise;
+  const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+  const limitNum = Math.min(Math.max(parseInt(limit, 10) || 15, 1), 100);
+  const offset = (pageNum - 1) * limitNum;
+  const term = (search || "").trim();
+
+  const buildRequest = () => {
+    const r = pool.request();
+    r.input("code", sql.VarChar(50), sourceCte.code);
+    if (term) r.input("search", sql.NVarChar(200), `%${term}%`);
+    return r;
+  };
+
+  let selectSQL;
+  let fromSQL;
+  let searchSQL = "";
+  let orderSQL;
+
+  if (type === "person") {
+    // Distinct persons linked to the source, joined to their master + company.
+    fromSQL = `
+      FROM (${sourceCte.person}) src
+      INNER JOIN dbo.[${TABLES.COMP_PERSON}] p ON p.PERSON_CODE = src.PERSON_CODE
+      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
+    `;
+    selectSQL = `
+      SELECT p.PERSON_CODE, p.COMPANY_CODE, cd.COMPANY_NAME, p.PREFIX,
+             p.FNAME, p.LNAME, p.DESIG, p.DEPT, p.PERSON_EMAIL, p.MOBILE, p.OLD_MOBILE
+    `;
+    if (term) {
+      searchSQL = `AND (p.FNAME LIKE @search OR p.LNAME LIKE @search
+        OR p.PERSON_EMAIL LIKE @search OR p.MOBILE LIKE @search
+        OR p.PERSON_CODE LIKE @search OR cd.COMPANY_NAME LIKE @search)`;
+    }
+    orderSQL = "ORDER BY p.FNAME ASC, p.PERSON_CODE ASC";
+  } else {
+    // Distinct companies linked to the source.
+    fromSQL = `
+      FROM (${sourceCte.company}) src
+      INNER JOIN dbo.[${TABLES.COMPANY_DETAIL}] c ON c.COMPANY_CODE = src.COMPANY_CODE
+    `;
+    selectSQL = `
+      SELECT c.COMPANY_CODE, c.COMPANY_NAME, c.DIVISION, c.CITY, c.STATE,
+             c.COUNTRY, c.EMAIL, c.WEBSITE, c.PHONES
+    `;
+    if (term) {
+      searchSQL = `AND (c.COMPANY_NAME LIKE @search OR c.COMPANY_CODE LIKE @search
+        OR c.CITY LIKE @search OR c.EMAIL LIKE @search)`;
+    }
+    orderSQL = "ORDER BY c.COMPANY_NAME ASC, c.COMPANY_CODE ASC";
+  }
+
+  const dataQuery = `
+    ${selectSQL}
+    ${fromSQL}
+    WHERE 1 = 1 ${searchSQL}
+    ${orderSQL}
+    OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY;
+  `;
+  const countQuery = `SELECT COUNT(*) AS total ${fromSQL} WHERE 1 = 1 ${searchSQL};`;
+
+  const dataReq = buildRequest();
+  dataReq.input("offset", sql.Int, offset);
+  dataReq.input("limit", sql.Int, limitNum);
+
+  const [dataResult, countResult] = await Promise.all([
+    dataReq.query(dataQuery),
+    buildRequest().query(countQuery),
+  ]);
+
+  return {
+    data: dataResult.recordset,
+    total: countResult.recordset[0].total,
+    page: pageNum,
+    limit: limitNum,
+  };
+};
+
+exports.getEventRecords = async (req, res) => {
+  try {
+    const { eventCode } = req.params;
+    const { type = "company", page = 1, limit = 15, search = "" } = req.query;
+    if (!eventCode) return res.status(400).json({ error: "Event code is required" });
+
+    const result = await fetchLinkedRecords({
+      type: type === "person" ? "person" : "company",
+      page, limit, search,
+      sourceCte: {
+        code: eventCode,
+        company: `SELECT DISTINCT COMPANY_CODE FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
+                  WHERE EXH_CODE = @code AND COMPANY_CODE IS NOT NULL AND COMPANY_CODE <> ''`,
+        person: `SELECT DISTINCT PERSON_CODE FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
+                 WHERE EXH_CODE = @code AND PERSON_CODE IS NOT NULL AND PERSON_CODE <> ''`,
+      },
+    });
+    res.json(result);
+  } catch (err) {
+    console.error("getEventRecords error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+exports.getTagRecords = async (req, res) => {
+  try {
+    const { tagCode } = req.params;
+    const { type = "company", page = 1, limit = 15, search = "" } = req.query;
+    if (!tagCode) return res.status(400).json({ error: "Tag code is required" });
+
+    const result = await fetchLinkedRecords({
+      type: type === "person" ? "person" : "company",
+      page, limit, search,
+      sourceCte: {
+        code: tagCode,
+        company: `SELECT DISTINCT COMPANY_CODE FROM dbo.[${TABLES.TAGS_MAPPING}]
+                  WHERE TAG_CODE = @code AND COMPANY_CODE IS NOT NULL AND COMPANY_CODE <> ''`,
+        person: `SELECT DISTINCT PERSON_CODE FROM dbo.[${TABLES.TAGS_MAPPING}]
+                 WHERE TAG_CODE = @code AND PERSON_CODE IS NOT NULL AND PERSON_CODE <> ''`,
+      },
+    });
+    res.json(result);
+  } catch (err) {
+    console.error("getTagRecords error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
 exports.getEventsWithSearch = async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1174,12 +1301,31 @@ exports.getDashboardActivity = async (req, res) => {
 exports.getSalesReport = async (req, res) => {
   try {
     const {
-      exhName, attendee, event,
+      exhName, attendee, event, exhCode,
       exhType = "person",
       industries, segments,
       dateFrom, dateTo,
       export: doExport = "false",
     } = req.query;
+
+    // From/To dates are mandatory and the range is capped at 2 years so that
+    // report generation / export can never scan the whole table unbounded.
+    if (!dateFrom || !dateTo) {
+      return res.status(400).json({ error: "From and To dates are required." });
+    }
+    const fromD = new Date(dateFrom);
+    const toD = new Date(dateTo);
+    if (isNaN(fromD) || isNaN(toD)) {
+      return res.status(400).json({ error: "Invalid date range." });
+    }
+    if (fromD > toD) {
+      return res.status(400).json({ error: "From date must be before To date." });
+    }
+    const maxTo = new Date(fromD);
+    maxTo.setFullYear(maxTo.getFullYear() + 2);
+    if (toD > maxTo) {
+      return res.status(400).json({ error: "Date range cannot exceed 2 years." });
+    }
 
     const isExport = doExport === "true";
     const pool = await poolPromise;
@@ -1189,22 +1335,31 @@ exports.getSalesReport = async (req, res) => {
     const industryList = industries ? industries.split(",").filter(Boolean) : [];
     const segmentList  = segments  ? segments.split(",").filter(Boolean)  : [];
 
-    const needsExhFilter = !!(exhName || attendee || event);
+    const needsExhFilter = !!(exhName || attendee || event || exhCode);
+    // In company-history mode with an exhibition filter, the report is anchored on
+    // the matching companies (not on persons) so a company with matching exhibition
+    // history is still returned even when it has no persons in COMP_PERSON.
+    const companyCentric = exhType === "company" && needsExhFilter;
+    const compCol = companyCentric ? "MC.COMPANY_CODE" : "CP.COMPANY_CODE";
+
     let exhApplySQL = "";
     let exhSelectSQL = "";
+    let exhWhere = "";
 
     if (needsExhFilter) {
       const exhConds = [];
       if (exhName)  { request.input("exhName",  sql.NVarChar, `%${exhName}%`);  exhConds.push("EXH_NAME LIKE @exhName"); }
       if (attendee) { request.input("attendee", sql.NVarChar, `%${attendee}%`); exhConds.push("ATTENDEE LIKE @attendee"); }
       if (event)    { request.input("event",    sql.NVarChar, `%${event}%`);    exhConds.push("EVENT LIKE @event"); }
+      if (exhCode)  { request.input("exhCode",  sql.NVarChar, exhCode.trim());  exhConds.push("LTRIM(RTRIM(EXH_CODE)) = @exhCode"); }
 
-      const exhWhere    = exhConds.length ? "WHERE "    + exhConds.join(" AND ") : "";
-      const exhAndConds = exhConds.length ? " AND "     + exhConds.join(" AND ") : "";
+      exhWhere          = exhConds.length ? "WHERE " + exhConds.join(" AND ") : "";
+      const exhAndConds = exhConds.length ? " AND "  + exhConds.join(" AND ") : "";
 
       if (exhType === "company") {
-        whereClauses.push(`CP.COMPANY_CODE IN (SELECT COMPANY_CODE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] ${exhWhere})`);
-        exhApplySQL  = `OUTER APPLY (SELECT TOP 1 EXH_NAME, EXH_YEAR, EXH_LOCATION, EVENT, ATTENDEE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] WHERE COMPANY_CODE = CP.COMPANY_CODE${exhAndConds}) EHD`;
+        // Company base (MC) already restricts to matching companies; OUTER APPLY pulls
+        // the matched exhibition row (incl. its dates) for the date filter & output.
+        exhApplySQL  = `OUTER APPLY (SELECT TOP 1 EXH_NAME, EXH_YEAR, EXH_LOCATION, EVENT, ATTENDEE, UPDATED_DATE, CREATED_DATE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] WHERE COMPANY_CODE = ${compCol}${exhAndConds}) EHD`;
         exhSelectSQL = `,\n        EHD.EXH_NAME AS EXH_NAME, EHD.EXH_YEAR AS EXH_YEAR, EHD.EXH_LOCATION AS EXH_LOCATION, EHD.EVENT AS EXH_EVENT, EHD.ATTENDEE AS EXH_ATTENDEE`;
       } else {
         whereClauses.push(`CP.PERSON_CODE IN (SELECT PERSON_CODE FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] ${exhWhere})`);
@@ -1213,35 +1368,74 @@ exports.getSalesReport = async (req, res) => {
       }
     }
 
-    if (dateFrom) { request.input("dateFrom", sql.Date, dateFrom); whereClauses.push("CAST(CP.UPDATED_DATE AS DATE) >= @dateFrom"); }
-    if (dateTo)   { request.input("dateTo",   sql.Date, dateTo);   whereClauses.push("CAST(CP.UPDATED_DATE AS DATE) <= @dateTo"); }
+    // For person-less companies there is no CP.UPDATED_DATE, so fall back to the
+    // matched exhibition's date in company-centric mode.
+    const dateCol = companyCentric
+      ? "COALESCE(CP.UPDATED_DATE, EHD.UPDATED_DATE, EHD.CREATED_DATE)"
+      : "CP.UPDATED_DATE";
+    if (dateFrom) { request.input("dateFrom", sql.Date, dateFrom); whereClauses.push(`CAST(${dateCol} AS DATE) >= @dateFrom`); }
+    if (dateTo)   { request.input("dateTo",   sql.Date, dateTo);   whereClauses.push(`CAST(${dateCol} AS DATE) <= @dateTo`); }
 
     if (industryList.length > 0) {
       const p = industryList.map((v, i) => { request.input(`ind_${i}`, sql.NVarChar, v); return `@ind_${i}`; });
-      whereClauses.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m2 JOIN dbo.[${TABLES.INDSEGMENT}] s2 ON m2.SEG_CODE=s2.SEG_CODE WHERE m2.COMPANY_CODE=CP.COMPANY_CODE AND s2.INDUSTRY IN (${p.join(",")}))`);
+      whereClauses.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m2 JOIN dbo.[${TABLES.INDSEGMENT}] s2 ON m2.SEG_CODE=s2.SEG_CODE WHERE m2.COMPANY_CODE=${compCol} AND s2.INDUSTRY IN (${p.join(",")}))`);
     }
     if (segmentList.length > 0) {
       const p = segmentList.map((v, i) => { request.input(`seg_${i}`, sql.NVarChar, v); return `@seg_${i}`; });
-      whereClauses.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m3 WHERE m3.COMPANY_CODE=CP.COMPANY_CODE AND m3.SEG_CODE IN (${p.join(",")}))`);
+      whereClauses.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m3 WHERE m3.COMPANY_CODE=${compCol} AND m3.SEG_CODE IN (${p.join(",")}))`);
     }
 
     const whereSQL  = "WHERE " + whereClauses.join(" AND ");
     const topClause = isExport ? "" : "TOP 300";
 
+    // Company-centric base: distinct matching companies LEFT JOINed to persons so
+    // person-less companies survive. Otherwise the original person-anchored base.
+    const baseFromSQL = companyCentric
+      ? `FROM (SELECT DISTINCT COMPANY_CODE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] ${exhWhere}) MC
+      LEFT JOIN dbo.[${TABLES.COMP_PERSON}]    CP  ON CP.COMPANY_CODE  = MC.COMPANY_CODE
+      LEFT JOIN dbo.[${TABLES.COMP_MASTER}]    CM  ON CM.COMPANY_CODE  = MC.COMPANY_CODE
+      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD  ON CD.COMPANY_CODE  = MC.COMPANY_CODE
+      LEFT JOIN CompSegInfo                    CSI ON CSI.COMPANY_CODE = MC.COMPANY_CODE
+      ${exhApplySQL}`
+      : `FROM dbo.[${TABLES.COMP_PERSON}] CP
+      LEFT JOIN dbo.[${TABLES.COMP_MASTER}]    CM  ON CM.COMPANY_CODE  = CP.COMPANY_CODE
+      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD  ON CD.COMPANY_CODE  = CP.COMPANY_CODE
+      LEFT JOIN CompSegInfo                    CSI ON CSI.COMPANY_CODE = CP.COMPANY_CODE
+      ${exhApplySQL}`;
+
     const query = `
       WITH CompSegInfo AS (
-        SELECT m.COMPANY_CODE,
-          STRING_AGG(s.SEGMENT,  ', ') AS SEGMENTS,
-          STRING_AGG(s.INDUSTRY, ', ') AS INDUSTRIES
-        FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m
-        JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
-        GROUP BY m.COMPANY_CODE
+        SELECT seg.COMPANY_CODE,
+          seg.SEGMENTS,
+          ind.INDUSTRIES
+        FROM (
+          SELECT COMPANY_CODE, STRING_AGG(SEGMENT, ', ') AS SEGMENTS
+          FROM (
+            SELECT DISTINCT m.COMPANY_CODE, s.SEGMENT
+            FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m
+            JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
+          ) ds GROUP BY COMPANY_CODE
+        ) seg
+        JOIN (
+          SELECT COMPANY_CODE, STRING_AGG(INDUSTRY, ', ') AS INDUSTRIES
+          FROM (
+            SELECT DISTINCT m.COMPANY_CODE, s.INDUSTRY
+            FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m
+            JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
+          ) di GROUP BY COMPANY_CODE
+        ) ind ON ind.COMPANY_CODE = seg.COMPANY_CODE
       )
       SELECT ${topClause}
-        CP.PERSON_CODE, CP.COMPANY_CODE,
+        CP.PERSON_CODE, ${compCol} AS COMPANY_CODE,
         LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
-        CASE WHEN ISJSON(CP.DESIG)=1 THEN JSON_VALUE(CP.DESIG,'$[0].value') ELSE CP.DESIG END AS DESIGNATION,
-        CASE WHEN ISJSON(CP.DESIG)=1 THEN JSON_VALUE(CP.DESIG,'$[0].rank')  ELSE NULL      END AS RANK_,
+        CASE WHEN ISJSON(CP.DESIG)=1
+          THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].value'),'')
+            + CASE WHEN JSON_VALUE(CP.DESIG,'$[1].value') IS NOT NULL THEN ', ' + JSON_VALUE(CP.DESIG,'$[1].value') ELSE '' END))
+          ELSE CP.DESIG END AS DESIGNATION,
+        CASE WHEN ISJSON(CP.DESIG)=1
+          THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].rank'),'')
+            + CASE WHEN JSON_VALUE(CP.DESIG,'$[1].rank') IS NOT NULL THEN ', ' + JSON_VALUE(CP.DESIG,'$[1].rank') ELSE '' END))
+          ELSE NULL END AS RANK_,
         CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[0]')        ELSE CP.DEPT   END AS DEPT_1,
         CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[1]')        ELSE NULL      END AS DEPT_2,
         CD.COMPANY_NAME, CD.DIVISION,
@@ -1280,13 +1474,9 @@ exports.getSalesReport = async (req, res) => {
         CM.REMARKS AS MASTER_REMARKS,
         CSI.INDUSTRIES, CSI.SEGMENTS
         ${exhSelectSQL}
-      FROM dbo.[${TABLES.COMP_PERSON}] CP
-      LEFT JOIN dbo.[${TABLES.COMP_MASTER}]    CM  ON CM.COMPANY_CODE  = CP.COMPANY_CODE
-      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD  ON CD.COMPANY_CODE  = CP.COMPANY_CODE
-      LEFT JOIN CompSegInfo                    CSI ON CSI.COMPANY_CODE = CP.COMPANY_CODE
-      ${exhApplySQL}
+      ${baseFromSQL}
       ${whereSQL}
-      ORDER BY CP.COMPANY_CODE, CP.PERSON_CODE
+      ORDER BY ${compCol}, CP.PERSON_CODE
     `;
 
     const result = await request.query(query);
@@ -1316,6 +1506,273 @@ exports.getSalesReport = async (req, res) => {
 
   } catch (err) {
     console.error("getSalesReport error:", err);
+    res.status(500).json({ error: "Server Error" });
+  }
+};
+
+// GET /reports/tagReport?tagCode=&tagName=&export=&page=&limit=
+// Returns everything (persons + companies) linked to a tag, identified by its
+// code and/or name. export=true streams Excel (all rows); otherwise paginated JSON.
+exports.getTagReport = async (req, res) => {
+  try {
+    const { tagCode, tagName, export: doExport = "false", page = 1, limit = 25 } = req.query;
+    if ((!tagCode || !tagCode.trim()) && (!tagName || !tagName.trim())) {
+      return res.status(400).json({ error: "Tag code or tag name is required." });
+    }
+    const isExport = doExport === "true";
+
+    const pool = await poolPromise;
+    const request = pool.request();
+    const conds = [];
+    if (tagCode && tagCode.trim()) { request.input("tagCode", sql.VarChar(50), tagCode.trim()); conds.push("LTRIM(RTRIM(TM.TAG_CODE)) = @tagCode"); }
+    if (tagName && tagName.trim()) { request.input("tagName", sql.NVarChar(255), `%${tagName.trim()}%`); conds.push("TM.TAG_NAME LIKE @tagName"); }
+    const whereSQL = "WHERE " + conds.join(" AND ");
+
+    const pageNum  = Math.max(1, parseInt(page, 10) || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(limit, 10) || 25));
+    const offset   = (pageNum - 1) * pageSize;
+
+    const countCol = isExport ? "" : ", COUNT(*) OVER() AS TOTAL_COUNT";
+    const paging   = isExport ? "" : "OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY";
+    if (!isExport) {
+      request.input("offset", sql.Int, offset);
+      request.input("pageSize", sql.Int, pageSize);
+    }
+
+    const query = `
+      SELECT
+        TM.TAG_CODE, TM.TAG_NAME,
+        CP.PERSON_CODE,
+        LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
+        CASE WHEN ISJSON(CP.DESIG)=1
+          THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].value'),'')
+            + CASE WHEN JSON_VALUE(CP.DESIG,'$[1].value') IS NOT NULL THEN ', ' + JSON_VALUE(CP.DESIG,'$[1].value') ELSE '' END))
+          ELSE CP.DESIG END AS DESIGNATION,
+        CASE WHEN ISJSON(CP.DEPT)=1 THEN JSON_VALUE(CP.DEPT,'$[0]') ELSE CP.DEPT END AS DEPARTMENT,
+        COALESCE(TM.COMPANY_CODE, CP.COMPANY_CODE) AS COMPANY_CODE,
+        CD.COMPANY_NAME, CD.DIVISION, CD.CITY, CD.STATE, CD.COUNTRY, CD.WEBSITE,
+        CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE CP.PERSON_EMAIL END AS PERSON_EMAIL1,
+        CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[1]') ELSE NULL END AS PERSON_EMAIL2,
+        CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS PERSON_MOBILE1,
+        CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[1].number') ELSE NULL END AS PERSON_MOBILE2,
+        CP.OLD_MOBILE AS PERSON_OLD_MOBILE,
+        CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[0]') ELSE CD.EMAIL END AS COMPANY_EMAIL,
+        CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[0].number') ELSE NULL END AS COMPANY_PHONE,
+        CP.UPDATED_DATE AS PERSON_UPDATED_DATE
+        ${countCol}
+      FROM dbo.[${TABLES.TAGS_MAPPING}] TM
+      LEFT JOIN dbo.[${TABLES.COMP_PERSON}]    CP ON CP.PERSON_CODE = TM.PERSON_CODE
+      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD ON CD.COMPANY_CODE = COALESCE(TM.COMPANY_CODE, CP.COMPANY_CODE)
+      ${whereSQL}
+      ORDER BY TM.TAG_CODE, COALESCE(TM.COMPANY_CODE, CP.COMPANY_CODE), CP.PERSON_CODE
+      ${paging}
+    `;
+
+    const result = await request.query(query);
+    const rows = result.recordset;
+
+    if (!isExport) {
+      const total = rows.length > 0 ? rows[0].TOTAL_COUNT : 0;
+      rows.forEach(r => { delete r.TOTAL_COUNT; });
+      return res.json({
+        data: rows,
+        total,
+        page: pageNum,
+        limit: pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Tag Report");
+    const headers = rows.length > 0
+      ? Object.keys(rows[0])
+      : ["TAG_CODE", "TAG_NAME", "PERSON_CODE", "PERSON_NAME", "DESIGNATION", "DEPARTMENT", "COMPANY_CODE", "COMPANY_NAME"];
+    const headerRow = sheet.addRow(headers);
+    headerRow.eachCell(cell => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A56DB" } };
+    });
+    rows.forEach(row => sheet.addRow(headers.map(h => row[h])));
+    sheet.columns.forEach(col => { col.width = 20; });
+
+    res.setHeader("Content-Disposition", `attachment; filename=tag-report-${Date.now()}.xlsx`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error("getTagReport error:", err);
+    res.status(500).json({ error: "Server Error" });
+  }
+};
+
+exports.getSalesDataView = async (req, res) => {
+  try {
+    const {
+      exhName, attendee, event, exhCode,
+      exhType = "person",
+      industries, segments, tags,
+      dateFrom, dateTo,
+      page = 1, limit = 25,
+    } = req.query;
+
+    // From/To dates are mandatory and the range is capped at 2 years so the
+    // query can never scan the whole table unbounded.
+    if (!dateFrom || !dateTo) {
+      return res.status(400).json({ error: "From and To dates are required." });
+    }
+    const fromD = new Date(dateFrom);
+    const toD = new Date(dateTo);
+    if (isNaN(fromD) || isNaN(toD)) {
+      return res.status(400).json({ error: "Invalid date range." });
+    }
+    if (fromD > toD) {
+      return res.status(400).json({ error: "From date must be before To date." });
+    }
+    const maxTo = new Date(fromD);
+    maxTo.setFullYear(maxTo.getFullYear() + 2);
+    if (toD > maxTo) {
+      return res.status(400).json({ error: "Date range cannot exceed 2 years." });
+    }
+
+    const pageNum  = Math.max(1, parseInt(page, 10) || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(limit, 10) || 25));
+    const offset   = (pageNum - 1) * pageSize;
+
+    const pool = await poolPromise;
+    const request = pool.request();
+    const whereClauses = ["1=1"];
+
+    const industryList = industries ? industries.split(",").filter(Boolean) : [];
+    const segmentList  = segments  ? segments.split(",").filter(Boolean)  : [];
+    const tagList      = tags      ? tags.split(",").filter(Boolean)      : [];
+
+    const needsExhFilter = !!(exhName || attendee || event || exhCode);
+    // Company-history mode with an exhibition filter is anchored on matching
+    // companies so a company with matching exhibition history still shows even
+    // when it has no persons.
+    const companyCentric = exhType === "company" && needsExhFilter;
+    const compCol = companyCentric ? "MC.COMPANY_CODE" : "CP.COMPANY_CODE";
+
+    let exhApplySQL = "";
+    let exhSelectSQL = "";
+    let exhWhere = "";
+
+    if (needsExhFilter) {
+      const exhConds = [];
+      if (exhName)  { request.input("exhName",  sql.NVarChar, `%${exhName}%`);  exhConds.push("EXH_NAME LIKE @exhName"); }
+      if (attendee) { request.input("attendee", sql.NVarChar, `%${attendee}%`); exhConds.push("ATTENDEE LIKE @attendee"); }
+      if (event)    { request.input("event",    sql.NVarChar, `%${event}%`);    exhConds.push("EVENT LIKE @event"); }
+      if (exhCode)  { request.input("exhCode",  sql.NVarChar, exhCode.trim());  exhConds.push("LTRIM(RTRIM(EXH_CODE)) = @exhCode"); }
+
+      exhWhere          = exhConds.length ? "WHERE " + exhConds.join(" AND ") : "";
+      const exhAndConds = exhConds.length ? " AND "  + exhConds.join(" AND ") : "";
+
+      if (exhType === "company") {
+        exhApplySQL  = `OUTER APPLY (SELECT TOP 1 EXH_NAME, EXH_YEAR, EXH_LOCATION, EVENT, ATTENDEE, UPDATED_DATE, CREATED_DATE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] WHERE COMPANY_CODE = ${compCol}${exhAndConds}) EHD`;
+        exhSelectSQL = `,\n        EHD.EXH_NAME AS EXH_NAME, EHD.EXH_YEAR AS EXH_YEAR, EHD.EXH_LOCATION AS EXH_LOCATION, EHD.EVENT AS EXH_EVENT, EHD.ATTENDEE AS EXH_ATTENDEE`;
+      } else {
+        whereClauses.push(`CP.PERSON_CODE IN (SELECT PERSON_CODE FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] ${exhWhere})`);
+        exhApplySQL  = `OUTER APPLY (SELECT TOP 1 EXH_NAME, EXH_YEAR, EVENT, ATTENDEE FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}] WHERE PERSON_CODE = CP.PERSON_CODE${exhAndConds}) EHD`;
+        exhSelectSQL = `,\n        EHD.EXH_NAME AS EXH_NAME, EHD.EXH_YEAR AS EXH_YEAR, EHD.EVENT AS EXH_EVENT, EHD.ATTENDEE AS EXH_ATTENDEE`;
+      }
+    }
+
+    const dateCol = companyCentric
+      ? "COALESCE(CP.UPDATED_DATE, EHD.UPDATED_DATE, EHD.CREATED_DATE)"
+      : "CP.UPDATED_DATE";
+    if (dateFrom) { request.input("dateFrom", sql.Date, dateFrom); whereClauses.push(`CAST(${dateCol} AS DATE) >= @dateFrom`); }
+    if (dateTo)   { request.input("dateTo",   sql.Date, dateTo);   whereClauses.push(`CAST(${dateCol} AS DATE) <= @dateTo`); }
+
+    if (industryList.length > 0) {
+      const p = industryList.map((v, i) => { request.input(`ind_${i}`, sql.NVarChar, v); return `@ind_${i}`; });
+      whereClauses.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m2 JOIN dbo.[${TABLES.INDSEGMENT}] s2 ON m2.SEG_CODE=s2.SEG_CODE WHERE m2.COMPANY_CODE=${compCol} AND s2.INDUSTRY IN (${p.join(",")}))`);
+    }
+    if (segmentList.length > 0) {
+      const p = segmentList.map((v, i) => { request.input(`seg_${i}`, sql.NVarChar, v); return `@seg_${i}`; });
+      whereClauses.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m3 WHERE m3.COMPANY_CODE=${compCol} AND m3.SEG_CODE IN (${p.join(",")}))`);
+    }
+    if (tagList.length > 0) {
+      const p = tagList.map((v, i) => { request.input(`tag_${i}`, sql.VarChar(50), v); return `@tag_${i}`; });
+      whereClauses.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.TAGS_MAPPING}] tm WHERE (tm.PERSON_CODE = CP.PERSON_CODE OR tm.COMPANY_CODE = ${compCol}) AND tm.TAG_CODE IN (${p.join(",")}))`);
+    }
+
+    const whereSQL = "WHERE " + whereClauses.join(" AND ");
+
+    // Company-centric base: distinct matching companies LEFT JOINed to persons.
+    const baseFromSQL = companyCentric
+      ? `FROM (SELECT DISTINCT COMPANY_CODE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] ${exhWhere}) MC
+      LEFT JOIN dbo.[${TABLES.COMP_PERSON}]    CP  ON CP.COMPANY_CODE  = MC.COMPANY_CODE
+      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD  ON CD.COMPANY_CODE  = MC.COMPANY_CODE
+      LEFT JOIN CompSegInfo                    CSI ON CSI.COMPANY_CODE = MC.COMPANY_CODE
+      ${exhApplySQL}`
+      : `FROM dbo.[${TABLES.COMP_PERSON}] CP
+      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD  ON CD.COMPANY_CODE  = CP.COMPANY_CODE
+      LEFT JOIN CompSegInfo                    CSI ON CSI.COMPANY_CODE = CP.COMPANY_CODE
+      ${exhApplySQL}`;
+
+    request.input("offset",   sql.Int, offset);
+    request.input("pageSize", sql.Int, pageSize);
+
+    const query = `
+      WITH CompSegInfo AS (
+        SELECT seg.COMPANY_CODE,
+          seg.SEGMENTS,
+          ind.INDUSTRIES
+        FROM (
+          SELECT COMPANY_CODE, STRING_AGG(SEGMENT, ', ') AS SEGMENTS
+          FROM (
+            SELECT DISTINCT m.COMPANY_CODE, s.SEGMENT
+            FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m
+            JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
+          ) ds GROUP BY COMPANY_CODE
+        ) seg
+        JOIN (
+          SELECT COMPANY_CODE, STRING_AGG(INDUSTRY, ', ') AS INDUSTRIES
+          FROM (
+            SELECT DISTINCT m.COMPANY_CODE, s.INDUSTRY
+            FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m
+            JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
+          ) di GROUP BY COMPANY_CODE
+        ) ind ON ind.COMPANY_CODE = seg.COMPANY_CODE
+      )
+      SELECT
+        CP.PERSON_CODE, ${compCol} AS COMPANY_CODE,
+        LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
+        CASE WHEN ISJSON(CP.DESIG)=1
+          THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].value'),'')
+            + CASE WHEN JSON_VALUE(CP.DESIG,'$[1].value') IS NOT NULL THEN ', ' + JSON_VALUE(CP.DESIG,'$[1].value') ELSE '' END))
+          ELSE CP.DESIG END AS DESIGNATION,
+        CD.COMPANY_NAME, CD.DIVISION,
+        CD.CITY, CD.STATE, CD.COUNTRY,
+        CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE NULL END AS PERSON_EMAIL1,
+        CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS PERSON_MOBILE1,
+        CP.OLD_MOBILE AS OLD_MOBILE,
+        CP.UPDATED_DATE AS UPDATED_DATE,
+        CSI.INDUSTRIES, CSI.SEGMENTS,
+        COUNT(*) OVER() AS TOTAL_COUNT
+        ${exhSelectSQL}
+      ${baseFromSQL}
+      ${whereSQL}
+      ORDER BY ${compCol}, CP.PERSON_CODE
+      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+    `;
+
+    const result = await request.query(query);
+    const rows = result.recordset;
+    const total = rows.length > 0 ? rows[0].TOTAL_COUNT : 0;
+    rows.forEach(r => { delete r.TOTAL_COUNT; });
+
+    res.json({
+      data: rows,
+      total,
+      page: pageNum,
+      limit: pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    });
+  } catch (err) {
+    console.error("getSalesDataView error:", err);
     res.status(500).json({ error: "Server Error" });
   }
 };

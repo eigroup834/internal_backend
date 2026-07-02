@@ -20,10 +20,12 @@ router.put('/events/:id', authenticateToken, commonController.updateEventAttende
 router.get('/eventsSearch', authenticateToken, commonController.getEventsWithSearch);
 router.post('/addevent', authenticateToken, commonController.addEvent);
 router.delete('/events/:id', authenticateToken, commonController.deleteEvent);
+router.get('/events/:eventCode/records', authenticateToken, commonController.getEventRecords);
 
 router.get('/tags', authenticateToken, commonController.getTags);
 router.post('/addtags', authenticateToken, commonController.addTags);
 router.put('/tags/:tagCode', authenticateToken, commonController.updateTag);
+router.get('/tags/:tagCode/records', authenticateToken, commonController.getTagRecords);
 
 router.get('/groups', authenticateToken, commonController.getGroups);
 router.post('/addGroup', authenticateToken, commonController.addGroup);
@@ -38,5 +40,7 @@ router.get('/dashboard/activity', authenticateToken, commonController.getDashboa
 router.get('/dashboard/myEntries', authenticateToken, commonController.getMyDailyEntries);
 router.get('/reports/activityReport', authenticateToken, commonController.getActivityReport);
 router.get('/reports/salesReport',    authenticateToken, commonController.getSalesReport);
+router.get('/reports/tagReport',      authenticateToken, commonController.getTagReport);
+router.get('/reports/salesDataView',  authenticateToken, commonController.getSalesDataView);
 
 module.exports = router;
