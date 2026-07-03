@@ -41,6 +41,7 @@ router.get('/dashboard/myEntries', authenticateToken, commonController.getMyDail
 router.get('/reports/activityReport', authenticateToken, commonController.getActivityReport);
 router.get('/reports/salesReport',    authenticateToken, commonController.getSalesReport);
 router.get('/reports/tagReport',      authenticateToken, commonController.getTagReport);
+router.get('/reports/vipInviteeReport', authenticateToken, commonController.getVipInviteeReport);
 router.get('/reports/salesDataView',  authenticateToken, commonController.getSalesDataView);
 
 module.exports = router;

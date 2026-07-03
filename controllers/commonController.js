@@ -1510,9 +1510,6 @@ exports.getSalesReport = async (req, res) => {
   }
 };
 
-// GET /reports/tagReport?tagCode=&tagName=&export=&page=&limit=
-// Returns everything (persons + companies) linked to a tag, identified by its
-// code and/or name. export=true streams Excel (all rows); otherwise paginated JSON.
 exports.getTagReport = async (req, res) => {
   try {
     const { tagCode, tagName, export: doExport = "false", page = 1, limit = 25 } = req.query;
@@ -1532,48 +1529,51 @@ exports.getTagReport = async (req, res) => {
     const pageSize = Math.min(200, Math.max(1, parseInt(limit, 10) || 25));
     const offset   = (pageNum - 1) * pageSize;
 
-    const countCol = isExport ? "" : ", COUNT(*) OVER() AS TOTAL_COUNT";
-    const paging   = isExport ? "" : "OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY";
+    // ROW_NUMBER pagination (not OFFSET/FETCH) for older DB compatibility level.
     if (!isExport) {
-      request.input("offset", sql.Int, offset);
-      request.input("pageSize", sql.Int, pageSize);
+      request.input("fromRow", sql.Int, offset + 1);
+      request.input("toRow", sql.Int, offset + pageSize);
     }
 
     const query = `
-      SELECT
-        TM.TAG_CODE, TM.TAG_NAME,
-        CP.PERSON_CODE,
-        LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
-        CASE WHEN ISJSON(CP.DESIG)=1
-          THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].value'),'')
-            + CASE WHEN JSON_VALUE(CP.DESIG,'$[1].value') IS NOT NULL THEN ', ' + JSON_VALUE(CP.DESIG,'$[1].value') ELSE '' END))
-          ELSE CP.DESIG END AS DESIGNATION,
-        CASE WHEN ISJSON(CP.DEPT)=1 THEN JSON_VALUE(CP.DEPT,'$[0]') ELSE CP.DEPT END AS DEPARTMENT,
-        COALESCE(TM.COMPANY_CODE, CP.COMPANY_CODE) AS COMPANY_CODE,
-        CD.COMPANY_NAME, CD.DIVISION, CD.CITY, CD.STATE, CD.COUNTRY, CD.WEBSITE,
-        CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE CP.PERSON_EMAIL END AS PERSON_EMAIL1,
-        CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[1]') ELSE NULL END AS PERSON_EMAIL2,
-        CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS PERSON_MOBILE1,
-        CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[1].number') ELSE NULL END AS PERSON_MOBILE2,
-        CP.OLD_MOBILE AS PERSON_OLD_MOBILE,
-        CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[0]') ELSE CD.EMAIL END AS COMPANY_EMAIL,
-        CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[0].number') ELSE NULL END AS COMPANY_PHONE,
-        CP.UPDATED_DATE AS PERSON_UPDATED_DATE
-        ${countCol}
-      FROM dbo.[${TABLES.TAGS_MAPPING}] TM
-      LEFT JOIN dbo.[${TABLES.COMP_PERSON}]    CP ON CP.PERSON_CODE = TM.PERSON_CODE
-      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD ON CD.COMPANY_CODE = COALESCE(TM.COMPANY_CODE, CP.COMPANY_CODE)
-      ${whereSQL}
-      ORDER BY TM.TAG_CODE, COALESCE(TM.COMPANY_CODE, CP.COMPANY_CODE), CP.PERSON_CODE
-      ${paging}
+      WITH Data AS (
+        SELECT
+          TM.TAG_CODE, TM.TAG_NAME,
+          CP.PERSON_CODE,
+          LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
+          CASE WHEN ISJSON(CP.DESIG)=1
+            THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].value'),'')
+              + CASE WHEN JSON_VALUE(CP.DESIG,'$[1].value') IS NOT NULL THEN ', ' + JSON_VALUE(CP.DESIG,'$[1].value') ELSE '' END))
+            ELSE CP.DESIG END AS DESIGNATION,
+          CASE WHEN ISJSON(CP.DEPT)=1 THEN JSON_VALUE(CP.DEPT,'$[0]') ELSE CP.DEPT END AS DEPARTMENT,
+          COALESCE(TM.COMPANY_CODE, CP.COMPANY_CODE) AS COMPANY_CODE,
+          CD.COMPANY_NAME, CD.DIVISION, CD.CITY, CD.STATE, CD.COUNTRY, CD.WEBSITE,
+          CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE CP.PERSON_EMAIL END AS PERSON_EMAIL1,
+          CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[1]') ELSE NULL END AS PERSON_EMAIL2,
+          CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS PERSON_MOBILE1,
+          CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[1].number') ELSE NULL END AS PERSON_MOBILE2,
+          CP.OLD_MOBILE AS PERSON_OLD_MOBILE,
+          CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[0]') ELSE CD.EMAIL END AS COMPANY_EMAIL,
+          CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[0].number') ELSE NULL END AS COMPANY_PHONE,
+          CP.UPDATED_DATE AS PERSON_UPDATED_DATE,
+          ROW_NUMBER() OVER (ORDER BY TM.TAG_CODE, COALESCE(TM.COMPANY_CODE, CP.COMPANY_CODE), CP.PERSON_CODE) AS RowNum,
+          COUNT(*) OVER() AS TotalCount
+        FROM dbo.[${TABLES.TAGS_MAPPING}] TM
+        LEFT JOIN dbo.[${TABLES.COMP_PERSON}]    CP ON CP.PERSON_CODE = TM.PERSON_CODE
+        LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD ON CD.COMPANY_CODE = COALESCE(TM.COMPANY_CODE, CP.COMPANY_CODE)
+        ${whereSQL}
+      )
+      SELECT * FROM Data
+      ${isExport ? "" : "WHERE RowNum BETWEEN @fromRow AND @toRow"}
+      ORDER BY RowNum
     `;
 
     const result = await request.query(query);
     const rows = result.recordset;
+    const total = rows.length > 0 ? rows[0].TotalCount : 0;
+    rows.forEach(r => { delete r.RowNum; delete r.TotalCount; });
 
     if (!isExport) {
-      const total = rows.length > 0 ? rows[0].TOTAL_COUNT : 0;
-      rows.forEach(r => { delete r.TOTAL_COUNT; });
       return res.json({
         data: rows,
         total,
@@ -1603,6 +1603,116 @@ exports.getTagReport = async (req, res) => {
 
   } catch (err) {
     console.error("getTagReport error:", err);
+    res.status(500).json({ error: "Server Error" });
+  }
+};
+
+exports.getVipInviteeReport = async (req, res) => {
+  try {
+    const { category, sourcePerson, year, export: doExport = "false", page = 1, limit = 25 } = req.query;
+    if (!category || !category.trim()) {
+      return res.status(400).json({ error: "Category is required." });
+    }
+    const isExport = doExport === "true";
+
+    const pool = await poolPromise;
+    const request = pool.request();
+    request.input("category", sql.NVarChar(200), category.trim());
+    request.input("sourcePerson", sql.NVarChar(200), (sourcePerson && sourcePerson.trim()) ? sourcePerson.trim() : null);
+    // Compared as a string against JSON_VALUE (which returns text) to stay
+    // compatible with the server's older compatibility level.
+    request.input("year", sql.NVarChar(20), (year && `${year}`.trim()) ? `${year}`.trim() : null);
+
+    const pageNum  = Math.max(1, parseInt(page, 10) || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(limit, 10) || 25));
+    const offset   = (pageNum - 1) * pageSize;
+
+    const MAX_ENTRIES = 6;
+    const jv = (i, field) => `JSON_VALUE(CP.PARTICIPANT_CATEGORY,'$[${i}].${field}')`;
+    const matchAt = (i) =>
+      `(${jv(i, "category")} = @category`
+      + ` AND (@sourcePerson IS NULL OR ${jv(i, "sourcePerson")} = @sourcePerson)`
+      + ` AND (@year IS NULL OR ${jv(i, "year")} = @year))`;
+    const anyMatch = Array.from({ length: MAX_ENTRIES }, (_, i) => matchAt(i)).join("\n          OR ");
+    const matchedField = (field) =>
+      "COALESCE(\n          "
+      + Array.from({ length: MAX_ENTRIES }, (_, i) => `CASE WHEN ${matchAt(i)} THEN ${jv(i, field)} END`).join(",\n          ")
+      + ")";
+
+
+    if (!isExport) {
+      request.input("fromRow", sql.Int, offset + 1);
+      request.input("toRow", sql.Int, offset + pageSize);
+    }
+
+    const query = `
+      WITH Data AS (
+        SELECT
+          CP.PERSON_CODE,
+          LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
+          CASE WHEN ISJSON(CP.DESIG)=1
+            THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].value'),'')
+              + CASE WHEN JSON_VALUE(CP.DESIG,'$[1].value') IS NOT NULL THEN ', ' + JSON_VALUE(CP.DESIG,'$[1].value') ELSE '' END))
+            ELSE CP.DESIG END AS DESIGNATION,
+          CASE WHEN ISJSON(CP.DEPT)=1 THEN JSON_VALUE(CP.DEPT,'$[0]') ELSE CP.DEPT END AS DEPARTMENT,
+          CP.COMPANY_CODE,
+          CD.COMPANY_NAME, CD.DIVISION, CD.CITY, CD.STATE, CD.COUNTRY,
+          @category AS CATEGORY,
+          ${matchedField("year")} AS CAT_YEAR,
+          ${matchedField("sourcePerson")} AS SOURCE_PERSON,
+          CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE CP.PERSON_EMAIL END AS PERSON_EMAIL1,
+          CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS PERSON_MOBILE1,
+          CP.OLD_MOBILE AS OLD_MOBILE,
+          CP.UPDATED_DATE AS UPDATED_DATE,
+          ROW_NUMBER() OVER (ORDER BY CP.COMPANY_CODE, CP.PERSON_CODE) AS RowNum,
+          COUNT(*) OVER() AS TotalCount
+        FROM dbo.[${TABLES.COMP_PERSON}] CP
+        LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD ON CD.COMPANY_CODE = CP.COMPANY_CODE
+        WHERE ISJSON(CP.PARTICIPANT_CATEGORY) = 1
+          AND (
+            ${anyMatch}
+          )
+      )
+      SELECT * FROM Data
+      ${isExport ? "" : "WHERE RowNum BETWEEN @fromRow AND @toRow"}
+      ORDER BY RowNum
+    `;
+
+    const result = await request.query(query);
+    const rows = result.recordset;
+    const total = rows.length > 0 ? rows[0].TotalCount : 0;
+    rows.forEach(r => { delete r.RowNum; delete r.TotalCount; });
+
+    if (!isExport) {
+      return res.json({
+        data: rows,
+        total,
+        page: pageNum,
+        limit: pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("VIP-Invitee Report");
+    const headers = rows.length > 0
+      ? Object.keys(rows[0])
+      : ["PERSON_CODE", "PERSON_NAME", "DESIGNATION", "DEPARTMENT", "COMPANY_CODE", "COMPANY_NAME", "CATEGORY", "CAT_YEAR", "SOURCE_PERSON"];
+    const headerRow = sheet.addRow(headers);
+    headerRow.eachCell(cell => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A56DB" } };
+    });
+    rows.forEach(row => sheet.addRow(headers.map(h => row[h])));
+    sheet.columns.forEach(col => { col.width = 20; });
+
+    res.setHeader("Content-Disposition", `attachment; filename=vip-invitee-report-${Date.now()}.xlsx`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error("getVipInviteeReport error:", err);
     res.status(500).json({ error: "Server Error" });
   }
 };
@@ -1712,8 +1822,9 @@ exports.getSalesDataView = async (req, res) => {
       LEFT JOIN CompSegInfo                    CSI ON CSI.COMPANY_CODE = CP.COMPANY_CODE
       ${exhApplySQL}`;
 
-    request.input("offset",   sql.Int, offset);
-    request.input("pageSize", sql.Int, pageSize);
+    // ROW_NUMBER pagination (not OFFSET/FETCH) for older DB compatibility level.
+    request.input("fromRow", sql.Int, offset + 1);
+    request.input("toRow",   sql.Int, offset + pageSize);
 
     const query = `
       WITH CompSegInfo AS (
@@ -1736,7 +1847,8 @@ exports.getSalesDataView = async (req, res) => {
             JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
           ) di GROUP BY COMPANY_CODE
         ) ind ON ind.COMPANY_CODE = seg.COMPANY_CODE
-      )
+      ),
+      Data AS (
       SELECT
         CP.PERSON_CODE, ${compCol} AS COMPANY_CODE,
         LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
@@ -1751,18 +1863,21 @@ exports.getSalesDataView = async (req, res) => {
         CP.OLD_MOBILE AS OLD_MOBILE,
         CP.UPDATED_DATE AS UPDATED_DATE,
         CSI.INDUSTRIES, CSI.SEGMENTS,
-        COUNT(*) OVER() AS TOTAL_COUNT
+        COUNT(*) OVER() AS TotalCount,
+        ROW_NUMBER() OVER (ORDER BY ${compCol}, CP.PERSON_CODE) AS RowNum
         ${exhSelectSQL}
       ${baseFromSQL}
       ${whereSQL}
-      ORDER BY ${compCol}, CP.PERSON_CODE
-      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+      )
+      SELECT * FROM Data
+      WHERE RowNum BETWEEN @fromRow AND @toRow
+      ORDER BY RowNum
     `;
 
     const result = await request.query(query);
     const rows = result.recordset;
-    const total = rows.length > 0 ? rows[0].TOTAL_COUNT : 0;
-    rows.forEach(r => { delete r.TOTAL_COUNT; });
+    const total = rows.length > 0 ? rows[0].TotalCount : 0;
+    rows.forEach(r => { delete r.RowNum; delete r.TotalCount; });
 
     res.json({
       data: rows,
