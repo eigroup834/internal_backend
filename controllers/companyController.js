@@ -978,9 +978,10 @@ exports.getCompanyExhHistory = async (req, res) => {
       .input("OFFSET", sql.Int, offset)
       .input("LIMIT", sql.Int, parseInt(limit))
       .query(`
-        SELECT h.*, h.event AS EVENT, ISNULL(u.USERNAME, h.USER_CODE) AS ADDED_BY
+        SELECT h.*, h.event AS EVENT, cd.COMPANY_NAME, ISNULL(u.USERNAME, h.USER_CODE) AS ADDED_BY
         FROM dbo.[${TABLES.COMP_EXH_HISTORY}] h
         LEFT JOIN dbo.[USER] u ON h.USER_CODE = u.USER_CODE
+        LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = h.COMPANY_CODE
         WHERE h.COMPANY_CODE = @COMPANY_CODE
         ORDER BY COALESCE(h.UPDATED_DATE, h.CREATED_DATE) DESC
         OFFSET @OFFSET ROWS
@@ -1105,7 +1106,6 @@ exports.updateCompanyHistory = async (req, res) => {
       .query(`
         UPDATE dbo.[${TABLES.COMP_EXH_HISTORY}]
         SET COMPANY_CODE = @TARGET_COMPANY_CODE,
-            COMPANY_NAME = (SELECT TOP 1 COMPANY_NAME FROM dbo.[${TABLES.COMPANY_DETAIL}] WHERE LTRIM(RTRIM(COMPANY_CODE)) = LTRIM(RTRIM(@TARGET_COMPANY_CODE))),
             REVENUE = @REVENUE,
             REV_UNIT = @REV_UNIT,
             AREA = @AREA,
