@@ -1203,10 +1203,6 @@ exports.updatePersonHistory = async (req, res) => {
         UPDATE dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
         SET PERSON_CODE  = @TARGET_PERSON_CODE,
             COMPANY_CODE = (SELECT TOP 1 COMPANY_CODE FROM dbo.[${TABLES.COMP_PERSON}] WHERE LTRIM(RTRIM(PERSON_CODE)) = LTRIM(RTRIM(@TARGET_PERSON_CODE))),
-            COMPANY_NAME = (SELECT TOP 1 cd.COMPANY_NAME
-                            FROM dbo.[${TABLES.COMP_PERSON}] p
-                            JOIN dbo.[${TABLES.COMPANY_DETAIL}] cd ON cd.COMPANY_CODE = p.COMPANY_CODE
-                            WHERE LTRIM(RTRIM(p.PERSON_CODE)) = LTRIM(RTRIM(@TARGET_PERSON_CODE))),
             SPEAKER = @SPEAKER,
             VISITOR = @VISITOR,
             INVITEE = @INVITEE,
@@ -1303,7 +1299,7 @@ exports.addPerson = async (req, res) => {
     const desigJson = JSON.stringify(designations?.filter(d => d) || []);
     const deptJson = JSON.stringify(departments?.filter(d => d) || []);
     const addrJson = JSON.stringify(addresses?.filter(a => a) || []);
-    const catEntriesJson = JSON.stringify(Array.isArray(participantCategory) ? participantCategory.filter(e => e.category || e.year || e.sourcePerson) : []);
+    const catEntriesJson = JSON.stringify(Array.isArray(participantCategory) ? participantCategory.filter(e => e && (e.category || "").toString().trim()) : []);
 
     const dobDate = dob ? new Date(dob) : null;
     const contactDate = contactdate ? new Date(contactdate) : null;
@@ -1907,7 +1903,7 @@ exports.EditPerson = async (req, res) => {
       });
     }
 
-    const catEntriesJson = JSON.stringify(Array.isArray(participantCategory) ? participantCategory.filter(e => e.category || e.year || e.sourcePerson) : []);
+    const catEntriesJson = JSON.stringify(Array.isArray(participantCategory) ? participantCategory.filter(e => e && (e.category || "").toString().trim()) : []);
     const UPDATED_DATE = new Date();
     const Status = 'U';
     await transaction.begin();
@@ -1955,14 +1951,12 @@ exports.EditPerson = async (req, res) => {
         WHERE PERSON_CODE = @PERSON_CODE
       `);
 
-    // Cascade company change to exhibition history
     await new sql.Request(transaction)
       .input("PERSON_CODE", sql.VarChar(50), personCode)
       .input("COMPANY_CODE", sql.VarChar(50), companycode)
       .query(`
         UPDATE dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
-        SET COMPANY_CODE = @COMPANY_CODE,
-            COMPANY_NAME = (SELECT TOP 1 COMPANY_NAME FROM dbo.[${TABLES.COMPANY_DETAIL}] WHERE COMPANY_CODE = @COMPANY_CODE)
+        SET COMPANY_CODE = @COMPANY_CODE
         WHERE PERSON_CODE = @PERSON_CODE
       `);
 

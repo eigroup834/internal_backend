@@ -1,3 +1,5 @@
+process.env.TZ = process.env.TZ || 'Asia/Kolkata';
+
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');

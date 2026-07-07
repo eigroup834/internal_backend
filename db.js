@@ -1,3 +1,5 @@
+process.env.TZ = process.env.TZ || 'Asia/Kolkata';
+
 const sql = require("mssql");
 require("dotenv").config();
 
@@ -9,6 +11,7 @@ const dbConfig = {
   options: {
     encrypt: false,
     trustServerCertificate: true,
+    useUTC: false,
   },
   port: parseInt(process.env.DB_PORT, 10) || 1433,
   connectionTimeout: 30000,
