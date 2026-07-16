@@ -10,6 +10,8 @@ const authRoutes = require('./routes/auth');
 const companyRoutes = require('./routes/company');
 const commonRoutes = require('./routes/commonRoutes');
 const visitorRoutes = require('./routes/visitor');
+const networkRoutes = require('./routes/network');
+const smartSearchRoutes = require('./routes/smartSearch');
 
 // require('./jobs/duplicateCheckJob');
 
@@ -23,6 +25,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api', commonRoutes);
 app.use('/api/visitor', visitorRoutes);
+app.use('/api/network', networkRoutes);
+app.use('/api/search', smartSearchRoutes);
 
 app.use(express.static(
   path.join(__dirname, '../frontend/build')

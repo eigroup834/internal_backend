@@ -746,7 +746,8 @@ exports.getTags = async (req, res) => {
     const offset = (page - 1) * limit;
 
     let query = `
-      SELECT TAG_CODE, TAG_NAME, CREATED_DATE, USER_CODE, ACTIVE, REMARKS, SOURCE, YEAR
+      SELECT TAG_CODE, TAG_NAME, CREATED_DATE, USER_CODE, ACTIVE, REMARKS, SOURCE, YEAR,
+             EVENT, MARKETING, VISITOR, EXHIBITOR, DELEGATE, SPEAKER
       FROM dbo.[${TABLES.TAGS}]
       WHERE 1=1
     `;
@@ -792,7 +793,8 @@ exports.getTags = async (req, res) => {
 
 exports.addTags = async (req, res) => {
   try {
-    const { TAG_NAME, ACTIVE, ATTENDEE, REMARKS, TAG_YEAR, usercode } = req.body;
+    const { TAG_NAME, ACTIVE, ATTENDEE, REMARKS, TAG_YEAR, usercode,
+      EVENT, MARKETING, VISITOR, EXHIBITOR, DELEGATE, SPEAKER } = req.body;
 
     if (!TAG_NAME) {
       return res.status(400).json({ error: "Tagname is required" });
@@ -843,9 +845,15 @@ exports.addTags = async (req, res) => {
       .input("YEAR", sql.Int, TAG_YEAR)
       .input("SOURCE", sql.NVarChar(sql.MAX), attendeeJson)
       .input("REMARKS", sql.VarChar(255), REMARKS)
+      .input("EVENT", sql.VarChar(150), EVENT || null)
+      .input("MARKETING", sql.VarChar(3), MARKETING || "No")
+      .input("VISITOR", sql.VarChar(3), VISITOR || "No")
+      .input("EXHIBITOR", sql.VarChar(3), EXHIBITOR || "No")
+      .input("DELEGATE", sql.VarChar(3), DELEGATE || "No")
+      .input("SPEAKER", sql.VarChar(3), SPEAKER || "No")
       .query(`
-        INSERT INTO dbo.${TABLES.TAGS} (TAG_NAME, USER_CODE, ACTIVE, TAG_CODE, YEAR, SOURCE, REMARKS )
-        VALUES (@TAG_NAME, @USER_CODE, @ACTIVE, @TAG_CODE, @YEAR, @SOURCE, @REMARKS)
+        INSERT INTO dbo.${TABLES.TAGS} (TAG_NAME, USER_CODE, ACTIVE, TAG_CODE, YEAR, SOURCE, REMARKS, EVENT, MARKETING, VISITOR, EXHIBITOR, DELEGATE, SPEAKER )
+        VALUES (@TAG_NAME, @USER_CODE, @ACTIVE, @TAG_CODE, @YEAR, @SOURCE, @REMARKS, @EVENT, @MARKETING, @VISITOR, @EXHIBITOR, @DELEGATE, @SPEAKER)
       `);
 
     return res.status(200).json({
@@ -862,7 +870,8 @@ exports.addTags = async (req, res) => {
 exports.updateTag = async (req, res) => {
   try {
     const { tagCode } = req.params;
-    const { TAG_NAME, ACTIVE, ATTENDEE, REMARKS, TAG_YEAR, usercode } = req.body;
+    const { TAG_NAME, ACTIVE, ATTENDEE, REMARKS, TAG_YEAR, usercode,
+      EVENT, MARKETING, VISITOR, EXHIBITOR, DELEGATE, SPEAKER } = req.body;
 
     if (!TAG_NAME) {
       return res.status(400).json({ error: "Tag name is required" });
@@ -877,9 +886,17 @@ exports.updateTag = async (req, res) => {
       .input("YEAR", sql.Int, TAG_YEAR)
       .input("SOURCE", sql.NVarChar(sql.MAX), attendeeJson)
       .input("REMARKS", sql.VarChar(255), REMARKS)
+      .input("EVENT", sql.VarChar(150), EVENT || null)
+      .input("MARKETING", sql.VarChar(3), MARKETING || "No")
+      .input("VISITOR", sql.VarChar(3), VISITOR || "No")
+      .input("EXHIBITOR", sql.VarChar(3), EXHIBITOR || "No")
+      .input("DELEGATE", sql.VarChar(3), DELEGATE || "No")
+      .input("SPEAKER", sql.VarChar(3), SPEAKER || "No")
       .query(`
         UPDATE dbo.[${TABLES.TAGS}]
-        SET TAG_NAME = @TAG_NAME, YEAR = @YEAR, REMARKS = @REMARKS, SOURCE = @SOURCE, ACTIVE = @ACTIVE, USER_CODE = @USER_CODE, UPDATED_DATE = GETDATE()
+        SET TAG_NAME = @TAG_NAME, YEAR = @YEAR, REMARKS = @REMARKS, SOURCE = @SOURCE, ACTIVE = @ACTIVE, USER_CODE = @USER_CODE,
+            EVENT = @EVENT, MARKETING = @MARKETING, VISITOR = @VISITOR, EXHIBITOR = @EXHIBITOR, DELEGATE = @DELEGATE, SPEAKER = @SPEAKER,
+            UPDATED_DATE = GETDATE()
         WHERE TAG_CODE = @TAG_CODE
       `);
 

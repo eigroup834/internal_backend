@@ -602,6 +602,66 @@ exports.EditCompany = async (req, res) => {
   }
 };
 
+exports.updateCompanyRemark = async (req, res) => {
+  try {
+    const { companyCode } = req.params;
+    const { remarks = "", usercode } = req.body;
+    if (!companyCode) return res.status(400).json({ success: false, message: "Company code is required" });
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+      .input("REMARKS", sql.NVarChar(255), remarks || "")
+      .input("USER_CODE", sql.VarChar(50), usercode || null)
+      .query(`
+        UPDATE dbo.[${TABLES.COMP_MASTER}]
+        SET REMARKS = @REMARKS,
+            USER_CODE = @USER_CODE,
+            USERNAME = (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE),
+            UPDATED_DATE = GETDATE()
+        WHERE COMPANY_CODE = @COMPANY_CODE
+      `);
+
+    if (result.rowsAffected[0] === 0) {
+      return res.status(404).json({ success: false, message: "Company not found" });
+    }
+    res.json({ success: true, message: "Remark updated", remarks });
+  } catch (err) {
+    console.error("updateCompanyRemark error:", err);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+};
+
+exports.updatePersonCupdRemark = async (req, res) => {
+  try {
+    const { personCode } = req.params;
+    const { cupd_remark = "", usercode } = req.body;
+    if (!personCode) return res.status(400).json({ success: false, message: "Person code is required" });
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input("PERSON_CODE", sql.VarChar(50), personCode)
+      .input("PERSON_CUPD_REMARK", sql.NVarChar(255), cupd_remark || "")
+      .input("USER_CODE", sql.VarChar(50), usercode || null)
+      .query(`
+        UPDATE dbo.[${TABLES.COMP_PERSON}]
+        SET PERSON_CUPD_REMARK = @PERSON_CUPD_REMARK,
+            USER_CODE = @USER_CODE,
+            USERNAME = (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE),
+            UPDATED_DATE = GETDATE()
+        WHERE PERSON_CODE = @PERSON_CODE
+      `);
+
+    if (result.rowsAffected[0] === 0) {
+      return res.status(404).json({ success: false, message: "Person not found" });
+    }
+    res.json({ success: true, message: "Remark updated", cupd_remark });
+  } catch (err) {
+    console.error("updatePersonCupdRemark error:", err);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+};
+
 exports.GetCompanyDetail = async (req, res) => {
   try {
     const { companyCode } = req.params;
@@ -1670,6 +1730,9 @@ exports.getPersonList = async (req, res) => {
 
       if (searchBy === "PHONE") {
         whereClauses.push(`(p.OLD_MOBILE LIKE @search OR p.MOBILE LIKE @search)`);
+        request.input("search", `%${term}%`);
+      } else if (searchBy === "FULLNAME") {
+        whereClauses.push(`((p.FNAME + ' ' + p.LNAME) LIKE @search OR (p.LNAME + ' ' + p.FNAME) LIKE @search)`);
         request.input("search", `%${term}%`);
       } else if (searchBy && searchableColumns[searchBy]) {
         const col = searchableColumns[searchBy];
