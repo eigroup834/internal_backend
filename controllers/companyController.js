@@ -1318,7 +1318,8 @@ exports.addPerson = async (req, res) => {
       sourcecode,
       sourceperson,
       sourcetype,
-      participantCategory = []
+      participantCategory = [],
+      socialProfile = ""
     } = req.body;
 
     if (Array.isArray(emails) && emails.length > 0) {
@@ -1360,6 +1361,7 @@ exports.addPerson = async (req, res) => {
     const deptJson = JSON.stringify(departments?.filter(d => d) || []);
     const addrJson = JSON.stringify(addresses?.filter(a => a) || []);
     const catEntriesJson = JSON.stringify(Array.isArray(participantCategory) ? participantCategory.filter(e => e && (e.category || "").toString().trim()) : []);
+    const socialLink = (typeof socialProfile === "string" ? socialProfile.trim() : "") || null;
 
     const dobDate = dob ? new Date(dob) : null;
     const contactDate = contactdate ? new Date(contactdate) : null;
@@ -1385,10 +1387,11 @@ exports.addPerson = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("CREATED_DATE", sql.DateTime, CREATED_DATE)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
+      .input("SOCIAL_PROFILE", sql.NVarChar(sql.MAX), socialLink)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON}]
-        (PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL, DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, USERNAME, ADDRESS, PERSON_CUPD_REMARK, UPDATED_DATE, CREATED_DATE, PARTICIPANT_CATEGORY)
-        VALUES (@PERSON_CODE, @COMPANY_CODE, @PREFIX, @FNAME, @LNAME, @DESIG, @DEPT, @MOBILE, @PERSON_EMAIL, @DOB, @REMARKS, @CONTACTDATE, @MANAGEMENT_REMARKS, @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @ADDRESS, @PERSON_CUPD_REMARK, @UPDATED_DATE, @CREATED_DATE, @PARTICIPANT_CATEGORY)
+        (PERSON_CODE, COMPANY_CODE, PREFIX, FNAME, LNAME, DESIG, DEPT, MOBILE, PERSON_EMAIL, DOB, REMARKS, CONTACTDATE, MANAGEMENT_REMARKS, USER_CODE, USERNAME, ADDRESS, PERSON_CUPD_REMARK, UPDATED_DATE, CREATED_DATE, PARTICIPANT_CATEGORY, SOCIAL_PROFILE)
+        VALUES (@PERSON_CODE, @COMPANY_CODE, @PREFIX, @FNAME, @LNAME, @DESIG, @DEPT, @MOBILE, @PERSON_EMAIL, @DOB, @REMARKS, @CONTACTDATE, @MANAGEMENT_REMARKS, @USER_CODE, (SELECT USERNAME FROM dbo.[USER] WHERE USER_CODE = @USER_CODE), @ADDRESS, @PERSON_CUPD_REMARK, @UPDATED_DATE, @CREATED_DATE, @PARTICIPANT_CATEGORY, @SOCIAL_PROFILE)
       `);
 
     await new sql.Request(transaction)
@@ -1411,6 +1414,7 @@ exports.addPerson = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, CREATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
+      .input("SOCIAL_PROFILE", sql.NVarChar(sql.MAX), socialLink)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}] (
           PERSON_CODE,
@@ -1432,7 +1436,8 @@ exports.addPerson = async (req, res) => {
           PERSON_CUPD_REMARK,
           UPDATED_DATE,
           STATUS,
-          PARTICIPANT_CATEGORY
+          PARTICIPANT_CATEGORY,
+          SOCIAL_PROFILE
         )
         VALUES (
           @PERSON_CODE,
@@ -1454,7 +1459,8 @@ exports.addPerson = async (req, res) => {
           @PERSON_CUPD_REMARK,
           @UPDATED_DATE,
           @STATUS,
-          @PARTICIPANT_CATEGORY
+          @PARTICIPANT_CATEGORY,
+          @SOCIAL_PROFILE
         )
       `);
 
@@ -1897,6 +1903,7 @@ exports.GetPersonDetail = async (req, res) => {
           m.ADDRESS,
           m.PERSON_CUPD_REMARK,
           m.PARTICIPANT_CATEGORY,
+          m.SOCIAL_PROFILE,
 
           ds.SOURCE_PERSON,
           ds.SOURCE_TYPE,
@@ -1956,7 +1963,8 @@ exports.EditPerson = async (req, res) => {
       addresses,
       cupd_remark,
       usercode,
-      participantCategory = []
+      participantCategory = [],
+      socialProfile = ""
     } = req.body;
 
     if (!personCode) {
@@ -1967,6 +1975,7 @@ exports.EditPerson = async (req, res) => {
     }
 
     const catEntriesJson = JSON.stringify(Array.isArray(participantCategory) ? participantCategory.filter(e => e && (e.category || "").toString().trim()) : []);
+    const socialLink = (typeof socialProfile === "string" ? socialProfile.trim() : "") || null;
     const UPDATED_DATE = new Date();
     const Status = 'U';
     await transaction.begin();
@@ -1990,6 +1999,7 @@ exports.EditPerson = async (req, res) => {
       .input("PERSON_CUPD_REMARK", sql.NVarChar(255), cupd_remark || "")
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
+      .input("SOCIAL_PROFILE", sql.NVarChar(sql.MAX), socialLink)
       .query(`
         UPDATE dbo.[${TABLES.COMP_PERSON}]
         SET
@@ -2010,7 +2020,8 @@ exports.EditPerson = async (req, res) => {
           ADDRESS = @ADDRESS,
           PERSON_CUPD_REMARK = @PERSON_CUPD_REMARK,
           UPDATED_DATE = @UPDATED_DATE,
-          PARTICIPANT_CATEGORY = @PARTICIPANT_CATEGORY
+          PARTICIPANT_CATEGORY = @PARTICIPANT_CATEGORY,
+          SOCIAL_PROFILE = @SOCIAL_PROFILE
         WHERE PERSON_CODE = @PERSON_CODE
       `);
 
@@ -2043,6 +2054,7 @@ exports.EditPerson = async (req, res) => {
       .input("UPDATED_DATE", sql.DateTime, UPDATED_DATE)
       .input("STATUS", sql.VarChar(50), Status)
       .input("PARTICIPANT_CATEGORY", sql.NVarChar(sql.MAX), catEntriesJson)
+      .input("SOCIAL_PROFILE", sql.NVarChar(sql.MAX), socialLink)
       .query(`
         INSERT INTO dbo.[${TABLES.COMP_PERSON_UPDATE_HISTORY}] (
           PERSON_CODE,
@@ -2064,7 +2076,8 @@ exports.EditPerson = async (req, res) => {
           PERSON_CUPD_REMARK,
           UPDATED_DATE,
           STATUS,
-          PARTICIPANT_CATEGORY
+          PARTICIPANT_CATEGORY,
+          SOCIAL_PROFILE
         )
         VALUES (
           @PERSON_CODE,
@@ -2086,7 +2099,8 @@ exports.EditPerson = async (req, res) => {
           @PERSON_CUPD_REMARK,
           @UPDATED_DATE,
           @STATUS,
-          @PARTICIPANT_CATEGORY
+          @PARTICIPANT_CATEGORY,
+          @SOCIAL_PROFILE
         )
       `);
 
