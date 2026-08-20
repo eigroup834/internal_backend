@@ -497,23 +497,119 @@ const fetchLinkedRecords = async ({ type, sourceCte, page, limit, search }) => {
   };
 };
 
+const fetchLinkedExportRows = async ({ type, sourceCte }) => {
+  const pool = await poolPromise;
+  const r = pool.request();
+  r.input("code", sql.VarChar(50), sourceCte.code);
+
+  const segCte = `
+    WITH CompSegInfo AS (
+      SELECT seg.COMPANY_CODE, seg.SEGMENTS, ind.INDUSTRIES
+      FROM (
+        SELECT COMPANY_CODE, STRING_AGG(SEGMENT, ', ') AS SEGMENTS
+        FROM (SELECT DISTINCT m.COMPANY_CODE, s.SEGMENT FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE) ds
+        GROUP BY COMPANY_CODE
+      ) seg
+      JOIN (
+        SELECT COMPANY_CODE, STRING_AGG(INDUSTRY, ', ') AS INDUSTRIES
+        FROM (SELECT DISTINCT m.COMPANY_CODE, s.INDUSTRY FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE) di
+        GROUP BY COMPANY_CODE
+      ) ind ON ind.COMPANY_CODE = seg.COMPANY_CODE
+    )`;
+
+  let query;
+  if (type === "person") {
+    query = `${segCte}
+      SELECT
+        CP.PERSON_CODE, CP.COMPANY_CODE,
+        LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
+        CASE WHEN ISJSON(CP.DESIG)=1
+          THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].value'),'')
+            + CASE WHEN JSON_VALUE(CP.DESIG,'$[1].value') IS NOT NULL THEN ', ' + JSON_VALUE(CP.DESIG,'$[1].value') ELSE '' END))
+          ELSE CP.DESIG END AS DESIGNATION,
+        CASE WHEN ISJSON(CP.DEPT)=1 THEN JSON_VALUE(CP.DEPT,'$[0]') ELSE CP.DEPT END AS DEPARTMENT,
+        CD.COMPANY_NAME, CD.DIVISION,
+        CD.CITY, CD.STATE, CD.COUNTRY, CD.PINCODE, CD.WEBSITE,
+        CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[0]') ELSE NULL END AS COMP_EMAIL1,
+        CD.ISDCODE AS COMP_ISD, CD.STDCODE AS COMP_STD,
+        CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[0].number') ELSE NULL END AS COMP_PHONE1,
+        CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE NULL END AS PERSON_EMAIL1,
+        CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[1]') ELSE NULL END AS PERSON_EMAIL2,
+        CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS PERSON_MOBILE1,
+        CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[1].number') ELSE NULL END AS PERSON_MOBILE2,
+        CP.OLD_MOBILE AS PERSON_OLD_MOBILE,
+        CSI.INDUSTRIES, CSI.SEGMENTS,
+        CP.REMARKS, CP.PERSON_CUPD_REMARK, CP.USER_CODE, CP.UPDATED_DATE AS PERSON_UPDATED_DATE
+      FROM (${sourceCte.person}) src
+      INNER JOIN dbo.[${TABLES.COMP_PERSON}] CP ON CP.PERSON_CODE = src.PERSON_CODE
+      LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD ON CD.COMPANY_CODE = CP.COMPANY_CODE
+      LEFT JOIN CompSegInfo CSI ON CSI.COMPANY_CODE = CP.COMPANY_CODE
+      ORDER BY CD.COMPANY_NAME, CP.FNAME`;
+  } else {
+    query = `${segCte}
+      SELECT
+        CD.COMPANY_CODE, CD.COMPANY_NAME, CD.DIVISION,
+        CD.CITY, CD.STATE, CD.COUNTRY, CD.PINCODE, CD.WEBSITE,
+        CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[0]') ELSE NULL END AS COMP_EMAIL1,
+        CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[1]') ELSE NULL END AS COMP_EMAIL2,
+        CD.ISDCODE AS COMP_ISD, CD.STDCODE AS COMP_STD,
+        CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[0].number') ELSE NULL END AS COMP_PHONE1,
+        CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[1].number') ELSE NULL END AS COMP_PHONE2,
+        CSI.INDUSTRIES, CSI.SEGMENTS,
+        CM.REMARKS AS MASTER_REMARKS
+      FROM (${sourceCte.company}) src
+      INNER JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD ON CD.COMPANY_CODE = src.COMPANY_CODE
+      LEFT JOIN dbo.[${TABLES.COMP_MASTER}] CM ON CM.COMPANY_CODE = src.COMPANY_CODE
+      LEFT JOIN CompSegInfo CSI ON CSI.COMPANY_CODE = src.COMPANY_CODE
+      ORDER BY CD.COMPANY_NAME`;
+  }
+
+  const result = await r.query(query);
+  return result.recordset;
+};
+
+const streamRecordsExcel = async (res, rows, sheetName, filePrefix) => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet(sheetName);
+  if (rows.length > 0) {
+    const headers = Object.keys(rows[0]);
+    const headerRow = sheet.addRow(headers);
+    headerRow.eachCell(cell => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A56DB" } };
+    });
+    rows.forEach(row => sheet.addRow(headers.map(h => row[h])));
+    sheet.columns.forEach(col => { col.width = 20; });
+  } else {
+    sheet.addRow(["No records found"]);
+  }
+  res.setHeader("Content-Disposition", `attachment; filename=${filePrefix}-${Date.now()}.xlsx`);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  await workbook.xlsx.write(res);
+  res.end();
+};
+
 exports.getEventRecords = async (req, res) => {
   try {
     const { eventCode } = req.params;
-    const { type = "company", page = 1, limit = 15, search = "" } = req.query;
+    const { type = "company", page = 1, limit = 15, search = "", export: doExport = "false" } = req.query;
     if (!eventCode) return res.status(400).json({ error: "Event code is required" });
 
-    const result = await fetchLinkedRecords({
-      type: type === "person" ? "person" : "company",
-      page, limit, search,
-      sourceCte: {
-        code: eventCode,
-        company: `SELECT DISTINCT COMPANY_CODE FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
-                  WHERE EXH_CODE = @code AND COMPANY_CODE IS NOT NULL AND COMPANY_CODE <> ''`,
-        person: `SELECT DISTINCT PERSON_CODE FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
-                 WHERE EXH_CODE = @code AND PERSON_CODE IS NOT NULL AND PERSON_CODE <> ''`,
-      },
-    });
+    const t = type === "person" ? "person" : "company";
+    const sourceCte = {
+      code: eventCode,
+      company: `SELECT DISTINCT COMPANY_CODE FROM dbo.[${TABLES.COMP_EXH_HISTORY}]
+                WHERE EXH_CODE = @code AND COMPANY_CODE IS NOT NULL AND COMPANY_CODE <> ''`,
+      person: `SELECT DISTINCT PERSON_CODE FROM dbo.[${TABLES.COMP_PERSON_EXH_HISTORY}]
+               WHERE EXH_CODE = @code AND PERSON_CODE IS NOT NULL AND PERSON_CODE <> ''`,
+    };
+
+    if (doExport === "true") {
+      const rows = await fetchLinkedExportRows({ type: t, sourceCte });
+      return streamRecordsExcel(res, rows, t === "person" ? "Persons" : "Companies", `event-${eventCode}-${t}`);
+    }
+
+    const result = await fetchLinkedRecords({ type: t, page, limit, search, sourceCte });
     res.json(result);
   } catch (err) {
     console.error("getEventRecords error:", err);
@@ -524,20 +620,24 @@ exports.getEventRecords = async (req, res) => {
 exports.getTagRecords = async (req, res) => {
   try {
     const { tagCode } = req.params;
-    const { type = "company", page = 1, limit = 15, search = "" } = req.query;
+    const { type = "company", page = 1, limit = 15, search = "", export: doExport = "false" } = req.query;
     if (!tagCode) return res.status(400).json({ error: "Tag code is required" });
 
-    const result = await fetchLinkedRecords({
-      type: type === "person" ? "person" : "company",
-      page, limit, search,
-      sourceCte: {
-        code: tagCode,
-        company: `SELECT DISTINCT COMPANY_CODE FROM dbo.[${TABLES.TAGS_MAPPING}]
-                  WHERE TAG_CODE = @code AND COMPANY_CODE IS NOT NULL AND COMPANY_CODE <> ''`,
-        person: `SELECT DISTINCT PERSON_CODE FROM dbo.[${TABLES.TAGS_MAPPING}]
-                 WHERE TAG_CODE = @code AND PERSON_CODE IS NOT NULL AND PERSON_CODE <> ''`,
-      },
-    });
+    const t = type === "person" ? "person" : "company";
+    const sourceCte = {
+      code: tagCode,
+      company: `SELECT DISTINCT COMPANY_CODE FROM dbo.[${TABLES.TAGS_MAPPING}]
+                WHERE TAG_CODE = @code AND COMPANY_CODE IS NOT NULL AND COMPANY_CODE <> ''`,
+      person: `SELECT DISTINCT PERSON_CODE FROM dbo.[${TABLES.TAGS_MAPPING}]
+               WHERE TAG_CODE = @code AND PERSON_CODE IS NOT NULL AND PERSON_CODE <> ''`,
+    };
+
+    if (doExport === "true") {
+      const rows = await fetchLinkedExportRows({ type: t, sourceCte });
+      return streamRecordsExcel(res, rows, t === "person" ? "Persons" : "Companies", `tag-${tagCode}-${t}`);
+    }
+
+    const result = await fetchLinkedRecords({ type: t, page, limit, search, sourceCte });
     res.json(result);
   } catch (err) {
     console.error("getTagRecords error:", err);

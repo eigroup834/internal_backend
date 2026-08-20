@@ -456,7 +456,7 @@ exports.EditCompany = async (req, res) => {
       remarks, division, specialremarks, country, state, city,
       segment, oldname, usercode,
       nature, orgtype, assocmember, groupCode = null,
-      isdCode = "", stdCode = ""
+      isdCode = "", stdCode = "", tags = []
     } = req.body;
 
     if (!companyCode) {
@@ -580,6 +580,34 @@ exports.EditCompany = async (req, res) => {
         .input("GROUP_CODE", sql.VarChar(50), groupCode)
         .input("USER_CODE", sql.VarChar(50), usercode)
         .query(`INSERT INTO dbo.[${TABLES.COMPANY_GROUP_MEMBER}] (COMPANY_CODE, GROUP_CODE, USER_CODE, CREATED_DATE) VALUES (@COMPANY_CODE, @GROUP_CODE, @USER_CODE, GETDATE())`);
+    }
+
+    // Sync tags: clear existing mappings for this company, then re-insert the selected ones.
+    await new sql.Request(transaction)
+      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+      .query(`DELETE FROM dbo.[${TABLES.TAGS_MAPPING}] WHERE COMPANY_CODE = @COMPANY_CODE`);
+
+    const validCompanyTags = (Array.isArray(tags) ? tags : []).filter(Boolean);
+    if (validCompanyTags.length > 0) {
+      const tagLookupReq = new sql.Request(transaction);
+      validCompanyTags.forEach((code, i) => tagLookupReq.input(`tag${i}`, sql.VarChar(50), code));
+      const tagNamesResult = await tagLookupReq.query(`
+        SELECT TAG_CODE, TAG_NAME FROM dbo.[${TABLES.TAGS}]
+        WHERE TAG_CODE IN (${validCompanyTags.map((_, i) => `@tag${i}`).join(', ')})
+      `);
+      const tagNameMap = Object.fromEntries(tagNamesResult.recordset.map(r => [r.TAG_CODE, r.TAG_NAME]));
+
+      const tagInsertReq = new sql.Request(transaction);
+      tagInsertReq.input('TCC', sql.VarChar(50), companyCode);
+      const tagValueClauses = validCompanyTags.map((tagCode, i) => {
+        tagInsertReq.input(`tn${i}`, sql.NVarChar(255), tagNameMap[tagCode] || tagCode);
+        tagInsertReq.input(`tc${i}`, sql.VarChar(50), tagCode);
+        return `(@tn${i}, @tc${i}, @TCC, NULL, GETDATE(), GETDATE())`;
+      });
+      await tagInsertReq.query(`
+        INSERT INTO dbo.[${TABLES.TAGS_MAPPING}] (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
+        VALUES ${tagValueClauses.join(', ')}
+      `);
     }
 
     await transaction.commit();
@@ -759,11 +787,16 @@ exports.GetCompanyDetail = async (req, res) => {
 
     const row = result.recordset[0];
 
+    const companyTags = await pool.request()
+      .input("COMPANY_CODE", sql.VarChar(50), companyCode)
+      .query(`SELECT TAG_CODE, TAG_NAME FROM dbo.[${TABLES.TAGS_MAPPING}] WHERE COMPANY_CODE = @COMPANY_CODE`);
+
     res.status(200).json({
       ...row,
       INDUSTRY: row.INDUSTRY ? row.INDUSTRY.split(",") : [],
       SEG_CODES: row.SEG_CODES ? row.SEG_CODES.split(",") : [],
       SEGMENTS: row.SEGMENTS ? row.SEGMENTS.split(",") : [],
+      tags: companyTags.recordset,
     });
 
   } catch (err) {
@@ -1934,7 +1967,11 @@ exports.GetPersonDetail = async (req, res) => {
       return res.status(404).json({ success: false, message: "Person not found" });
     }
 
-    res.status(200).json(result.recordset[0]);
+    const personTags = await pool.request()
+      .input("PERSON_CODE", sql.VarChar(50), personCode)
+      .query(`SELECT TAG_CODE, TAG_NAME FROM dbo.[${TABLES.TAGS_MAPPING}] WHERE PERSON_CODE = @PERSON_CODE`);
+
+    res.status(200).json({ ...result.recordset[0], tags: personTags.recordset });
 
   } catch (err) {
     console.error("Error fetching person details:", err);
@@ -1964,7 +2001,8 @@ exports.EditPerson = async (req, res) => {
       cupd_remark,
       usercode,
       participantCategory = [],
-      socialProfile = ""
+      socialProfile = "",
+      tags = []
     } = req.body;
 
     if (!personCode) {
@@ -2103,6 +2141,34 @@ exports.EditPerson = async (req, res) => {
           @SOCIAL_PROFILE
         )
       `);
+
+    // Sync tags: clear existing mappings for this person, then re-insert the selected ones.
+    await new sql.Request(transaction)
+      .input("PERSON_CODE", sql.VarChar(50), personCode)
+      .query(`DELETE FROM dbo.[${TABLES.TAGS_MAPPING}] WHERE PERSON_CODE = @PERSON_CODE`);
+
+    const validPersonTags = (Array.isArray(tags) ? tags : []).filter(Boolean);
+    if (validPersonTags.length > 0) {
+      const tagLookupReq = new sql.Request(transaction);
+      validPersonTags.forEach((code, i) => tagLookupReq.input(`tag${i}`, sql.VarChar(50), code));
+      const tagNamesResult = await tagLookupReq.query(`
+        SELECT TAG_CODE, TAG_NAME FROM dbo.[${TABLES.TAGS}]
+        WHERE TAG_CODE IN (${validPersonTags.map((_, i) => `@tag${i}`).join(', ')})
+      `);
+      const tagNameMap = Object.fromEntries(tagNamesResult.recordset.map(r => [r.TAG_CODE, r.TAG_NAME]));
+
+      const tagInsertReq = new sql.Request(transaction);
+      tagInsertReq.input('TPC', sql.VarChar(50), personCode);
+      const tagValueClauses = validPersonTags.map((tagCode, i) => {
+        tagInsertReq.input(`tn${i}`, sql.NVarChar(255), tagNameMap[tagCode] || tagCode);
+        tagInsertReq.input(`tc${i}`, sql.VarChar(50), tagCode);
+        return `(@tn${i}, @tc${i}, NULL, @TPC, GETDATE(), GETDATE())`;
+      });
+      await tagInsertReq.query(`
+        INSERT INTO dbo.[${TABLES.TAGS_MAPPING}] (TAG_NAME, TAG_CODE, COMPANY_CODE, PERSON_CODE, CREATED_DATE, UPDATED_DATE)
+        VALUES ${tagValueClauses.join(', ')}
+      `);
+    }
 
     await transaction.commit();
 
