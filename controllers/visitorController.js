@@ -1,6 +1,9 @@
 const { poolPromise, sql } = require('../db');
 const { TABLES } = require('../helper');
 
+const VISITOR_HEAD_LEVELS = [2, 5];
+const isVisitorHead = (req) => VISITOR_HEAD_LEVELS.includes(Number(req.user?.access_level));
+
 const PERSON_COLS = `
   LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
   CASE WHEN ISJSON(CP.DESIG)=1        THEN JSON_VALUE(CP.DESIG,'$[0].value')   ELSE CP.DESIG END AS DESIGNATION,
@@ -29,7 +32,6 @@ const MY_CONTACTS_SORT = {
   batch:       `b.BATCH_NAME`,
   status:      `LatestLog.STATUS`,
   updated:     `LatestLog.CREATED_DATE`,
-  followup:    `LatestLog.NEXT_FOLLOWUP`,
 };
 
 function buildReportParts(params, request) {
@@ -88,6 +90,22 @@ const CTE_COMP_SEG = `
     GROUP BY m.COMPANY_CODE
   )`;
 
+function createTtlCache(ttlMs) {
+  const store = new Map();
+  return async (key, producer) => {
+    const hit = store.get(key);
+    if (hit) {
+      if (hit.promise) return hit.promise;          
+      if (hit.expires > Date.now()) return hit.value; 
+    }
+    const promise = Promise.resolve().then(producer).then(
+      (value) => { store.set(key, { value, expires: Date.now() + ttlMs }); return value; },
+      (err)   => { store.delete(key); throw err; }
+    );
+    store.set(key, { promise });
+    return promise;
+  };
+}
 
 exports.getReportPreview = async (req, res) => {
   try {
@@ -232,10 +250,18 @@ exports.getBatches = async (req, res) => {
     const pool      = await poolPromise;
     const request   = pool.request();
 
+    const isHead = isVisitorHead(req);
+    if (!isHead) request.input('me', sql.VarChar(100), req.user?.user_code || '');
+
     const where = ["b.STATUS = 'Y'"];
     if (year)   { request.input('yr', sql.Int,      parseInt(year)); where.push('b.BATCH_YEAR = @yr'); }
     if (search) { request.input('s',  sql.NVarChar, `%${search}%`);  where.push('b.BATCH_NAME LIKE @s'); }
+    if (!isHead) {
+      where.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] mc WHERE mc.BATCH_CODE = b.BATCH_CODE AND mc.ASSIGNED_TO_USER_CODE = @me)`);
+    }
     const whereSQL = 'WHERE ' + where.join(' AND ');
+    // Non-heads only see stats for their own contacts within each batch, not the whole team's.
+    const statsScopeSQL = isHead ? '' : 'WHERE ASSIGNED_TO_USER_CODE = @me';
 
     const q = `
       WITH BatchStats AS (
@@ -246,6 +272,7 @@ exports.getBatches = async (req, res) => {
           SUM(CASE WHEN STATUS = 'INTERESTED'   THEN 1 ELSE 0 END) AS interested,
           SUM(CASE WHEN STATUS = 'WORKING'      THEN 1 ELSE 0 END) AS working
         FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}]
+        ${statsScopeSQL}
         GROUP BY BATCH_CODE
       ),
       Batches AS (
@@ -295,21 +322,35 @@ exports.getBatchDetail = async (req, res) => {
     const request = pool.request();
     request.input('batchId', sql.VarChar(100), batchId);
 
+    const isHead = isVisitorHead(req);
+    if (!isHead) request.input('me', sql.VarChar(100), req.user?.user_code || '');
+    
+    const statScope = isHead ? '' : 'AND ASSIGNED_TO_USER_CODE = @me';
+    const memberScope = isHead ? '' : 'AND c.ASSIGNED_TO_USER_CODE = @me';
+
     const q = `
+      WITH Stat AS (
+        SELECT
+          COUNT(*)                                                              AS STAT_TOTAL,
+          SUM(CASE WHEN ASSIGNED_TO_USER_CODE IS NOT NULL THEN 1 ELSE 0 END)    AS STAT_ASSIGNED,
+          SUM(CASE WHEN ASSIGNED_TO_USER_CODE IS NULL     THEN 1 ELSE 0 END)    AS STAT_UNASSIGNED,
+          SUM(CASE WHEN STATUS='WORKING'        THEN 1 ELSE 0 END)              AS STAT_WORKING,
+          SUM(CASE WHEN STATUS='DONE'           THEN 1 ELSE 0 END)              AS STAT_DONE,
+          SUM(CASE WHEN STATUS='INTERESTED'     THEN 1 ELSE 0 END)              AS STAT_INTERESTED,
+          SUM(CASE WHEN STATUS='NOT_INTERESTED' THEN 1 ELSE 0 END)              AS STAT_NOT_INTERESTED,
+          SUM(CASE WHEN STATUS='CALLBACK'       THEN 1 ELSE 0 END)              AS STAT_CALLBACK,
+          SUM(CASE WHEN STATUS='NO_RESPONSE'    THEN 1 ELSE 0 END)              AS STAT_NO_RESPONSE
+        FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}]
+        WHERE BATCH_CODE = @batchId ${statScope}
+      )
       SELECT b.*,
         b.BATCH_CODE AS BATCH_ID,
         u.USERNAME AS ASSIGNED_TO_NAME,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE BATCH_CODE=b.BATCH_CODE)                                         AS STAT_TOTAL,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE BATCH_CODE=b.BATCH_CODE AND ASSIGNED_TO_USER_CODE IS NOT NULL)   AS STAT_ASSIGNED,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE BATCH_CODE=b.BATCH_CODE AND ASSIGNED_TO_USER_CODE IS NULL)       AS STAT_UNASSIGNED,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE BATCH_CODE=b.BATCH_CODE AND STATUS='WORKING')                    AS STAT_WORKING,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE BATCH_CODE=b.BATCH_CODE AND STATUS='DONE')                       AS STAT_DONE,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE BATCH_CODE=b.BATCH_CODE AND STATUS='INTERESTED')                 AS STAT_INTERESTED,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE BATCH_CODE=b.BATCH_CODE AND STATUS='NOT_INTERESTED')             AS STAT_NOT_INTERESTED,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE BATCH_CODE=b.BATCH_CODE AND STATUS='CALLBACK')                   AS STAT_CALLBACK,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE BATCH_CODE=b.BATCH_CODE AND STATUS='NO_RESPONSE')                AS STAT_NO_RESPONSE
+        Stat.STAT_TOTAL, Stat.STAT_ASSIGNED, Stat.STAT_UNASSIGNED, Stat.STAT_WORKING,
+        Stat.STAT_DONE, Stat.STAT_INTERESTED, Stat.STAT_NOT_INTERESTED, Stat.STAT_CALLBACK, Stat.STAT_NO_RESPONSE
       FROM dbo.[${TABLES.VISITOR_BATCH}] b
       LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = b.USER_CODE
+      CROSS JOIN Stat
       WHERE b.BATCH_CODE = @batchId;
 
       SELECT
@@ -334,7 +375,7 @@ exports.getBatchDetail = async (req, res) => {
          WHERE l.USER_CODE = c.ASSIGNED_TO_USER_CODE AND cc.BATCH_CODE = c.BATCH_CODE) AS LOG_COUNT
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
       LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = c.ASSIGNED_TO_USER_CODE
-      WHERE c.BATCH_CODE = @batchId AND c.ASSIGNED_TO_USER_CODE IS NOT NULL
+      WHERE c.BATCH_CODE = @batchId AND c.ASSIGNED_TO_USER_CODE IS NOT NULL ${memberScope}
       GROUP BY c.ASSIGNED_TO_USER_CODE, u.USERNAME, c.BATCH_CODE
       ORDER BY ASSIGNED_COUNT DESC;
     `;
@@ -366,6 +407,20 @@ exports.getBatchContacts = async (req, res) => {
     request.input('batchId', sql.VarChar(100), batchId);
     const where = ['c.BATCH_CODE = @batchId'];
 
+    const isHead = isVisitorHead(req);
+    if (!isHead) {
+      request.input('me', sql.VarChar(100), req.user?.user_code || '');
+      where.push('c.ASSIGNED_TO_USER_CODE = @me');
+    } else {
+      if (assignedTo) {
+        request.input('at', sql.VarChar(100), assignedTo);
+        where.push('c.ASSIGNED_TO_USER_CODE = @at');
+      }
+      if (unassignedOnly === 'true') {
+        where.push('c.ASSIGNED_TO_USER_CODE IS NULL');
+      }
+    }
+
     if (search) {
       request.input('s', sql.NVarChar, `%${search}%`);
       where.push(`(${SEARCH_PERSON_NAME} LIKE @s OR CD.COMPANY_NAME LIKE @s OR CP.MOBILE LIKE @s OR CP.PERSON_EMAIL LIKE @s)`);
@@ -373,13 +428,6 @@ exports.getBatchContacts = async (req, res) => {
     if (status) {
       request.input('st', sql.VarChar(30), status);
       where.push('c.STATUS = @st');
-    }
-    if (assignedTo) {
-      request.input('at', sql.VarChar(100), assignedTo);
-      where.push('c.ASSIGNED_TO_USER_CODE = @at');
-    }
-    if (unassignedOnly === 'true') {
-      where.push('c.ASSIGNED_TO_USER_CODE IS NULL');
     }
 
     const whereSQL = 'WHERE ' + where.join(' AND ');
@@ -465,10 +513,12 @@ exports.getTeamMembers = async (req, res) => {
   try {
     const pool    = await poolPromise;
     const request = pool.request();
+    
+    request.input('me', sql.VarChar(100), req.user?.user_code || '');
     const q = `
       SELECT USER_CODE, USERNAME, DEPARTMENT, ACCESS_LEVEL
       FROM dbo.[${TABLES.USER}]
-      WHERE ACCESS_LEVEL IN (5, 6) AND ACTIVE = 1
+      WHERE ACTIVE = 1 AND (ACCESS_LEVEL IN (5, 6) OR USER_CODE = @me)
       ORDER BY ACCESS_LEVEL, USERNAME;
     `;
     const result = await request.query(q);
@@ -600,30 +650,34 @@ exports.getMyContacts = async (req, res) => {
 
       SELECT COUNT(*) AS total
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
-      ${PERSON_JOINS}
+      ${search ? PERSON_JOINS : ''}
+      ${outcome ? `OUTER APPLY (
+        SELECT TOP 1 l.STATUS
+        FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
+        WHERE l.CONTACT_CODE = c.CONTACT_CODE
+        ORDER BY l.CREATED_DATE DESC
+      ) LatestLog` : ''}
+      ${whereSQL};
+
+      SELECT
+        b.BATCH_CODE AS BATCH_ID,
+        b.BATCH_NAME,
+        b.BATCH_YEAR,
+        COUNT(*) AS TOTAL,
+        SUM(CASE WHEN LatestLog.STATUS IS NOT NULL THEN 1 ELSE 0 END) AS WORKED
+      FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
+      INNER JOIN dbo.[${TABLES.VISITOR_BATCH}] b
+        ON b.BATCH_CODE = c.BATCH_CODE
       OUTER APPLY (
-        SELECT TOP 1
-          l.STATUS,
-          l.ACTION_TYPE,
-          l.NEXT_FOLLOWUP,
-          l.REMARKS,
-          l.CREATED_DATE
+        SELECT TOP 1 l.STATUS
         FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
         WHERE l.CONTACT_CODE = c.CONTACT_CODE
         ORDER BY l.CREATED_DATE DESC
       ) LatestLog
-      ${whereSQL};
-
-      SELECT DISTINCT
-        b.BATCH_CODE AS BATCH_ID,
-        b.BATCH_NAME,
-        b.BATCH_YEAR
-      FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
-      INNER JOIN dbo.[${TABLES.VISITOR_BATCH}] b
-        ON b.BATCH_CODE = c.BATCH_CODE
       WHERE
         c.ASSIGNED_TO_USER_CODE = @uc
         AND b.STATUS = 'Y'
+      GROUP BY b.BATCH_CODE, b.BATCH_NAME, b.BATCH_YEAR
       ORDER BY
         b.BATCH_YEAR DESC,
         b.BATCH_NAME;
@@ -651,7 +705,7 @@ exports.getFollowups = async (req, res) => {
     const level    = Number(req.user?.access_level);
     if (!userCode) return res.status(401).json({ error: 'Unauthorized' });
 
-    const isHead = [1, 2, 6].includes(level);
+    const isHead = isVisitorHead(req);
     const { range = 'all', member = '', batchId = '', search = '', page = 1, limit = 50 } = req.query;
     const pageNum  = parseInt(page, 10)  || 1;
     const limitNum = parseInt(limit, 10) || 50;
@@ -667,8 +721,6 @@ exports.getFollowups = async (req, res) => {
     else             { memberWhere.push('c.ASSIGNED_TO_USER_CODE IS NOT NULL'); }
     const memberSQL = 'WHERE ' + memberWhere.join(' AND ');
 
-    // Follow-up scan scope = member + optional batch + optional search. Scoping by
-    // batch keeps the per-contact log scan small even with ~10k contacts per batch.
     const fuWhere = [...memberWhere];
     if (batchId) { request.input('bid', sql.VarChar(100), batchId);    fuWhere.push('c.BATCH_CODE = @bid'); }
     if (search)  { request.input('s', sql.NVarChar, `%${search}%`);    fuWhere.push(`(${SEARCH_PERSON_NAME} LIKE @s OR CD.COMPANY_NAME LIKE @s OR CP.MOBILE LIKE @s)`); }
@@ -686,16 +738,30 @@ exports.getFollowups = async (req, res) => {
       ${memberSQL} AND b.STATUS = 'Y'
       ORDER BY b.BATCH_YEAR DESC, b.BATCH_NAME;
 
+      ;WITH FU AS (
+        SELECT CONTACT_CODE, NEXT_FOLLOWUP,
+          ROW_NUMBER() OVER (PARTITION BY CONTACT_CODE ORDER BY CREATED_DATE DESC) AS rn
+        FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}]
+        WHERE NEXT_FOLLOWUP IS NOT NULL
+      ),
+      LastOutcome AS (
+        SELECT CONTACT_CODE, STATUS,
+          ROW_NUMBER() OVER (PARTITION BY CONTACT_CODE ORDER BY CREATED_DATE DESC) AS rn
+        FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}]
+        WHERE STATUS IS NOT NULL
+      )
       SELECT
         ${CONTACT_ALIASES},
         c.STATUS,
         ${PERSON_COLS},
         b.BATCH_NAME,
         u.USERNAME AS MEMBER_NAME,
-        (SELECT TOP 1 NEXT_FOLLOWUP FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] WHERE CONTACT_CODE=c.CONTACT_CODE AND NEXT_FOLLOWUP IS NOT NULL ORDER BY CREATED_DATE DESC) AS NEXT_FOLLOWUP,
-        (SELECT TOP 1 STATUS FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] WHERE CONTACT_CODE=c.CONTACT_CODE AND STATUS IS NOT NULL ORDER BY CREATED_DATE DESC) AS LAST_OUTCOME
+        fu.NEXT_FOLLOWUP,
+        lo.STATUS AS LAST_OUTCOME
       INTO #FU
-      FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
+      FROM FU fu
+      JOIN dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c ON c.CONTACT_CODE = fu.CONTACT_CODE AND fu.rn = 1
+      LEFT JOIN LastOutcome lo ON lo.CONTACT_CODE = c.CONTACT_CODE AND lo.rn = 1
       ${PERSON_JOINS}
       LEFT JOIN dbo.[${TABLES.VISITOR_BATCH}] b ON b.BATCH_CODE = c.BATCH_CODE
       LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = c.ASSIGNED_TO_USER_CODE
@@ -741,7 +807,7 @@ exports.getFollowups = async (req, res) => {
 exports.addContactLog = async (req, res) => {
   try {
     const { contactId } = req.params;
-    const { actionType,nextFollowup, remarks, newStatus } = req.body;
+    const { actionType, nextFollowup, remarks, newStatus, callId, callStatus, callDuration } = req.body;
 
     const userCode = req.user?.user_code || 'SYSTEM';
     const userName = req.user?.username  || '';
@@ -755,6 +821,9 @@ exports.addContactLog = async (req, res) => {
     request.input('userCode',   sql.VarChar(100),  userCode);
     request.input('userName',   sql.NVarChar(200), userName);
     request.input('newStatus', sql.VarChar(100), newStatus);
+    request.input('callId',       sql.VarChar(100), callId || null);
+    request.input('callStatus',   sql.VarChar(30),  callStatus || null);
+    request.input('callDuration', sql.Int,          Number.isInteger(callDuration) ? callDuration : null);
 
     if (actionType === 'FOLLOWUP' && nextFollowup) {
       const todayStr = new Date().toISOString().split('T')[0];
@@ -778,9 +847,9 @@ exports.addContactLog = async (req, res) => {
 
     const q = `
       INSERT INTO dbo.[${TABLES.VISITOR_CONTACT_LOG}]
-        (LOG_ID, CONTACT_CODE, ACTION_TYPE, STATUS, NEXT_FOLLOWUP, REMARKS, USER_CODE, USER_NAME, CREATED_DATE)
+        (LOG_ID, CONTACT_CODE, ACTION_TYPE, STATUS, NEXT_FOLLOWUP, REMARKS, USER_CODE, USER_NAME, CREATED_DATE, CALL_ID, CALL_STATUS, CALL_DURATION)
       VALUES
-        (CONVERT(VARCHAR(36), NEWID()), @contactId, @actionType, @newStatus, @nextFU, @remarks, @userCode, @userName, GETDATE());
+        (CONVERT(VARCHAR(36), NEWID()), @contactId, @actionType, @newStatus, @nextFU, @remarks, @userCode, @userName, GETDATE(), @callId, @callStatus, @callDuration);
 
       SELECT c.*, ${CONTACT_ALIASES}, ${PERSON_COLS}, b.BATCH_NAME
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
@@ -1035,6 +1104,8 @@ function bucketExpr(granularity, col) {
 
 const ymd = (d) => d.toISOString().slice(0, 10);
 
+const analyticsCache = createTtlCache(20000);
+
 exports.getAnalytics = async (req, res) => {
   try {
     const { batchId, year } = req.query;
@@ -1048,6 +1119,8 @@ exports.getAnalytics = async (req, res) => {
     const prevTo   = new Date(from.getTime() - 86400000);
     const prevFrom = new Date(prevTo.getTime() - spanMs);
 
+    const cacheKey = JSON.stringify({ b: batchId || '', y: year || '', g: granularity, f: ymd(from), t: ymd(to) });
+    const payload = await analyticsCache(cacheKey, async () => {
     const pool    = await poolPromise;
     const request = pool.request();
     if (batchId) request.input('bid', sql.VarChar(100), batchId);
@@ -1061,16 +1134,17 @@ exports.getAnalytics = async (req, res) => {
     const bucketL = bucketExpr(granularity, 'l.CREATED_DATE');
 
     const q = `
-      -- Scoped contacts + each contact's latest-log outcome, built once.
+      -- Latest-log outcome per contact, computed once from the (small) log table and
+      -- joined to the scoped contacts — avoids a per-contact correlated seek over 90k rows.
+      ;WITH LatestLog AS (
+        SELECT l.CONTACT_CODE, l.STATUS,
+          ROW_NUMBER() OVER (PARTITION BY l.CONTACT_CODE ORDER BY l.CREATED_DATE DESC) AS rn
+        FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
+      )
       SELECT c.CONTACT_CODE, c.BATCH_CODE, c.ASSIGNED_TO_USER_CODE, ll.STATUS AS OUTCOME
       INTO #C
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
-      OUTER APPLY (
-        SELECT TOP 1 l.STATUS
-        FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
-        WHERE l.CONTACT_CODE = c.CONTACT_CODE
-        ORDER BY l.CREATED_DATE DESC
-      ) ll
+      LEFT JOIN LatestLog ll ON ll.CONTACT_CODE = c.CONTACT_CODE AND ll.rn = 1
       WHERE ${scopeC};
 
       -- 1. Overview (state)
@@ -1176,7 +1250,7 @@ exports.getAnalytics = async (req, res) => {
     const outcomeBreakdown = OUTCOME_KEYS.map(k => ({ key: k, count: rawOutcomes[k] || 0 }));
     const pending = rawOutcomes['Pending'] || 0;
 
-    res.json({
+    return {
       filters: { batchId: batchId || null, year: year || null, granularity, from: ymd(from), to: ymd(to) },
       overview: r.recordsets[0][0],
       outcomeBreakdown,
@@ -1188,7 +1262,10 @@ exports.getAnalytics = async (req, res) => {
       activity: r.recordsets[6][0],
       years: r.recordsets[7].map(x => x.year),
       batchOptions: r.recordsets[8],
+    };
     });
+
+    res.json(payload);
   } catch (err) {
     console.error('getAnalytics error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -1293,6 +1370,130 @@ exports.getDashboard = async (req, res) => {
     });
   } catch (err) {
     console.error('getDashboard error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+exports.getMyStats = async (req, res) => {
+  try {
+    const userCode = req.user?.user_code;
+    if (!userCode) return res.status(401).json({ error: 'Unauthorized' });
+
+    const pool = await poolPromise;
+    const request = pool.request();
+    request.input('me', sql.VarChar(100), userCode);
+
+    const q = `
+      SELECT c.CONTACT_CODE, LatestLog.STATUS
+      INTO #BC
+      FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
+      OUTER APPLY (
+        SELECT TOP 1 l.STATUS FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
+        WHERE l.CONTACT_CODE = c.CONTACT_CODE ORDER BY l.CREATED_DATE DESC
+      ) LatestLog
+      WHERE c.ASSIGNED_TO_USER_CODE = @me;
+
+      SELECT el.LEAD_ID, LatestLog.STATUS
+      INTO #EL
+      FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el
+      OUTER APPLY (
+        SELECT TOP 1 ll.STATUS FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}] ll
+        WHERE ll.LEAD_ID = el.LEAD_ID ORDER BY ll.CREATED_DATE DESC
+      ) LatestLog
+      WHERE el.ASSIGNED_TO_USER_CODE = @me AND el.PUSHED_BATCH_CODE IS NULL;
+
+      SELECT
+        (SELECT COUNT(*) FROM #BC) AS batchTotal,
+        (SELECT COUNT(*) FROM #BC WHERE STATUS IS NOT NULL) AS batchWorked,
+        (SELECT COUNT(*) FROM #EL) AS leadTotal,
+        (SELECT COUNT(*) FROM #EL WHERE STATUS IS NOT NULL) AS leadWorked;
+
+      SELECT STATUS, COUNT(*) AS n FROM (
+        SELECT STATUS FROM #BC WHERE STATUS IS NOT NULL
+        UNION ALL
+        SELECT STATUS FROM #EL WHERE STATUS IS NOT NULL
+      ) x GROUP BY STATUS;
+
+      SELECT TOP 20 * FROM (
+        SELECT
+          l.CREATED_DATE, l.ACTION_TYPE, l.STATUS, l.REMARKS, 'BATCH' AS SRC,
+          NULLIF(LTRIM(RTRIM(
+            ISNULL(CD.COMPANY_NAME, '') + CASE WHEN CD.COMPANY_NAME IS NOT NULL AND ${SEARCH_PERSON_NAME} <> '' THEN ' — ' ELSE '' END + ${SEARCH_PERSON_NAME}
+          )), '') AS WHO_NAME
+        FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
+        JOIN dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c ON c.CONTACT_CODE = l.CONTACT_CODE
+        LEFT JOIN dbo.[${TABLES.COMP_PERSON}]    CP ON CP.PERSON_CODE  = c.PERSON_CODE
+        LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD ON CD.COMPANY_CODE = c.COMPANY_CODE
+        WHERE l.USER_CODE = @me
+
+        UNION ALL
+
+        SELECT
+          ll.CREATED_DATE, ll.ACTION_TYPE, ll.STATUS, ll.REMARKS, 'LEAD' AS SRC,
+          NULLIF(LTRIM(RTRIM(ISNULL(el.COMPANY, '') + CASE WHEN el.COMPANY IS NOT NULL AND el.NAME IS NOT NULL THEN ' — ' ELSE '' END + ISNULL(el.NAME, ''))), '') AS WHO_NAME
+        FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}] ll
+        JOIN dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el ON el.LEAD_ID = ll.LEAD_ID
+        WHERE ll.USER_CODE = @me
+      ) activity
+      ORDER BY CREATED_DATE DESC;
+
+      DROP TABLE #BC;
+      DROP TABLE #EL;
+    `;
+
+    const result = await request.query(q);
+    const overview = result.recordsets[0][0] || {};
+    const outcomeBreak = {};
+    result.recordsets[1].forEach((r) => { outcomeBreak[r.STATUS] = r.n; });
+
+    const batchTotal = overview.batchTotal || 0;
+    const batchWorked = overview.batchWorked || 0;
+    const leadTotal = overview.leadTotal || 0;
+    const leadWorked = overview.leadWorked || 0;
+
+    res.json({
+      batch: { total: batchTotal, worked: batchWorked, pending: batchTotal - batchWorked },
+      lead: { total: leadTotal, worked: leadWorked, pending: leadTotal - leadWorked },
+      overall: {
+        total: batchTotal + leadTotal,
+        worked: batchWorked + leadWorked,
+        pending: (batchTotal + leadTotal) - (batchWorked + leadWorked),
+      },
+      outcomeBreak,
+      activity: result.recordsets[2],
+    });
+  } catch (err) {
+    console.error('getMyStats error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+exports.getTelecmiCredentials = async (req, res) => {
+  try {
+    const userCode = req.user?.user_code;
+    if (!userCode) return res.status(401).json({ error: 'Unauthorized' });
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('uc', sql.VarChar(100), userCode)
+      .query(`
+        SELECT TELECMI_USER_ID, TELECMI_PASSWORD
+        FROM dbo.[${TABLES.USER}]
+        WHERE USER_CODE = @uc
+      `);
+
+    const row = result.recordset[0];
+    if (!row || !row.TELECMI_USER_ID || !row.TELECMI_PASSWORD) {
+      return res.status(404).json({ error: 'Calling is not set up for your account yet. Ask an admin to add your TeleCMI login.' });
+    }
+
+    res.json({
+      userId: row.TELECMI_USER_ID,
+      password: row.TELECMI_PASSWORD,
+      sbcUri: process.env.TELECMI_SBC_URI || '',
+    });
+  } catch (err) {
+    console.error('getTelecmiCredentials error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };

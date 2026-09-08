@@ -12,14 +12,18 @@ const commonRoutes = require('./routes/commonRoutes');
 const visitorRoutes = require('./routes/visitor');
 const networkRoutes = require('./routes/network');
 const smartSearchRoutes = require('./routes/smartSearch');
+const requestTiming = require('./middleware/requestTiming');
 
 // require('./jobs/duplicateCheckJob');
+require('./jobs/postShowSyncJob');
+require('./jobs/visitorRegSyncJob');
 
 const app = express();
 
 app.use(compression());
 app.use(cors());
 app.use(express.json());
+app.use(requestTiming({ slowMs: 500 }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/companies', companyRoutes);

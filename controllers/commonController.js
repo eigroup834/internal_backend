@@ -1135,6 +1135,8 @@ exports.addEditor = async (req, res) => {
       data_count = 0,
       email,
       phone,
+      telecmi_user_id,
+      telecmi_password,
     } = req.body;
 
     if (!name || !password) {
@@ -1190,16 +1192,18 @@ exports.addEditor = async (req, res) => {
       .input("EMAIL", sql.VarChar(100), email)
       .input("PHONE", sql.VarChar(50), phone)
       .input("ACTIVE", sql.Bit, 1)
+      .input("TELECMI_USER_ID", sql.VarChar(100), telecmi_user_id || null)
+      .input("TELECMI_PASSWORD", sql.VarChar(255), telecmi_password || null)
       .query(`
         INSERT INTO dbo.[${TABLES.USER}] (
           ID, USERNAME, PASSWORD, DEPARTMENT,
           ACCESS_LEVEL, USER_CODE, DATA_COUNT, EMAIL, PHONE,
-          ACTIVE, UPDATED_DATE, CREATED_DATE
+          ACTIVE, TELECMI_USER_ID, TELECMI_PASSWORD, UPDATED_DATE, CREATED_DATE
         )
         VALUES (
           @ID, @USERNAME, @PASSWORD, @DEPARTMENT,
           @ACCESS_LEVEL, @USER_CODE, @DATA_COUNT, @EMAIL, @PHONE,
-          @ACTIVE, GETDATE(), GETDATE()
+          @ACTIVE, @TELECMI_USER_ID, @TELECMI_PASSWORD, GETDATE(), GETDATE()
         );
       `);
 
@@ -1228,7 +1232,9 @@ exports.editEditor = async (req, res) => {
       DATA_COUNT,
       EMAIL,
       PHONE,
-      ACTIVE
+      ACTIVE,
+      TELECMI_USER_ID,
+      TELECMI_PASSWORD
     } = req.body;
 
     if (!USERNAME || !PASSWORD) {
@@ -1262,16 +1268,18 @@ exports.editEditor = async (req, res) => {
       .input("EMAIL", sql.VarChar(100), EMAIL)
       .input("PHONE", sql.VarChar(50), PHONE)
       .input("ACTIVE", sql.Bit, ACTIVE ?? 1)
+      .input("TELECMI_USER_ID", sql.VarChar(100), TELECMI_USER_ID || null)
+      .input("TELECMI_PASSWORD", sql.VarChar(255), TELECMI_PASSWORD || null)
       .query(`
         INSERT INTO dbo.[${TABLES.USER}] (
           ID, USERNAME, PASSWORD, DEPARTMENT, DEPARTMENT_HEAD,
           ACCESS_LEVEL, USER_CODE, DATA_COUNT, EMAIL, PHONE,
-          ACTIVE, UPDATED_DATE, CREATED_DATE
+          ACTIVE, TELECMI_USER_ID, TELECMI_PASSWORD, UPDATED_DATE, CREATED_DATE
         )
         VALUES (
           @ID, @USERNAME, @PASSWORD, @DEPARTMENT, @DEPARTMENT_HEAD,
           @ACCESS_LEVEL, @USER_CODE, @DATA_COUNT, @EMAIL, @PHONE,
-          @ACTIVE, GETDATE(), GETDATE()
+          @ACTIVE, @TELECMI_USER_ID, @TELECMI_PASSWORD, GETDATE(), GETDATE()
         );
       `);
 
