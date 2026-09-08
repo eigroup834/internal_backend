@@ -48,7 +48,7 @@ function scopeToMember(req, request, filters) {
 
 exports.list = async (req, res) => {
   try {
-    const { source = '', category = '', designation = '', assigned = '', status = '', search = '', sortBy = '', sortDir = '', page = 1, limit = 50 } = req.query;
+    const { source = '', category = '', designation = '', assigned = '', status = '', worked = '', search = '', sortBy = '', sortDir = '', page = 1, limit = 50 } = req.query;
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = Math.min(parseInt(limit, 10) || 50, 200);
     const offset = (pageNum - 1) * limitNum;
@@ -92,12 +92,16 @@ exports.list = async (req, res) => {
       request.input('status', sql.VarChar(30), status);
       statusFilter = 'LatestLog.STATUS = @status';
     }
+    let workedFilter = null;
+    if (worked === 'yes') workedFilter = 'LatestLog.STATUS IS NOT NULL';
+    else if (worked === 'no') workedFilter = 'LatestLog.STATUS IS NULL';
 
-    const listWhere = `WHERE ${[...baseFilters, sourceFilter, categoryFilter, assignedFilter, statusFilter].filter(Boolean).join(' AND ')}`;
-    const bySourceWhere = `WHERE ${[...baseFilters, categoryFilter, assignedFilter, statusFilter].filter(Boolean).join(' AND ')}`;
-    const byCategoryWhere = `WHERE ${[...baseFilters, sourceFilter, assignedFilter, statusFilter].filter(Boolean).join(' AND ')}`;
-    const byAssignedWhere = `WHERE ${[...baseFilters, sourceFilter, categoryFilter, statusFilter].filter(Boolean).join(' AND ')}`;
-    const byStatusWhere = `WHERE ${[...baseFilters, sourceFilter, categoryFilter, assignedFilter].filter(Boolean).join(' AND ')}`;
+    const listWhere = `WHERE ${[...baseFilters, sourceFilter, categoryFilter, assignedFilter, statusFilter, workedFilter].filter(Boolean).join(' AND ')}`;
+    const bySourceWhere = `WHERE ${[...baseFilters, categoryFilter, assignedFilter, statusFilter, workedFilter].filter(Boolean).join(' AND ')}`;
+    const byCategoryWhere = `WHERE ${[...baseFilters, sourceFilter, assignedFilter, statusFilter, workedFilter].filter(Boolean).join(' AND ')}`;
+    const byAssignedWhere = `WHERE ${[...baseFilters, sourceFilter, categoryFilter, statusFilter, workedFilter].filter(Boolean).join(' AND ')}`;
+    const byStatusWhere = `WHERE ${[...baseFilters, sourceFilter, categoryFilter, assignedFilter, workedFilter].filter(Boolean).join(' AND ')}`;
+    const byWorkedWhere = `WHERE ${[...baseFilters, sourceFilter, categoryFilter, assignedFilter, statusFilter].filter(Boolean).join(' AND ')}`;
 
     request.input('offset', sql.Int, offset);
     request.input('limitNum', sql.Int, limitNum);
@@ -130,10 +134,14 @@ exports.list = async (req, res) => {
       SELECT ISNULL(LatestLog.STATUS, 'NONE') AS bucket, COUNT(*) AS n
       FROM ${T} l ${LEAD_LOG_JOIN} ${byStatusWhere}
       GROUP BY ISNULL(LatestLog.STATUS, 'NONE');
+
+      SELECT CASE WHEN LatestLog.STATUS IS NULL THEN 'no' ELSE 'yes' END AS bucket, COUNT(*) AS n
+      FROM ${T} l ${LEAD_LOG_JOIN} ${byWorkedWhere}
+      GROUP BY CASE WHEN LatestLog.STATUS IS NULL THEN 'no' ELSE 'yes' END;
     `;
 
     const result = await request.query(q);
-    const [rows, totalSet, bySourceSet, byCategorySet, byAssignedSet, byStatusSet] = result.recordsets;
+    const [rows, totalSet, bySourceSet, byCategorySet, byAssignedSet, byStatusSet, byWorkedSet] = result.recordsets;
 
     const bySource = {};
     bySourceSet.forEach((r) => { bySource[r.SOURCE_NAME] = r.n; });
@@ -143,12 +151,14 @@ exports.list = async (req, res) => {
     byAssignedSet.forEach((r) => { byAssigned[r.bucket] = r.n; });
     const byStatus = {};
     byStatusSet.forEach((r) => { byStatus[r.bucket] = r.n; });
+    const byWorked = { yes: 0, no: 0 };
+    byWorkedSet.forEach((r) => { byWorked[r.bucket] = r.n; });
 
     res.json({
       data: rows,
       total: totalSet[0].total,
       page: pageNum,
-      counts: { bySource, byCategory, byAssigned, byStatus, unassigned: byAssigned.no },
+      counts: { bySource, byCategory, byAssigned, byStatus, byWorked, unassigned: byAssigned.no },
     });
   } catch (err) {
     console.error('externalLeads.list error:', err);

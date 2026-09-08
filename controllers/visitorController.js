@@ -542,6 +542,7 @@ exports.getMyContacts = async (req, res) => {
       search = "",
       batchId = "",
       outcome = "",
+      worked = "",
       sortBy = "",
       sortDir = ""
     } = req.query;
@@ -575,6 +576,9 @@ exports.getMyContacts = async (req, res) => {
       request.input("outcome", sql.VarChar(100), outcome);
       where.push("LatestLog.STATUS = @outcome");
     }
+
+    if (worked === "yes") where.push("LatestLog.STATUS IS NOT NULL");
+    else if (worked === "no") where.push("LatestLog.STATUS IS NULL");
 
     if (search) {
       request.input("s", sql.NVarChar, `%${search}%`);
@@ -651,7 +655,7 @@ exports.getMyContacts = async (req, res) => {
       SELECT COUNT(*) AS total
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
       ${search ? PERSON_JOINS : ''}
-      ${outcome ? `OUTER APPLY (
+      ${(outcome || worked) ? `OUTER APPLY (
         SELECT TOP 1 l.STATUS
         FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
         WHERE l.CONTACT_CODE = c.CONTACT_CODE
@@ -1387,11 +1391,12 @@ exports.getMyStats = async (req, res) => {
       SELECT c.CONTACT_CODE, LatestLog.STATUS
       INTO #BC
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
+      INNER JOIN dbo.[${TABLES.VISITOR_BATCH}] b ON b.BATCH_CODE = c.BATCH_CODE
       OUTER APPLY (
         SELECT TOP 1 l.STATUS FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
         WHERE l.CONTACT_CODE = c.CONTACT_CODE ORDER BY l.CREATED_DATE DESC
       ) LatestLog
-      WHERE c.ASSIGNED_TO_USER_CODE = @me;
+      WHERE c.ASSIGNED_TO_USER_CODE = @me AND b.STATUS = 'Y';
 
       SELECT el.LEAD_ID, LatestLog.STATUS
       INTO #EL
@@ -1413,29 +1418,6 @@ exports.getMyStats = async (req, res) => {
         UNION ALL
         SELECT STATUS FROM #EL WHERE STATUS IS NOT NULL
       ) x GROUP BY STATUS;
-
-      SELECT TOP 20 * FROM (
-        SELECT
-          l.CREATED_DATE, l.ACTION_TYPE, l.STATUS, l.REMARKS, 'BATCH' AS SRC,
-          NULLIF(LTRIM(RTRIM(
-            ISNULL(CD.COMPANY_NAME, '') + CASE WHEN CD.COMPANY_NAME IS NOT NULL AND ${SEARCH_PERSON_NAME} <> '' THEN ' — ' ELSE '' END + ${SEARCH_PERSON_NAME}
-          )), '') AS WHO_NAME
-        FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
-        JOIN dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c ON c.CONTACT_CODE = l.CONTACT_CODE
-        LEFT JOIN dbo.[${TABLES.COMP_PERSON}]    CP ON CP.PERSON_CODE  = c.PERSON_CODE
-        LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD ON CD.COMPANY_CODE = c.COMPANY_CODE
-        WHERE l.USER_CODE = @me
-
-        UNION ALL
-
-        SELECT
-          ll.CREATED_DATE, ll.ACTION_TYPE, ll.STATUS, ll.REMARKS, 'LEAD' AS SRC,
-          NULLIF(LTRIM(RTRIM(ISNULL(el.COMPANY, '') + CASE WHEN el.COMPANY IS NOT NULL AND el.NAME IS NOT NULL THEN ' — ' ELSE '' END + ISNULL(el.NAME, ''))), '') AS WHO_NAME
-        FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}] ll
-        JOIN dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el ON el.LEAD_ID = ll.LEAD_ID
-        WHERE ll.USER_CODE = @me
-      ) activity
-      ORDER BY CREATED_DATE DESC;
 
       DROP TABLE #BC;
       DROP TABLE #EL;
@@ -1460,7 +1442,6 @@ exports.getMyStats = async (req, res) => {
         pending: (batchTotal + leadTotal) - (batchWorked + leadWorked),
       },
       outcomeBreak,
-      activity: result.recordsets[2],
     });
   } catch (err) {
     console.error('getMyStats error:', err);
