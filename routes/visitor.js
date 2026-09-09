@@ -2,6 +2,7 @@ const express    = require('express');
 const router     = express.Router();
 const auth       = require('../middleware/auth');
 const requireLevel = require('../middleware/requireLevel');
+const uploadExcel = require('../middleware/uploadExcel');
 const ctrl       = require('../controllers/visitorController');
 const extCtrl    = require('../controllers/externalLeadController');
 
@@ -19,6 +20,8 @@ router.get('/dashboard',                        requireLevel(ANALYTICS), ctrl.ge
 router.get('/analytics',                        requireLevel(ANALYTICS), ctrl.getAnalytics);
 
 router.post('/batches',                         requireLevel(CREATE), ctrl.createBatch);
+router.post('/batches/upload',                  requireLevel(CREATE), uploadExcel, ctrl.uploadBatch);
+router.get('/batches/mine',                     requireLevel(CREATE), ctrl.getMyCreatedBatches);
 router.get('/batches',                          requireLevel(VIEW), ctrl.getBatches);
 router.get('/batches/:batchId',                 requireLevel(VIEW), ctrl.getBatchDetail);
 router.put('/batches/:batchId/status',          requireLevel(MANAGE), ctrl.updateBatchStatus);

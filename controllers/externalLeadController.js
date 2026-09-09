@@ -6,7 +6,7 @@ const USER = `dbo.[${TABLES.USER}]`;
 const LEAD_LOG = `dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}]`;
 
 const SOURCES = ['POST_SHOW_SALES', 'VISITOR_REGISTRATION'];
-const CATEGORIES = ['VISITOR', 'DELEGATE', 'SPEAKER', 'OTHER'];
+const CATEGORIES = ['VISITOR', 'DELEGATE', 'SPEAKER', 'BUYER', 'OTHER'];
 
 const LEAD_LOG_JOIN = `
   OUTER APPLY (
@@ -21,6 +21,7 @@ const SORT_EXPR = {
   contact:     'l.NAME',
   designation: 'l.DESIGNATION',
   department:  'l.DEPARTMENT',
+  industry:    'l.INDUSTRY',
   mobile:      'l.MOBILE',
   email:       'l.EMAIL',
   source:      'l.SOURCE_NAME',
@@ -288,14 +289,11 @@ exports.addLeadLog = async (req, res) => {
     request.input('callStatus', sql.VarChar(30), callStatus || null);
     request.input('callDuration', sql.Int, Number.isInteger(callDuration) ? callDuration : null);
 
-    if (actionType === 'FOLLOWUP' && nextFollowup) {
+    if (nextFollowup) {
       const todayStr = new Date().toISOString().split('T')[0];
       if (String(nextFollowup).split('T')[0] <= todayStr) {
         return res.status(400).json({ error: 'Follow-up date must be after today.' });
       }
-    }
-
-    if (nextFollowup) {
       const cnt = await pool.request()
         .input('leadId', sql.BigInt, leadId)
         .query(`

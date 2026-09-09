@@ -1,5 +1,6 @@
 const { poolPromise, sql } = require('../db');
 const { TABLES } = require('../helper');
+const ExcelJS = require('exceljs');
 
 const VISITOR_HEAD_LEVELS = [2, 5];
 const isVisitorHead = (req) => VISITOR_HEAD_LEVELS.includes(Number(req.user?.access_level));
@@ -29,6 +30,7 @@ const MY_CONTACTS_SORT = {
   department:  `CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[0]')         ELSE CP.DEPT  END`,
   mobile:      `CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END`,
   email:       `CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE NULL END`,
+  industry:    `CSI.INDUSTRIES`,
   batch:       `b.BATCH_NAME`,
   status:      `LatestLog.STATUS`,
   updated:     `LatestLog.CREATED_DATE`,
@@ -237,6 +239,199 @@ exports.createBatch = async (req, res) => {
     });
   } catch (err) {
     console.error('createBatch error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Reads the two-column (Person Code / Company Code) sheet from an uploaded
+// workbook. Header names are matched loosely (case/space/underscore-insensitive)
+// so "Person Code", "PERSON_CODE", "personcode" etc. all resolve the same way.
+const normalizeHeader = (v) => String(v ?? '').trim().toLowerCase().replace(/[^a-z]/g, '');
+
+async function readPersonCompanyRows(buffer) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) throw new Error('The uploaded file has no sheet');
+
+  const headerRow = sheet.getRow(1);
+  let personColIdx = null;
+  let companyColIdx = null;
+  headerRow.eachCell((cell, colNumber) => {
+    const h = normalizeHeader(cell.value);
+    if (h === 'personcode') personColIdx = colNumber;
+    if (h === 'companycode') companyColIdx = colNumber;
+  });
+  if (!personColIdx || !companyColIdx) {
+    throw new Error('The Excel file must have "Person Code" and "Company Code" columns');
+  }
+
+  const rows = [];
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const personCode = String(row.getCell(personColIdx).value ?? '').trim();
+    const companyCode = String(row.getCell(companyColIdx).value ?? '').trim();
+    if (personCode && companyCode) rows.push({ personCode, companyCode });
+  });
+  return rows;
+}
+
+exports.uploadBatch = async (req, res) => {
+  const pool = await poolPromise;
+  const transaction = new sql.Transaction(pool);
+  let began = false;
+  try {
+    const { batchName, notes } = req.body;
+    if (!batchName || !batchName.trim()) {
+      return res.status(400).json({ error: 'Batch name is required' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'An Excel file is required' });
+    }
+
+    const rows = await readPersonCompanyRows(req.file.buffer);
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'No valid Person Code / Company Code rows found in the file' });
+    }
+
+    await transaction.begin();
+    began = true;
+
+    const setupReq = new sql.Request(transaction);
+    await setupReq.query('CREATE TABLE #Upload (PERSON_CODE VARCHAR(100), COMPANY_CODE VARCHAR(100));');
+
+    const CHUNK = 500; // keeps each round trip well under SQL Server's parameter cap
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
+      const chunkReq = new sql.Request(transaction);
+      const placeholders = chunk.map((_, idx) => `(@p${idx}, @c${idx})`).join(',');
+      chunk.forEach((r, idx) => {
+        chunkReq.input(`p${idx}`, sql.VarChar(100), r.personCode);
+        chunkReq.input(`c${idx}`, sql.VarChar(100), r.companyCode);
+      });
+      await chunkReq.query(`INSERT INTO #Upload (PERSON_CODE, COMPANY_CODE) VALUES ${placeholders};`);
+    }
+
+    const finalReq = new sql.Request(transaction);
+    finalReq.input('batchName', sql.NVarChar(200), batchName.trim());
+    finalReq.input('batchYear', sql.Int, new Date().getFullYear());
+    finalReq.input('remarks', sql.NVarChar(1000), notes || null);
+    finalReq.input('userCode', sql.VarChar(100), req.user?.user_code || null);
+
+    const finalSql = `
+      DECLARE @batchCode VARCHAR(100) = CONVERT(VARCHAR(36), NEWID());
+      DECLARE @uniqueCount INT, @dupCount INT, @missingCount INT, @eligibleCount INT;
+
+      SELECT DISTINCT PERSON_CODE, COMPANY_CODE
+      INTO #Deduped
+      FROM #Upload
+      WHERE PERSON_CODE <> '' AND COMPANY_CODE <> '';
+      SET @uniqueCount = @@ROWCOUNT;
+
+      SELECT
+        d.PERSON_CODE, d.COMPANY_CODE,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] bc
+          WHERE bc.PERSON_CODE = d.PERSON_CODE AND bc.COMPANY_CODE = d.COMPANY_CODE
+        ) THEN 1 ELSE 0 END AS IS_DUP,
+        (CASE WHEN ISJSON(cp.MOBILE)=1       THEN JSON_VALUE(cp.MOBILE,'$[0].number') ELSE NULL END) AS MOBILE_VAL,
+        (CASE WHEN ISJSON(cp.PERSON_EMAIL)=1 THEN JSON_VALUE(cp.PERSON_EMAIL,'$[0]')  ELSE NULL END) AS EMAIL_VAL
+      INTO #Checked
+      FROM #Deduped d
+      LEFT JOIN dbo.[${TABLES.COMP_PERSON}] cp ON cp.PERSON_CODE = d.PERSON_CODE;
+
+      SELECT DISTINCT PERSON_CODE, COMPANY_CODE
+      INTO #Eligible
+      FROM #Checked
+      WHERE IS_DUP = 0 AND MOBILE_VAL IS NOT NULL AND EMAIL_VAL IS NOT NULL;
+
+      SET @dupCount      = (SELECT COUNT(*) FROM #Checked WHERE IS_DUP = 1);
+      SET @missingCount  = (SELECT COUNT(*) FROM #Checked WHERE IS_DUP = 0 AND (MOBILE_VAL IS NULL OR EMAIL_VAL IS NULL));
+      SET @eligibleCount = (SELECT COUNT(*) FROM #Eligible);
+
+      IF @eligibleCount > 0
+      BEGIN
+        INSERT INTO dbo.[${TABLES.VISITOR_BATCH}]
+          (BATCH_CODE, BATCH_NAME, BATCH_YEAR, REMARKS, STATUS, USER_CODE, TOTAL_CONTACTS, CREATED_DATE)
+        VALUES
+          (@batchCode, @batchName, @batchYear, @remarks, 'Y', @userCode, @eligibleCount, GETDATE());
+
+        INSERT INTO dbo.[${TABLES.VISITOR_BATCH_CONTACT}]
+          (CONTACT_CODE, BATCH_CODE, PERSON_CODE, COMPANY_CODE, STATUS, CREATED_DATE)
+        SELECT CONVERT(VARCHAR(36), NEWID()), @batchCode, PERSON_CODE, COMPANY_CODE, 'NEW', GETDATE()
+        FROM #Eligible;
+      END
+
+      SELECT
+        CASE WHEN @eligibleCount > 0 THEN @batchCode ELSE NULL END AS BATCH_ID,
+        @uniqueCount   AS UNIQUE_ROWS,
+        @dupCount      AS DUPLICATE_SKIPPED,
+        @missingCount  AS MISSING_SKIPPED,
+        @eligibleCount AS IMPORTED;
+    `;
+    const result = await finalReq.query(finalSql);
+    await transaction.commit();
+    began = false;
+
+    const summary = result.recordset[0];
+    if (!summary.IMPORTED) {
+      return res.status(400).json({
+        error: `No records were imported — ${summary.DUPLICATE_SKIPPED} already existed and ${summary.MISSING_SKIPPED} are missing a mobile number or email.`,
+        totalRowsInFile: rows.length,
+        uniqueRows: summary.UNIQUE_ROWS,
+        duplicateSkipped: summary.DUPLICATE_SKIPPED,
+        missingSkipped: summary.MISSING_SKIPPED,
+      });
+    }
+
+    res.json({
+      success: true,
+      batchId: summary.BATCH_ID,
+      totalRowsInFile: rows.length,
+      inFileDuplicates: rows.length - summary.UNIQUE_ROWS,
+      duplicateSkipped: summary.DUPLICATE_SKIPPED,
+      missingSkipped: summary.MISSING_SKIPPED,
+      imported: summary.IMPORTED,
+    });
+  } catch (err) {
+    if (began) { try { await transaction.rollback(); } catch {} }
+    console.error('uploadBatch error:', err);
+    res.status(err.message && !err.number ? 400 : 500).json({ error: err.message || 'Server error' });
+  }
+};
+
+exports.getMyCreatedBatches = async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum  = parseInt(page, 10)  || 1;
+    const limitNum = parseInt(limit, 10) || 20;
+    const offset   = (pageNum - 1) * limitNum;
+
+    const pool    = await poolPromise;
+    const request = pool.request();
+    request.input('me', sql.VarChar(100), req.user?.user_code || '');
+
+    const q = `
+      SELECT b.BATCH_CODE AS BATCH_ID, b.BATCH_NAME, b.REMARKS, b.BATCH_YEAR,
+             b.TOTAL_CONTACTS, b.STATUS, b.CREATED_DATE,
+             ROW_NUMBER() OVER (ORDER BY b.CREATED_DATE DESC) AS RowNum
+      FROM dbo.[${TABLES.VISITOR_BATCH}] b
+      WHERE b.USER_CODE = @me
+    `;
+
+    const result = await request.query(`
+      SELECT * FROM (${q}) x WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
+      SELECT COUNT(*) AS total FROM dbo.[${TABLES.VISITOR_BATCH}] WHERE USER_CODE = @me;
+    `);
+
+    res.json({
+      data:  result.recordsets[0],
+      total: result.recordsets[1][0].total,
+      page:  pageNum,
+      limit: limitNum,
+    });
+  } catch (err) {
+    console.error('getMyCreatedBatches error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -606,6 +801,7 @@ exports.getMyContacts = async (req, res) => {
 
           ${CONTACT_ALIASES},
           ${PERSON_COLS},
+          CSI.INDUSTRIES AS INDUSTRY,
 
           b.BATCH_NAME,
           b.BATCH_YEAR,
@@ -632,6 +828,16 @@ exports.getMyContacts = async (req, res) => {
 
         LEFT JOIN dbo.[${TABLES.VISITOR_BATCH}] b
           ON b.BATCH_CODE = c.BATCH_CODE
+
+        LEFT JOIN (
+          SELECT COMPANY_CODE, STRING_AGG(INDUSTRY, ', ') AS INDUSTRIES
+          FROM (
+            SELECT DISTINCT m.COMPANY_CODE, s.INDUSTRY
+            FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m
+            JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
+          ) x
+          GROUP BY COMPANY_CODE
+        ) CSI ON CSI.COMPANY_CODE = c.COMPANY_CODE
 
         OUTER APPLY (
           SELECT TOP 1
@@ -667,6 +873,8 @@ exports.getMyContacts = async (req, res) => {
         b.BATCH_CODE AS BATCH_ID,
         b.BATCH_NAME,
         b.BATCH_YEAR,
+        b.CREATED_DATE,
+        b.REMARKS,
         COUNT(*) AS TOTAL,
         SUM(CASE WHEN LatestLog.STATUS IS NOT NULL THEN 1 ELSE 0 END) AS WORKED
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
@@ -681,7 +889,7 @@ exports.getMyContacts = async (req, res) => {
       WHERE
         c.ASSIGNED_TO_USER_CODE = @uc
         AND b.STATUS = 'Y'
-      GROUP BY b.BATCH_CODE, b.BATCH_NAME, b.BATCH_YEAR
+      GROUP BY b.BATCH_CODE, b.BATCH_NAME, b.BATCH_YEAR, b.CREATED_DATE, b.REMARKS
       ORDER BY
         b.BATCH_YEAR DESC,
         b.BATCH_NAME;
@@ -710,10 +918,13 @@ exports.getFollowups = async (req, res) => {
     if (!userCode) return res.status(401).json({ error: 'Unauthorized' });
 
     const isHead = isVisitorHead(req);
-    const { range = 'all', member = '', batchId = '', search = '', page = 1, limit = 50 } = req.query;
+    // source: 'batch' (Internal Leads tab) or 'lead' (External Leads tab) —
+    // the two are separate tabs, not a blended default view.
+    const { range = 'all', member = '', batchId = '', source = 'batch', search = '', page = 1, limit = 50 } = req.query;
     const pageNum  = parseInt(page, 10)  || 1;
     const limitNum = parseInt(limit, 10) || 50;
     const offset   = (pageNum - 1) * limitNum;
+    const srcFilter = source === 'lead' ? 'LEAD' : 'BATCH';
 
     const pool    = await poolPromise;
     const request = pool.request();
@@ -730,10 +941,67 @@ exports.getFollowups = async (req, res) => {
     if (search)  { request.input('s', sql.NVarChar, `%${search}%`);    fuWhere.push(`(${SEARCH_PERSON_NAME} LIKE @s OR CD.COMPANY_NAME LIKE @s OR CP.MOBILE LIKE @s)`); }
     const fuSQL = 'WHERE ' + fuWhere.join(' AND ');
 
+    // Same member/search scope, translated onto the external-lead columns.
+    const leadWhere = [];
+    if (!isHead)     leadWhere.push('el.ASSIGNED_TO_USER_CODE = @uc');
+    else if (member) leadWhere.push('el.ASSIGNED_TO_USER_CODE = @mb');
+    else             leadWhere.push('el.ASSIGNED_TO_USER_CODE IS NOT NULL');
+    if (search) leadWhere.push('(el.NAME LIKE @s OR el.COMPANY LIKE @s OR el.MOBILE LIKE @s)');
+    const leadSQL = 'WHERE ' + leadWhere.join(' AND ');
+
     let rangeSQL = 'NEXT_FOLLOWUP IS NOT NULL';
     if (range === 'today')         rangeSQL = 'NEXT_FOLLOWUP = CAST(GETDATE() AS DATE)';
     else if (range === 'overdue')  rangeSQL = 'NEXT_FOLLOWUP < CAST(GETDATE() AS DATE)';
-    else if (range === 'upcoming') rangeSQL = 'NEXT_FOLLOWUP > CAST(GETDATE() AS DATE)';
+    else if (range === 'tomorrow') rangeSQL = 'NEXT_FOLLOWUP = DATEADD(DAY, 1, CAST(GETDATE() AS DATE))';
+    else if (range === 'upcoming') rangeSQL = 'NEXT_FOLLOWUP > DATEADD(DAY, 1, CAST(GETDATE() AS DATE))';
+
+    const batchBranch = `
+      SELECT
+        'BATCH' AS SRC,
+        CAST(c.CONTACT_CODE AS NVARCHAR(50)) AS ITEM_ID,
+        ${PERSON_COLS},
+        CSI.INDUSTRIES AS INDUSTRY,
+        b.BATCH_NAME,
+        u.USERNAME AS MEMBER_NAME,
+        fu.NEXT_FOLLOWUP,
+        lo.STATUS AS LAST_OUTCOME
+      FROM FU fu
+      JOIN dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c ON c.CONTACT_CODE = fu.CONTACT_CODE
+        AND fu.rn = 1 AND fu.NEXT_FOLLOWUP IS NOT NULL
+      LEFT JOIN LastOutcome lo ON lo.CONTACT_CODE = c.CONTACT_CODE AND lo.rn = 1
+      ${PERSON_JOINS}
+      LEFT JOIN (
+        SELECT COMPANY_CODE, STRING_AGG(INDUSTRY, ', ') AS INDUSTRIES
+        FROM (
+          SELECT DISTINCT m.COMPANY_CODE, s.INDUSTRY
+          FROM dbo.[${TABLES.COMP_SEGMENT_MAP}] m
+          JOIN dbo.[${TABLES.INDSEGMENT}] s ON m.SEG_CODE = s.SEG_CODE
+        ) x
+        GROUP BY COMPANY_CODE
+      ) CSI ON CSI.COMPANY_CODE = c.COMPANY_CODE
+      LEFT JOIN dbo.[${TABLES.VISITOR_BATCH}] b ON b.BATCH_CODE = c.BATCH_CODE
+      LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = c.ASSIGNED_TO_USER_CODE
+      ${fuSQL}`;
+
+    const leadBranch = `
+      SELECT
+        'LEAD' AS SRC,
+        CAST(el.LEAD_ID AS NVARCHAR(50)) AS ITEM_ID,
+        el.NAME AS PERSON_NAME, el.DESIGNATION, el.DEPARTMENT, el.MOBILE, el.EMAIL,
+        el.COMPANY AS COMPANY_NAME,
+        CAST(NULL AS NVARCHAR(200)) AS DIVISION, CAST(NULL AS NVARCHAR(100)) AS CITY,
+        CAST(NULL AS NVARCHAR(100)) AS STATE, CAST(NULL AS NVARCHAR(100)) AS COUNTRY,
+        el.INDUSTRY,
+        CAST(NULL AS NVARCHAR(200)) AS BATCH_NAME,
+        u2.USERNAME AS MEMBER_NAME,
+        fl.NEXT_FOLLOWUP,
+        lo2.STATUS AS LAST_OUTCOME
+      FROM FL fl
+      JOIN dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el ON el.LEAD_ID = fl.LEAD_ID
+        AND fl.rn = 1 AND fl.NEXT_FOLLOWUP IS NOT NULL
+      LEFT JOIN LeadLastOutcome lo2 ON lo2.LEAD_ID = el.LEAD_ID AND lo2.rn = 1
+      LEFT JOIN dbo.[${TABLES.USER}] u2 ON u2.USER_CODE = el.ASSIGNED_TO_USER_CODE
+      ${leadSQL} AND el.PUSHED_BATCH_CODE IS NULL`;
 
     const q = `
       SELECT DISTINCT b.BATCH_CODE AS BATCH_ID, b.BATCH_NAME, b.BATCH_YEAR
@@ -742,62 +1010,79 @@ exports.getFollowups = async (req, res) => {
       ${memberSQL} AND b.STATUS = 'Y'
       ORDER BY b.BATCH_YEAR DESC, b.BATCH_NAME;
 
+      -- FU/FL rank EVERY log row (not just ones with a follow-up date) so rn=1
+      -- is always the truly latest action. A later call logged with no new
+      -- date (e.g. "No Answer") must supersede an earlier "Interested +
+      -- tomorrow" — filtering to NEXT_FOLLOWUP IS NOT NULL before ranking
+      -- would let that stale date keep winning forever. The NULL check moves
+      -- to the join below, gating on rn=1's own value instead.
       ;WITH FU AS (
         SELECT CONTACT_CODE, NEXT_FOLLOWUP,
           ROW_NUMBER() OVER (PARTITION BY CONTACT_CODE ORDER BY CREATED_DATE DESC) AS rn
         FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}]
-        WHERE NEXT_FOLLOWUP IS NOT NULL
       ),
       LastOutcome AS (
         SELECT CONTACT_CODE, STATUS,
           ROW_NUMBER() OVER (PARTITION BY CONTACT_CODE ORDER BY CREATED_DATE DESC) AS rn
         FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}]
         WHERE STATUS IS NOT NULL
+      ),
+      FL AS (
+        SELECT LEAD_ID, NEXT_FOLLOWUP,
+          ROW_NUMBER() OVER (PARTITION BY LEAD_ID ORDER BY CREATED_DATE DESC) AS rn
+        FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}]
+      ),
+      LeadLastOutcome AS (
+        SELECT LEAD_ID, STATUS,
+          ROW_NUMBER() OVER (PARTITION BY LEAD_ID ORDER BY CREATED_DATE DESC) AS rn
+        FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}]
+        WHERE STATUS IS NOT NULL
       )
-      SELECT
-        ${CONTACT_ALIASES},
-        c.STATUS,
-        ${PERSON_COLS},
-        b.BATCH_NAME,
-        u.USERNAME AS MEMBER_NAME,
-        fu.NEXT_FOLLOWUP,
-        lo.STATUS AS LAST_OUTCOME
-      INTO #FU
-      FROM FU fu
-      JOIN dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c ON c.CONTACT_CODE = fu.CONTACT_CODE AND fu.rn = 1
-      LEFT JOIN LastOutcome lo ON lo.CONTACT_CODE = c.CONTACT_CODE AND lo.rn = 1
-      ${PERSON_JOINS}
-      LEFT JOIN dbo.[${TABLES.VISITOR_BATCH}] b ON b.BATCH_CODE = c.BATCH_CODE
-      LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = c.ASSIGNED_TO_USER_CODE
-      ${fuSQL};
+      SELECT * INTO #FU FROM (
+        ${batchBranch}
+        UNION ALL
+        ${leadBranch}
+      ) merged;
 
       SELECT * FROM #FU
-      WHERE ${rangeSQL}
+      WHERE SRC = @src AND ${rangeSQL}
       ORDER BY NEXT_FOLLOWUP ASC
       OFFSET ${offset} ROWS FETCH NEXT ${limitNum} ROWS ONLY;
 
       SELECT
         SUM(CASE WHEN NEXT_FOLLOWUP < CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS overdue,
         SUM(CASE WHEN NEXT_FOLLOWUP = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS today,
-        SUM(CASE WHEN NEXT_FOLLOWUP > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS upcoming
-      FROM #FU WHERE NEXT_FOLLOWUP IS NOT NULL;
+        SUM(CASE WHEN NEXT_FOLLOWUP = DATEADD(DAY, 1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) AS tomorrow,
+        SUM(CASE WHEN NEXT_FOLLOWUP > DATEADD(DAY, 1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) AS upcoming
+      FROM #FU WHERE SRC = @src AND NEXT_FOLLOWUP IS NOT NULL;
+
+      -- Tab badge totals — one pending-follow-up count per source, independent
+      -- of which tab/range is currently active.
+      SELECT SRC, COUNT(*) AS n FROM #FU WHERE NEXT_FOLLOWUP IS NOT NULL GROUP BY SRC;
 
       DROP TABLE #FU;
     `;
 
+    request.input('src', sql.VarChar(10), srcFilter);
+
     const result = await request.query(q);
-    const counts = result.recordsets[2][0] || { overdue: 0, today: 0, upcoming: 0 };
+    const counts = result.recordsets[2][0] || { overdue: 0, today: 0, tomorrow: 0, upcoming: 0 };
     const total =
       range === 'today'    ? counts.today :
       range === 'overdue'  ? counts.overdue :
+      range === 'tomorrow' ? counts.tomorrow :
       range === 'upcoming' ? counts.upcoming :
-      (counts.overdue || 0) + (counts.today || 0) + (counts.upcoming || 0);
+      (counts.overdue || 0) + (counts.today || 0) + (counts.tomorrow || 0) + (counts.upcoming || 0);
+
+    const sourceCounts = { batch: 0, lead: 0 };
+    result.recordsets[3].forEach(r => { sourceCounts[r.SRC === 'LEAD' ? 'lead' : 'batch'] = r.n; });
 
     res.json({
       batches: result.recordsets[0],
       data:    result.recordsets[1],
       counts,
       total,
+      sourceCounts,
       isHead,
       page:    pageNum,
       limit:   limitNum,
@@ -829,14 +1114,11 @@ exports.addContactLog = async (req, res) => {
     request.input('callStatus',   sql.VarChar(30),  callStatus || null);
     request.input('callDuration', sql.Int,          Number.isInteger(callDuration) ? callDuration : null);
 
-    if (actionType === 'FOLLOWUP' && nextFollowup) {
+    if (nextFollowup) {
       const todayStr = new Date().toISOString().split('T')[0];
       if (String(nextFollowup).split('T')[0] <= todayStr) {
         return res.status(400).json({ error: 'Follow-up date must be after today.' });
       }
-    }
-
-    if (nextFollowup) {
       const cntReq = pool.request();
       cntReq.input('contactId', sql.VarChar(100), contactId);
       const cnt = await cntReq.query(`
@@ -1378,14 +1660,47 @@ exports.getDashboard = async (req, res) => {
   }
 };
 
+function reportRangeBounds(range) {
+  const now = new Date();
+  if (range === 'today') {
+    const from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const to = new Date(from); to.setDate(to.getDate() + 1);
+    return { from, to };
+  }
+  if (range === 'week') {
+    const to = new Date(now.getFullYear(), now.getMonth(), now.getDate()); to.setDate(to.getDate() + 1);
+    const from = new Date(to); from.setDate(from.getDate() - 7);
+    return { from, to };
+  }
+  if (range === 'month') {
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return { from, to };
+  }
+  return { from: null, to: null };
+}
+
 exports.getMyStats = async (req, res) => {
   try {
     const userCode = req.user?.user_code;
     if (!userCode) return res.status(401).json({ error: 'Unauthorized' });
 
+    const range = String(req.query.range || 'all').toLowerCase();
+    const { from, to } = reportRangeBounds(range);
+
     const pool = await poolPromise;
     const request = pool.request();
     request.input('me', sql.VarChar(100), userCode);
+    if (from && to) {
+      request.input('from', sql.DateTime, from);
+      request.input('to', sql.DateTime, to);
+    }
+    const bcDateFilter = from && to ? 'AND l.CREATED_DATE >= @from AND l.CREATED_DATE < @to' : '';
+    const elDateFilter = from && to ? 'AND ll.CREATED_DATE >= @from AND ll.CREATED_DATE < @to' : '';
+    // "Assigned" is a lifetime count by default; scoped to the period only
+    // when a range is picked, so "Today" can answer "what landed on my plate today".
+    const bcAssignedFilter = from && to ? 'AND c.ASSIGNED_DATE >= @from AND c.ASSIGNED_DATE < @to' : '';
+    const elAssignedFilter = from && to ? 'AND el.ASSIGNED_DATE >= @from AND el.ASSIGNED_DATE < @to' : '';
 
     const q = `
       SELECT c.CONTACT_CODE, LatestLog.STATUS
@@ -1394,7 +1709,7 @@ exports.getMyStats = async (req, res) => {
       INNER JOIN dbo.[${TABLES.VISITOR_BATCH}] b ON b.BATCH_CODE = c.BATCH_CODE
       OUTER APPLY (
         SELECT TOP 1 l.STATUS FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
-        WHERE l.CONTACT_CODE = c.CONTACT_CODE ORDER BY l.CREATED_DATE DESC
+        WHERE l.CONTACT_CODE = c.CONTACT_CODE ${bcDateFilter} ORDER BY l.CREATED_DATE DESC
       ) LatestLog
       WHERE c.ASSIGNED_TO_USER_CODE = @me AND b.STATUS = 'Y';
 
@@ -1403,7 +1718,7 @@ exports.getMyStats = async (req, res) => {
       FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el
       OUTER APPLY (
         SELECT TOP 1 ll.STATUS FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}] ll
-        WHERE ll.LEAD_ID = el.LEAD_ID ORDER BY ll.CREATED_DATE DESC
+        WHERE ll.LEAD_ID = el.LEAD_ID ${elDateFilter} ORDER BY ll.CREATED_DATE DESC
       ) LatestLog
       WHERE el.ASSIGNED_TO_USER_CODE = @me AND el.PUSHED_BATCH_CODE IS NULL;
 
@@ -1411,7 +1726,12 @@ exports.getMyStats = async (req, res) => {
         (SELECT COUNT(*) FROM #BC) AS batchTotal,
         (SELECT COUNT(*) FROM #BC WHERE STATUS IS NOT NULL) AS batchWorked,
         (SELECT COUNT(*) FROM #EL) AS leadTotal,
-        (SELECT COUNT(*) FROM #EL WHERE STATUS IS NOT NULL) AS leadWorked;
+        (SELECT COUNT(*) FROM #EL WHERE STATUS IS NOT NULL) AS leadWorked,
+        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
+           INNER JOIN dbo.[${TABLES.VISITOR_BATCH}] b ON b.BATCH_CODE = c.BATCH_CODE
+           WHERE c.ASSIGNED_TO_USER_CODE = @me AND b.STATUS = 'Y' ${bcAssignedFilter}) AS batchAssigned,
+        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el
+           WHERE el.ASSIGNED_TO_USER_CODE = @me AND el.PUSHED_BATCH_CODE IS NULL ${elAssignedFilter}) AS leadAssigned;
 
       SELECT STATUS, COUNT(*) AS n FROM (
         SELECT STATUS FROM #BC WHERE STATUS IS NOT NULL
@@ -1432,12 +1752,16 @@ exports.getMyStats = async (req, res) => {
     const batchWorked = overview.batchWorked || 0;
     const leadTotal = overview.leadTotal || 0;
     const leadWorked = overview.leadWorked || 0;
+    const batchAssigned = overview.batchAssigned || 0;
+    const leadAssigned = overview.leadAssigned || 0;
 
     res.json({
-      batch: { total: batchTotal, worked: batchWorked, pending: batchTotal - batchWorked },
-      lead: { total: leadTotal, worked: leadWorked, pending: leadTotal - leadWorked },
+      range,
+      batch: { total: batchTotal, assigned: batchAssigned, worked: batchWorked, pending: batchTotal - batchWorked },
+      lead: { total: leadTotal, assigned: leadAssigned, worked: leadWorked, pending: leadTotal - leadWorked },
       overall: {
         total: batchTotal + leadTotal,
+        assigned: batchAssigned + leadAssigned,
         worked: batchWorked + leadWorked,
         pending: (batchTotal + leadTotal) - (batchWorked + leadWorked),
       },
