@@ -4,6 +4,7 @@ const { TABLES } = require('../helper');
 const sql = require('mssql');
 
 const SOURCE_NAME = 'POST_SHOW_SALES';
+const EXHIBITOR_TURNED_VISITOR = 'EXHIBITOR_TURNED_VISITOR';
 const T = `dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}]`;
 const STATE = `dbo.[${TABLES.VISITOR_SYNC_STATE}]`;
 
@@ -57,8 +58,9 @@ async function upsertRows(pool, rows) {
   let written = 0;
   for (const r of rows) {
     if (!r?.id) continue;
+    const rowSourceName = r.dataCategory === 'EXHIBITOR_TURNED_VISITOR' ? EXHIBITOR_TURNED_VISITOR : SOURCE_NAME;
     const result = await withRetry(() => pool.request()
-      .input('sourceName', sql.VarChar(40), SOURCE_NAME)
+      .input('sourceName', sql.VarChar(40), rowSourceName)
       .input('sourceRefId', sql.VarChar(100), String(r.id))
       .input('category', sql.VarChar(20), r.category || 'VISITOR')
       .input('name', sql.NVarChar(200), r.name || null)
