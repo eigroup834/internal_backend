@@ -517,9 +517,6 @@ const fetchLinkedExportRows = async ({ type, sourceCte, source }) => {
       ) ind ON ind.COMPANY_CODE = seg.COMPANY_CODE
     )`;
 
-  // Same identifying "tail" columns Data Export/Tag Report append for this source
-  // (exact same names, e.g. EXH_NAME/EXH_YEAR/EXH_EVENT/EXH_ATTENDEE), so the export
-  // from a tag/event's View→Export button matches the Reports Hub export exactly.
   const tailSelectSQL = source === "tag"
     ? `src.TAG_CODE, src.TAG_NAME`
     : source === "event"
@@ -534,6 +531,7 @@ const fetchLinkedExportRows = async ({ type, sourceCte, source }) => {
     query = `${segCte}
       SELECT
         CP.PERSON_CODE,
+        CP.COMPANY_CODE,
         LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
         CASE WHEN ISJSON(CP.DESIG)=1
           THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].value'),'')
@@ -545,6 +543,13 @@ const fetchLinkedExportRows = async ({ type, sourceCte, source }) => {
           ELSE NULL END AS RANK_,
         CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[0]')        ELSE CP.DEPT   END AS DEPT_1,
         CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[1]')        ELSE NULL      END AS DEPT_2,
+        CD.COMPANY_NAME, CD.DIVISION,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].type')  ELSE NULL END AS ADDRESS_TYPE,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line1') ELSE NULL END AS COMP_ADD_1,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line2') ELSE NULL END AS COMP_ADD_2,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line3') ELSE NULL END AS COMP_ADD_3,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line4') ELSE NULL END AS COMP_ADD_4,
+        CD.CITY, CD.PINCODE, CD.STATE, CD.COUNTRY, CD.WEBSITE,
         CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE CP.PERSON_EMAIL END AS PERSON_EMAIL1,
         CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[1]') ELSE NULL END AS PERSON_EMAIL2,
         CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[2]') ELSE NULL END AS PERSON_EMAIL3,
@@ -554,18 +559,6 @@ const fetchLinkedExportRows = async ({ type, sourceCte, source }) => {
         CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[2].number') ELSE NULL END AS PERSON_MOBILE3,
         CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[3].number') ELSE NULL END AS PERSON_MOBILE4,
         CP.OLD_MOBILE AS PERSON_OLD_MOBILE,
-        CP.REMARKS, CP.CONTACTDATE, CP.PERSON_CUPD_REMARK,
-        CP.USER_CODE,
-        CP.UPDATED_DATE AS PERSON_UPDATED_DATE,
-        CP.CREATED_DATE AS PERSON_CREATED_DATE,
-        CP.COMPANY_CODE,
-        CD.COMPANY_NAME, CD.DIVISION,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].type')  ELSE NULL END AS ADDRESS_TYPE,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line1') ELSE NULL END AS COMP_ADD_1,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line2') ELSE NULL END AS COMP_ADD_2,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line3') ELSE NULL END AS COMP_ADD_3,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line4') ELSE NULL END AS COMP_ADD_4,
-        CD.CITY, CD.PINCODE, CD.STATE, CD.COUNTRY, CD.WEBSITE,
         CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[0]') ELSE NULL END AS COMP_EMAIL1,
         CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[1]') ELSE NULL END AS COMP_EMAIL2,
         CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[2]') ELSE NULL END AS COMP_EMAIL3,
@@ -579,6 +572,10 @@ const fetchLinkedExportRows = async ({ type, sourceCte, source }) => {
         CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[2].number') ELSE NULL END AS COMP_PHONE3,
         CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[3].type')   ELSE NULL END AS COMP_PHONE_TYPE4,
         CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[3].number') ELSE NULL END AS COMP_PHONE4,
+        CP.REMARKS, CP.CONTACTDATE, CP.PERSON_CUPD_REMARK,
+        CP.USER_CODE,
+        CP.UPDATED_DATE AS PERSON_UPDATED_DATE,
+        CP.CREATED_DATE AS PERSON_CREATED_DATE,
         CM.REMARKS AS MASTER_REMARKS,
         CSI.INDUSTRIES, CSI.SEGMENTS
         ${tailComma} ${tailSelectSQL}
@@ -1529,9 +1526,6 @@ exports.getSalesReport = async (req, res) => {
     const industryList = industries ? industries.split(",").filter(Boolean) : [];
     const segmentList  = segments  ? segments.split(",").filter(Boolean)  : [];
 
-    // In company-history mode with an exhibition filter, the report is anchored on
-    // the matching companies (not on persons) so a company with matching exhibition
-    // history is still returned even when it has no persons in COMP_PERSON.
     const companyCentric = exhType === "company" && needsExhFilter;
     const compCol = companyCentric ? "MC.COMPANY_CODE" : "CP.COMPANY_CODE";
 
@@ -1550,8 +1544,6 @@ exports.getSalesReport = async (req, res) => {
       const exhAndConds = exhConds.length ? " AND "  + exhConds.join(" AND ") : "";
 
       if (exhType === "company") {
-        // Company base (MC) already restricts to matching companies; OUTER APPLY pulls
-        // the matched exhibition row (incl. its dates) for the date filter & output.
         exhApplySQL  = `OUTER APPLY (SELECT TOP 1 EXH_NAME, EXH_YEAR, EXH_LOCATION, EVENT, ATTENDEE, UPDATED_DATE, CREATED_DATE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] WHERE COMPANY_CODE = ${compCol}${exhAndConds}) EHD`;
         exhSelectSQL = `,\n        EHD.EXH_NAME AS EXH_NAME, EHD.EXH_YEAR AS EXH_YEAR, EHD.EXH_LOCATION AS EXH_LOCATION, EHD.EVENT AS EXH_EVENT, EHD.ATTENDEE AS EXH_ATTENDEE`;
       } else {
@@ -1561,8 +1553,6 @@ exports.getSalesReport = async (req, res) => {
       }
     }
 
-    // For person-less companies there is no CP.UPDATED_DATE, so fall back to the
-    // matched exhibition's date in company-centric mode.
     const dateCol = companyCentric
       ? "COALESCE(CP.UPDATED_DATE, EHD.UPDATED_DATE, EHD.CREATED_DATE)"
       : "CP.UPDATED_DATE";
@@ -1581,8 +1571,6 @@ exports.getSalesReport = async (req, res) => {
     const whereSQL  = "WHERE " + whereClauses.join(" AND ");
     const topClause = isExport ? "" : "TOP 300";
 
-    // Company-centric base: distinct matching companies LEFT JOINed to persons so
-    // person-less companies survive. Otherwise the original person-anchored base.
     const baseFromSQL = companyCentric
       ? `FROM (SELECT DISTINCT COMPANY_CODE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] ${exhWhere}) MC
       LEFT JOIN dbo.[${TABLES.COMP_PERSON}]    CP  ON CP.COMPANY_CODE  = MC.COMPANY_CODE
@@ -1620,6 +1608,7 @@ exports.getSalesReport = async (req, res) => {
       )
       SELECT ${topClause}
         CP.PERSON_CODE,
+        ${compCol} AS COMPANY_CODE,
         LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
         CASE WHEN ISJSON(CP.DESIG)=1
           THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].value'),'')
@@ -1631,6 +1620,13 @@ exports.getSalesReport = async (req, res) => {
           ELSE NULL END AS RANK_,
         CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[0]')        ELSE CP.DEPT   END AS DEPT_1,
         CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[1]')        ELSE NULL      END AS DEPT_2,
+        CD.COMPANY_NAME, CD.DIVISION,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].type')  ELSE NULL END AS ADDRESS_TYPE,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line1') ELSE NULL END AS COMP_ADD_1,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line2') ELSE NULL END AS COMP_ADD_2,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line3') ELSE NULL END AS COMP_ADD_3,
+        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line4') ELSE NULL END AS COMP_ADD_4,
+        CD.CITY, CD.PINCODE, CD.STATE, CD.COUNTRY, CD.WEBSITE,
         CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE NULL END AS PERSON_EMAIL1,
         CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[1]') ELSE NULL END AS PERSON_EMAIL2,
         CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[2]') ELSE NULL END AS PERSON_EMAIL3,
@@ -1640,18 +1636,6 @@ exports.getSalesReport = async (req, res) => {
         CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[2].number') ELSE NULL END AS PERSON_MOBILE3,
         CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[3].number') ELSE NULL END AS PERSON_MOBILE4,
         CP.OLD_MOBILE AS PERSON_OLD_MOBILE,
-        CP.REMARKS, CP.CONTACTDATE, CP.PERSON_CUPD_REMARK,
-        CP.USER_CODE,
-        CP.UPDATED_DATE AS PERSON_UPDATED_DATE,
-        CP.CREATED_DATE AS PERSON_CREATED_DATE,
-        ${compCol} AS COMPANY_CODE,
-        CD.COMPANY_NAME, CD.DIVISION,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].type')  ELSE NULL END AS ADDRESS_TYPE,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line1') ELSE NULL END AS COMP_ADD_1,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line2') ELSE NULL END AS COMP_ADD_2,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line3') ELSE NULL END AS COMP_ADD_3,
-        CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line4') ELSE NULL END AS COMP_ADD_4,
-        CD.CITY, CD.PINCODE, CD.STATE, CD.COUNTRY, CD.WEBSITE,
         CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[0]') ELSE NULL END AS COMP_EMAIL1,
         CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[1]') ELSE NULL END AS COMP_EMAIL2,
         CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[2]') ELSE NULL END AS COMP_EMAIL3,
@@ -1665,6 +1649,10 @@ exports.getSalesReport = async (req, res) => {
         CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[2].number') ELSE NULL END AS COMP_PHONE3,
         CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[3].type')   ELSE NULL END AS COMP_PHONE_TYPE4,
         CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[3].number') ELSE NULL END AS COMP_PHONE4,
+        CP.REMARKS, CP.CONTACTDATE, CP.PERSON_CUPD_REMARK,
+        CP.USER_CODE,
+        CP.UPDATED_DATE AS PERSON_UPDATED_DATE,
+        CP.CREATED_DATE AS PERSON_CREATED_DATE,
         CM.REMARKS AS MASTER_REMARKS,
         CSI.INDUSTRIES, CSI.SEGMENTS
         ${exhSelectSQL}
@@ -1728,11 +1716,6 @@ exports.getTagReport = async (req, res) => {
       request.input("toRow", sql.Int, offset + pageSize);
     }
 
-    // Resolve TAG_CODE/TAG_NAME/PERSON_CODE/COMPANY_CODE into a real temp table first.
-    // Joining CD/CM/CompSegInfo directly against a COALESCE(...) expression (instead of
-    // a plain materialized column) makes SQL Server's optimizer pick a catastrophic
-    // nested-loop plan once enough JSON_VALUE columns + window functions are added —
-    // confirmed via direct timing (30s+ timeout vs <1s once materialized).
     const query = `
       SELECT TM.TAG_CODE, TM.TAG_NAME, TM.PERSON_CODE,
         COALESCE(TM.COMPANY_CODE, CP0.COMPANY_CODE) AS COMPANY_CODE
@@ -1765,6 +1748,7 @@ exports.getTagReport = async (req, res) => {
       Data AS (
         SELECT
           CP.PERSON_CODE,
+          TB.COMPANY_CODE,
           LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
           CASE WHEN ISJSON(CP.DESIG)=1
             THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].value'),'')
@@ -1776,6 +1760,13 @@ exports.getTagReport = async (req, res) => {
             ELSE NULL END AS RANK_,
           CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[0]')        ELSE CP.DEPT   END AS DEPT_1,
           CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[1]')        ELSE NULL      END AS DEPT_2,
+          CD.COMPANY_NAME, CD.DIVISION,
+          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].type')  ELSE NULL END AS ADDRESS_TYPE,
+          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line1') ELSE NULL END AS COMP_ADD_1,
+          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line2') ELSE NULL END AS COMP_ADD_2,
+          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line3') ELSE NULL END AS COMP_ADD_3,
+          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line4') ELSE NULL END AS COMP_ADD_4,
+          CD.CITY, CD.PINCODE, CD.STATE, CD.COUNTRY, CD.WEBSITE,
           CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE CP.PERSON_EMAIL END AS PERSON_EMAIL1,
           CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[1]') ELSE NULL END AS PERSON_EMAIL2,
           CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[2]') ELSE NULL END AS PERSON_EMAIL3,
@@ -1785,18 +1776,6 @@ exports.getTagReport = async (req, res) => {
           CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[2].number') ELSE NULL END AS PERSON_MOBILE3,
           CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[3].number') ELSE NULL END AS PERSON_MOBILE4,
           CP.OLD_MOBILE AS PERSON_OLD_MOBILE,
-          CP.REMARKS, CP.CONTACTDATE, CP.PERSON_CUPD_REMARK,
-          CP.USER_CODE,
-          CP.UPDATED_DATE AS PERSON_UPDATED_DATE,
-          CP.CREATED_DATE AS PERSON_CREATED_DATE,
-          TB.COMPANY_CODE,
-          CD.COMPANY_NAME, CD.DIVISION,
-          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].type')  ELSE NULL END AS ADDRESS_TYPE,
-          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line1') ELSE NULL END AS COMP_ADD_1,
-          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line2') ELSE NULL END AS COMP_ADD_2,
-          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line3') ELSE NULL END AS COMP_ADD_3,
-          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line4') ELSE NULL END AS COMP_ADD_4,
-          CD.CITY, CD.PINCODE, CD.STATE, CD.COUNTRY, CD.WEBSITE,
           CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[0]') ELSE NULL END AS COMP_EMAIL1,
           CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[1]') ELSE NULL END AS COMP_EMAIL2,
           CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[2]') ELSE NULL END AS COMP_EMAIL3,
@@ -1810,6 +1789,10 @@ exports.getTagReport = async (req, res) => {
           CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[2].number') ELSE NULL END AS COMP_PHONE3,
           CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[3].type')   ELSE NULL END AS COMP_PHONE_TYPE4,
           CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[3].number') ELSE NULL END AS COMP_PHONE4,
+          CP.REMARKS, CP.CONTACTDATE, CP.PERSON_CUPD_REMARK,
+          CP.USER_CODE,
+          CP.UPDATED_DATE AS PERSON_UPDATED_DATE,
+          CP.CREATED_DATE AS PERSON_CREATED_DATE,
           CM.REMARKS AS MASTER_REMARKS,
           CSI.INDUSTRIES, CSI.SEGMENTS,
           TB.TAG_CODE, TB.TAG_NAME,
@@ -1847,19 +1830,20 @@ exports.getTagReport = async (req, res) => {
     const sheet = workbook.addWorksheet("Tag Report");
     const headers = rows.length > 0
       ? Object.keys(rows[0])
-      : ["PERSON_CODE", "PERSON_NAME", "DESIGNATION", "RANK_", "DEPT_1", "DEPT_2",
-         "PERSON_EMAIL1", "PERSON_EMAIL2", "PERSON_EMAIL3", "PERSON_EMAIL4",
-         "PERSON_MOBILE1", "PERSON_MOBILE2", "PERSON_MOBILE3", "PERSON_MOBILE4",
-         "PERSON_OLD_MOBILE", "REMARKS", "CONTACTDATE", "PERSON_CUPD_REMARK", "USER_CODE",
-         "PERSON_UPDATED_DATE", "PERSON_CREATED_DATE",
-         "COMPANY_CODE", "COMPANY_NAME", "DIVISION", "ADDRESS_TYPE",
+      : ["PERSON_CODE", "COMPANY_CODE", "PERSON_NAME", "DESIGNATION", "RANK_", "DEPT_1", "DEPT_2",
+         "COMPANY_NAME", "DIVISION", "ADDRESS_TYPE",
          "COMP_ADD_1", "COMP_ADD_2", "COMP_ADD_3", "COMP_ADD_4",
          "CITY", "PINCODE", "STATE", "COUNTRY", "WEBSITE",
+         "PERSON_EMAIL1", "PERSON_EMAIL2", "PERSON_EMAIL3", "PERSON_EMAIL4",
+         "PERSON_MOBILE1", "PERSON_MOBILE2", "PERSON_MOBILE3", "PERSON_MOBILE4",
+         "PERSON_OLD_MOBILE",
          "COMP_EMAIL1", "COMP_EMAIL2", "COMP_EMAIL3", "COMP_EMAIL4",
          "COMP_ISD", "COMP_STD",
          "COMP_PHONE_TYPE1", "COMP_PHONE1", "COMP_PHONE_TYPE2", "COMP_PHONE2",
          "COMP_PHONE_TYPE3", "COMP_PHONE3", "COMP_PHONE_TYPE4", "COMP_PHONE4",
-         "MASTER_REMARKS", "INDUSTRIES", "SEGMENTS", "TAG_CODE", "TAG_NAME"];
+         "REMARKS", "CONTACTDATE", "PERSON_CUPD_REMARK", "USER_CODE",
+         "PERSON_UPDATED_DATE", "PERSON_CREATED_DATE", "MASTER_REMARKS",
+         "INDUSTRIES", "SEGMENTS", "TAG_CODE", "TAG_NAME"];
     const headerRow = sheet.addRow(headers);
     headerRow.eachCell(cell => {
       cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -1891,8 +1875,7 @@ exports.getVipInviteeReport = async (req, res) => {
     const request = pool.request();
     request.input("category", sql.NVarChar(200), category.trim());
     request.input("sourcePerson", sql.NVarChar(200), (sourcePerson && sourcePerson.trim()) ? sourcePerson.trim() : null);
-    // Compared as a string against JSON_VALUE (which returns text) to stay
-    // compatible with the server's older compatibility level.
+
     request.input("year", sql.NVarChar(20), (year && `${year}`.trim()) ? `${year}`.trim() : null);
 
     const pageNum  = Math.max(1, parseInt(page, 10) || 1);
@@ -1942,6 +1925,7 @@ exports.getVipInviteeReport = async (req, res) => {
       Data AS (
         SELECT
           CP.PERSON_CODE,
+          CP.COMPANY_CODE,
           LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
           CASE WHEN ISJSON(CP.DESIG)=1
             THEN LTRIM(RTRIM(ISNULL(JSON_VALUE(CP.DESIG,'$[0].value'),'')
@@ -1953,6 +1937,13 @@ exports.getVipInviteeReport = async (req, res) => {
             ELSE NULL END AS RANK_,
           CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[0]')        ELSE CP.DEPT   END AS DEPT_1,
           CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[1]')        ELSE NULL      END AS DEPT_2,
+          CD.COMPANY_NAME, CD.DIVISION,
+          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].type')  ELSE NULL END AS ADDRESS_TYPE,
+          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line1') ELSE NULL END AS COMP_ADD_1,
+          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line2') ELSE NULL END AS COMP_ADD_2,
+          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line3') ELSE NULL END AS COMP_ADD_3,
+          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line4') ELSE NULL END AS COMP_ADD_4,
+          CD.CITY, CD.PINCODE, CD.STATE, CD.COUNTRY, CD.WEBSITE,
           CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE CP.PERSON_EMAIL END AS PERSON_EMAIL1,
           CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[1]') ELSE NULL END AS PERSON_EMAIL2,
           CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[2]') ELSE NULL END AS PERSON_EMAIL3,
@@ -1962,18 +1953,6 @@ exports.getVipInviteeReport = async (req, res) => {
           CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[2].number') ELSE NULL END AS PERSON_MOBILE3,
           CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[3].number') ELSE NULL END AS PERSON_MOBILE4,
           CP.OLD_MOBILE AS PERSON_OLD_MOBILE,
-          CP.REMARKS, CP.CONTACTDATE, CP.PERSON_CUPD_REMARK,
-          CP.USER_CODE,
-          CP.UPDATED_DATE AS PERSON_UPDATED_DATE,
-          CP.CREATED_DATE AS PERSON_CREATED_DATE,
-          CP.COMPANY_CODE,
-          CD.COMPANY_NAME, CD.DIVISION,
-          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].type')  ELSE NULL END AS ADDRESS_TYPE,
-          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line1') ELSE NULL END AS COMP_ADD_1,
-          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line2') ELSE NULL END AS COMP_ADD_2,
-          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line3') ELSE NULL END AS COMP_ADD_3,
-          CASE WHEN ISJSON(CD.ADDRESS)=1 THEN JSON_VALUE(CD.ADDRESS,'$[0].line4') ELSE NULL END AS COMP_ADD_4,
-          CD.CITY, CD.PINCODE, CD.STATE, CD.COUNTRY, CD.WEBSITE,
           CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[0]') ELSE NULL END AS COMP_EMAIL1,
           CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[1]') ELSE NULL END AS COMP_EMAIL2,
           CASE WHEN ISJSON(CD.EMAIL)=1 THEN JSON_VALUE(CD.EMAIL,'$[2]') ELSE NULL END AS COMP_EMAIL3,
@@ -1987,6 +1966,10 @@ exports.getVipInviteeReport = async (req, res) => {
           CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[2].number') ELSE NULL END AS COMP_PHONE3,
           CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[3].type')   ELSE NULL END AS COMP_PHONE_TYPE4,
           CASE WHEN ISJSON(CD.PHONES)=1 THEN JSON_VALUE(CD.PHONES,'$[3].number') ELSE NULL END AS COMP_PHONE4,
+          CP.REMARKS, CP.CONTACTDATE, CP.PERSON_CUPD_REMARK,
+          CP.USER_CODE,
+          CP.UPDATED_DATE AS PERSON_UPDATED_DATE,
+          CP.CREATED_DATE AS PERSON_CREATED_DATE,
           CM.REMARKS AS MASTER_REMARKS,
           CSI.INDUSTRIES, CSI.SEGMENTS,
           @category AS CATEGORY,
@@ -2027,19 +2010,20 @@ exports.getVipInviteeReport = async (req, res) => {
     const sheet = workbook.addWorksheet("VIP-Invitee Report");
     const headers = rows.length > 0
       ? Object.keys(rows[0])
-      : ["PERSON_CODE", "PERSON_NAME", "DESIGNATION", "RANK_", "DEPT_1", "DEPT_2",
-         "PERSON_EMAIL1", "PERSON_EMAIL2", "PERSON_EMAIL3", "PERSON_EMAIL4",
-         "PERSON_MOBILE1", "PERSON_MOBILE2", "PERSON_MOBILE3", "PERSON_MOBILE4",
-         "PERSON_OLD_MOBILE", "REMARKS", "CONTACTDATE", "PERSON_CUPD_REMARK", "USER_CODE",
-         "PERSON_UPDATED_DATE", "PERSON_CREATED_DATE",
-         "COMPANY_CODE", "COMPANY_NAME", "DIVISION", "ADDRESS_TYPE",
+      : ["PERSON_CODE", "COMPANY_CODE", "PERSON_NAME", "DESIGNATION", "RANK_", "DEPT_1", "DEPT_2",
+         "COMPANY_NAME", "DIVISION", "ADDRESS_TYPE",
          "COMP_ADD_1", "COMP_ADD_2", "COMP_ADD_3", "COMP_ADD_4",
          "CITY", "PINCODE", "STATE", "COUNTRY", "WEBSITE",
+         "PERSON_EMAIL1", "PERSON_EMAIL2", "PERSON_EMAIL3", "PERSON_EMAIL4",
+         "PERSON_MOBILE1", "PERSON_MOBILE2", "PERSON_MOBILE3", "PERSON_MOBILE4",
+         "PERSON_OLD_MOBILE",
          "COMP_EMAIL1", "COMP_EMAIL2", "COMP_EMAIL3", "COMP_EMAIL4",
          "COMP_ISD", "COMP_STD",
          "COMP_PHONE_TYPE1", "COMP_PHONE1", "COMP_PHONE_TYPE2", "COMP_PHONE2",
          "COMP_PHONE_TYPE3", "COMP_PHONE3", "COMP_PHONE_TYPE4", "COMP_PHONE4",
-         "MASTER_REMARKS", "INDUSTRIES", "SEGMENTS", "CATEGORY", "CAT_YEAR", "SOURCE_PERSON"];
+         "REMARKS", "CONTACTDATE", "PERSON_CUPD_REMARK", "USER_CODE",
+         "PERSON_UPDATED_DATE", "PERSON_CREATED_DATE", "MASTER_REMARKS",
+         "INDUSTRIES", "SEGMENTS", "CATEGORY", "CAT_YEAR", "SOURCE_PERSON"];
     const headerRow = sheet.addRow(headers);
     headerRow.eachCell(cell => {
       cell.font = { bold: true, color: { argb: "FFFFFFFF" } };

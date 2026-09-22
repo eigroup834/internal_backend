@@ -243,9 +243,6 @@ exports.createBatch = async (req, res) => {
   }
 };
 
-// Reads the two-column (Person Code / Company Code) sheet from an uploaded
-// workbook. Header names are matched loosely (case/space/underscore-insensitive)
-// so "Person Code", "PERSON_CODE", "personcode" etc. all resolve the same way.
 const normalizeHeader = (v) => String(v ?? '').trim().toLowerCase().replace(/[^a-z]/g, '');
 
 async function readPersonCompanyRows(buffer) {
@@ -918,8 +915,7 @@ exports.getFollowups = async (req, res) => {
     if (!userCode) return res.status(401).json({ error: 'Unauthorized' });
 
     const isHead = isVisitorHead(req);
-    // source: 'batch' (Internal Leads tab) or 'lead' (External Leads tab) —
-    // the two are separate tabs, not a blended default view.
+
     const { range = 'all', member = '', batchId = '', source = 'batch', search = '', page = 1, limit = 50 } = req.query;
     const pageNum  = parseInt(page, 10)  || 1;
     const limitNum = parseInt(limit, 10) || 50;
@@ -929,7 +925,6 @@ exports.getFollowups = async (req, res) => {
     const pool    = await poolPromise;
     const request = pool.request();
 
-    // Member scope — used for the batch dropdown (cheap) and the follow-up scan.
     const memberWhere = [];
     if (!isHead)     { request.input('uc', sql.VarChar(100), userCode); memberWhere.push('c.ASSIGNED_TO_USER_CODE = @uc'); }
     else if (member) { request.input('mb', sql.VarChar(100), member);   memberWhere.push('c.ASSIGNED_TO_USER_CODE = @mb'); }
@@ -1308,8 +1303,6 @@ exports.smartAssign = async (req, res) => {
   }
 };
 
-// Move a member's contacts in a batch to another team member.
-// Body: { fromUser, toUser, count? }  — count omitted/0 => reassign all.
 exports.reassignContacts = async (req, res) => {
   try {
     const { batchId }                  = req.params;
@@ -1358,22 +1351,14 @@ exports.reassignContacts = async (req, res) => {
   }
 };
 
-// ── Analytics ────────────────────────────────────────────────────────────────
-// Accurate call outcomes live in VISITOR_CONTACT_LOG.STATUS (the latest log per
-// contact). VISITOR_BATCH_CONTACT.STATUS is a coarse pipeline state that the call
-// panel never updates, so every outcome number below is derived from the latest
-// log. Time-based activity comes from VISITOR_CONTACT_LOG.CREATED_DATE.
-
-// The 13 outcomes a contact can end on (mirror of frontend CALL_OUTCOMES).
 const OUTCOME_KEYS = [
   'Interested', 'Not_Interested', 'Ringing', 'Busy', 'Switched_Off',
   'Out_of_Network', 'No_Incoming', 'No_Number', 'Foreign_Number',
   'Wrong_Number', 'Invalid', 'Out_of_Service', 'Followup',
 ];
-// "Number never reached the person" bucket — handy as a single trend series.
+
 const NOT_CONNECTED_SQL = `'Wrong_Number','No_Number','Invalid','Foreign_Number','Switched_Off','Out_of_Network','Out_of_Service','No_Incoming'`;
 
-// WHERE conditions scoping a VISITOR_BATCH_CONTACT alias to batch/year.
 function analyticsScope(alias, { batchId, year }) {
   const conds = [];
   if (batchId) conds.push(`${alias}.BATCH_CODE = @bid`);
@@ -1697,8 +1682,7 @@ exports.getMyStats = async (req, res) => {
     }
     const bcDateFilter = from && to ? 'AND l.CREATED_DATE >= @from AND l.CREATED_DATE < @to' : '';
     const elDateFilter = from && to ? 'AND ll.CREATED_DATE >= @from AND ll.CREATED_DATE < @to' : '';
-    // "Assigned" is a lifetime count by default; scoped to the period only
-    // when a range is picked, so "Today" can answer "what landed on my plate today".
+   
     const bcAssignedFilter = from && to ? 'AND c.ASSIGNED_DATE >= @from AND c.ASSIGNED_DATE < @to' : '';
     const elAssignedFilter = from && to ? 'AND el.ASSIGNED_DATE >= @from AND el.ASSIGNED_DATE < @to' : '';
 
