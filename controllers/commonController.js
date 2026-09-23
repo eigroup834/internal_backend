@@ -2085,9 +2085,7 @@ exports.getSalesDataView = async (req, res) => {
     const tagList      = tags      ? tags.split(",").filter(Boolean)      : [];
 
     const needsExhFilter = !!(exhName || attendee || event || exhCode);
-    // Company-history mode with an exhibition filter is anchored on matching
-    // companies so a company with matching exhibition history still shows even
-    // when it has no persons.
+
     const companyCentric = exhType === "company" && needsExhFilter;
     const compCol = companyCentric ? "MC.COMPANY_CODE" : "CP.COMPANY_CODE";
 

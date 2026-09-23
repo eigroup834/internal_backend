@@ -12,6 +12,7 @@ const commonRoutes = require('./routes/commonRoutes');
 const visitorRoutes = require('./routes/visitor');
 const networkRoutes = require('./routes/network');
 const smartSearchRoutes = require('./routes/smartSearch');
+const offlineDataRoutes = require('./routes/offlineData');
 const requestTiming = require('./middleware/requestTiming');
 
 // require('./jobs/duplicateCheckJob');
@@ -31,6 +32,7 @@ app.use('/api', commonRoutes);
 app.use('/api/visitor', visitorRoutes);
 app.use('/api/network', networkRoutes);
 app.use('/api/search', smartSearchRoutes);
+app.use('/api/offlineData', offlineDataRoutes);
 
 app.use(express.static(
   path.join(__dirname, '../frontend/build')

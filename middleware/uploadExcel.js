@@ -16,8 +16,6 @@ const upload = multer({
   },
 }).single('file');
 
-// Wrapped so a bad/oversized file comes back as the same JSON error shape the
-// rest of this API uses, instead of falling through to Express's HTML error page.
 module.exports = function uploadExcel(req, res, next) {
   upload(req, res, (err) => {
     if (err instanceof multer.MulterError) {

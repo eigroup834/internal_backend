@@ -1,7 +1,6 @@
 const { poolPromise, sql } = require("../db");
 const { TABLES } = require("../helper");
 
-// Generate a unique LIST_CODE ("NL" + 8 hex), same pattern as addTags TAG_CODE.
 const generateListCode = async (pool) => {
   let code;
   let exists = true;
@@ -27,11 +26,6 @@ const asArray = (v) => {
   return [s];
 };
 
-/**
- * GET /network/candidates
- * Find persons at OTHER companies in the same industry/segment, filtered by designation (+ optional rank cap).
- * Params: industries[], segments[], designations[], rankMax?, excludeCompany, search?, page, limit
- */
 exports.getCandidates = async (req, res) => {
   try {
     const {
@@ -79,7 +73,6 @@ exports.getCandidates = async (req, res) => {
       whereClauses.push(`p.COMPANY_CODE <> @excludeCompany`);
     }
 
-    // Designation match: DESIG is a JSON array of {value, rank}; OR of LIKE per selected designation.
     if (designations.length) {
       const desigOr = designations.map((v, i) => {
         request.input(`ndesig_${i}`, sql.NVarChar, `%${v}%`);
@@ -129,11 +122,6 @@ exports.getCandidates = async (req, res) => {
   }
 };
 
-/**
- * POST /network/matches
- * body: { sourceCompanyCode, listCode?, remarks?, persons: [{personCode, personCompanyCode, designation, rank, industry, segment}] }
- * Bulk insert, skipping rows that violate the unique (SOURCE_COMPANY_CODE, PERSON_CODE) constraint.
- */
 exports.saveMatches = async (req, res) => {
   try {
     const { sourceCompanyCode, listCode = null, remarks = null, persons = [], usercode = null } = req.body;
@@ -183,10 +171,6 @@ exports.saveMatches = async (req, res) => {
   }
 };
 
-/**
- * GET /network/matches
- * filters: sourceCompany?, listCode?, designation?, industry?, search?, page, limit
- */
 exports.getMatches = async (req, res) => {
   try {
     const {
@@ -275,7 +259,6 @@ exports.getMatches = async (req, res) => {
   }
 };
 
-/** DELETE /network/matches/:id */
 exports.deleteMatch = async (req, res) => {
   try {
     const { id } = req.params;
@@ -290,7 +273,6 @@ exports.deleteMatch = async (req, res) => {
   }
 };
 
-/** GET /network/lists */
 exports.getLists = async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -307,7 +289,6 @@ exports.getLists = async (req, res) => {
   }
 };
 
-/** POST /network/lists  body: { LIST_NAME, REMARKS?, usercode? } */
 exports.addList = async (req, res) => {
   try {
     const { LIST_NAME, REMARKS = null, usercode = null } = req.body;
