@@ -29,6 +29,19 @@ const findInvalidEmail = (arr, label) => {
   return invalid ? `${label} "${invalid}" is not a valid email address.` : null;
 };
 
+const normalizedEmails = (arr) => (Array.isArray(arr) ? arr : [])
+  .map(v => (typeof v === "string" ? v.trim().toLowerCase() : ""))
+  .filter(Boolean);
+
+const findDuplicateEmails = (personEmail, companyEmail) => {
+  const pe = normalizedEmails(personEmail);
+  const ce = normalizedEmails(companyEmail);
+  if (new Set(pe).size !== pe.length) return "Duplicate Person Email addresses.";
+  if (new Set(ce).size !== ce.length) return "Duplicate Company Email addresses.";
+  if (pe.some(e => ce.includes(e))) return "Person Email and Company Email cannot be the same.";
+  return null;
+};
+
 exports.getOfflineDataList = async (req, res) => {
   try {
     const { page = 1, limit = 15, search = "", searchBy = "FNAME" } = req.query;
@@ -154,7 +167,7 @@ exports.addOfflineData = async (req, res) => {
     const {
       prefix, fname, lname, designation, department, company,
       add1, add2, add3, city, state, pincode, country, website, socialLink,
-      interests = {}, source, sourcePerson, remarks, companyEmail, personEmail, mobileNumber,
+      interests = {}, source, sourcePerson, remarks, companyEmail, personEmail, mobileNumber, uniqueTag,
     } = req.body;
 
     if (!fname || !fname.trim()) {
@@ -163,7 +176,11 @@ exports.addOfflineData = async (req, res) => {
     if (!company || !company.trim()) {
       return res.status(400).json({ success: false, message: "Company is required." });
     }
-    const emailError = findInvalidEmail(personEmail, "Person Email") || findInvalidEmail(companyEmail, "Company Email");
+    if (!country || !country.trim()) {
+      return res.status(400).json({ success: false, message: "Country is required." });
+    }
+    const emailError = findInvalidEmail(personEmail, "Person Email") || findInvalidEmail(companyEmail, "Company Email")
+      || findDuplicateEmails(personEmail, companyEmail);
     if (emailError) {
       return res.status(400).json({ success: false, message: emailError });
     }
@@ -198,16 +215,17 @@ exports.addOfflineData = async (req, res) => {
     request.input("COMPANY_EMAIL", sql.NVarChar(sql.MAX), toMultiValueJson(companyEmail));
     request.input("PERSON_EMAIL", sql.NVarChar(sql.MAX), toMultiValueJson(personEmail));
     request.input("MOBILE_NUMBER", sql.NVarChar(sql.MAX), toMultiValueJson(mobileNumber));
+    request.input("OFFLINE_UNIQUE", sql.VarChar(100), uniqueTag || null);
 
     await request.query(`
       INSERT INTO dbo.[${TABLES.OFFLINE_DATA}]
         (SRL_NO, [DATE], PREFIX, FNAME, LNAME, DESIGNATION, DEPARTMENT, COMPANY,
          ADD_1, ADD_2, ADD_3, CITY, STATE, PIN_CODE, COUNTRY, WEBSITE, SOCIAL_LINK,
-         ${INTEREST_FIELDS.join(", ")}, SOURCE, SOURCE_PERSON, REMARKS, USER_CODE, COMPANY_EMAIL, PERSON_EMAIL, MOBILE_NUMBER)
+         ${INTEREST_FIELDS.join(", ")}, SOURCE, SOURCE_PERSON, REMARKS, USER_CODE, COMPANY_EMAIL, PERSON_EMAIL, MOBILE_NUMBER, OFFLINE_UNIQUE)
       VALUES
         (@SRL_NO, @DATE, @PREFIX, @FNAME, @LNAME, @DESIGNATION, @DEPARTMENT, @COMPANY,
          @ADD_1, @ADD_2, @ADD_3, @CITY, @STATE, @PIN_CODE, @COUNTRY, @WEBSITE, @SOCIAL_LINK,
-         ${INTEREST_FIELDS.map(f => `@${f}`).join(", ")}, @SOURCE, @SOURCE_PERSON, @REMARKS, @USER_CODE, @COMPANY_EMAIL, @PERSON_EMAIL, @MOBILE_NUMBER)
+         ${INTEREST_FIELDS.map(f => `@${f}`).join(", ")}, @SOURCE, @SOURCE_PERSON, @REMARKS, @USER_CODE, @COMPANY_EMAIL, @PERSON_EMAIL, @MOBILE_NUMBER, @OFFLINE_UNIQUE)
     `);
 
     res.status(201).json({ success: true, message: "Record saved successfully", srlNo: SRL_NO });
@@ -223,7 +241,7 @@ exports.updateOfflineData = async (req, res) => {
     const {
       prefix, fname, lname, designation, department, company,
       add1, add2, add3, city, state, pincode, country, website, socialLink,
-      interests = {}, source, sourcePerson, remarks, companyEmail, personEmail, mobileNumber,
+      interests = {}, source, sourcePerson, remarks, companyEmail, personEmail, mobileNumber, uniqueTag,
     } = req.body;
 
     if (!fname || !fname.trim()) {
@@ -232,7 +250,11 @@ exports.updateOfflineData = async (req, res) => {
     if (!company || !company.trim()) {
       return res.status(400).json({ success: false, message: "Company is required." });
     }
-    const emailError = findInvalidEmail(personEmail, "Person Email") || findInvalidEmail(companyEmail, "Company Email");
+    if (!country || !country.trim()) {
+      return res.status(400).json({ success: false, message: "Country is required." });
+    }
+    const emailError = findInvalidEmail(personEmail, "Person Email") || findInvalidEmail(companyEmail, "Company Email")
+      || findDuplicateEmails(personEmail, companyEmail);
     if (emailError) {
       return res.status(400).json({ success: false, message: emailError });
     }
@@ -262,6 +284,7 @@ exports.updateOfflineData = async (req, res) => {
     request.input("COMPANY_EMAIL", sql.NVarChar(sql.MAX), toMultiValueJson(companyEmail));
     request.input("PERSON_EMAIL", sql.NVarChar(sql.MAX), toMultiValueJson(personEmail));
     request.input("MOBILE_NUMBER", sql.NVarChar(sql.MAX), toMultiValueJson(mobileNumber));
+    request.input("OFFLINE_UNIQUE", sql.VarChar(100), uniqueTag || null);
 
     const result = await request.query(`
       UPDATE dbo.[${TABLES.OFFLINE_DATA}]
@@ -271,7 +294,7 @@ exports.updateOfflineData = async (req, res) => {
           PIN_CODE = @PIN_CODE, COUNTRY = @COUNTRY, WEBSITE = @WEBSITE, SOCIAL_LINK = @SOCIAL_LINK,
           ${INTEREST_FIELDS.map(f => `${f} = @${f}`).join(", ")},
           SOURCE = @SOURCE, SOURCE_PERSON = @SOURCE_PERSON, REMARKS = @REMARKS, COMPANY_EMAIL = @COMPANY_EMAIL,
-          PERSON_EMAIL = @PERSON_EMAIL, MOBILE_NUMBER = @MOBILE_NUMBER
+          PERSON_EMAIL = @PERSON_EMAIL, MOBILE_NUMBER = @MOBILE_NUMBER, OFFLINE_UNIQUE = @OFFLINE_UNIQUE
       WHERE SRL_NO = @SRL_NO
     `);
 
