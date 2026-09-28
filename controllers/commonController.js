@@ -907,6 +907,7 @@ exports.getTags = async (req, res) => {
   try {
     const pool = await poolPromise;
     const { search = "", page = 1, limit = 10 } = req.query;
+    const fetchAll = limit === "all";
     const offset = (page - 1) * limit;
 
     let query = `
@@ -927,15 +928,17 @@ exports.getTags = async (req, res) => {
       countQuery += ` AND (TAG_NAME LIKE '%' + @search + '%' OR TAG_CODE LIKE '%' + @search + '%')`;
     }
 
-    query += `
-      ORDER BY CREATED_DATE DESC
-      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
-    `;
+    query += ` ORDER BY CREATED_DATE DESC`;
+    if (!fetchAll) {
+      query += ` OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`;
+    }
 
     const request = pool.request();
     request.input("search", sql.VarChar(100), search);
-    request.input("offset", sql.Int, offset);
-    request.input("limit", sql.Int, parseInt(limit));
+    if (!fetchAll) {
+      request.input("offset", sql.Int, offset);
+      request.input("limit", sql.Int, parseInt(limit));
+    }
 
     const [dataResult, countResult] = await Promise.all([
       request.query(query),
