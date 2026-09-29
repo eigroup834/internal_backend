@@ -91,6 +91,7 @@ async function fetchBatch(afterId) {
 
 async function upsertRows(pool, rows) {
   let inserted = 0;
+  let deduped = 0;
   for (const r of rows) {
     if (r.id === null || r.id === undefined) continue;
     const result = await withRetry(() => pool.request()
@@ -129,21 +130,56 @@ async function upsertRows(pool, rows) {
           SELECT 1 FROM ${T} WHERE SOURCE_NAME = @sourceName AND SOURCE_REF_ID = @sourceRefId
         )
         BEGIN
-          INSERT INTO ${T}
-            (SOURCE_NAME, SOURCE_REF_ID, CATEGORY, NAME, FIRST_NAME, LAST_NAME, EMAIL, MOBILE, PHONE,
-             DESIGNATION, DEPARTMENT, COMPANY, CITY, STATE, COUNTRY, WEBSITE, IP_ADDRESS,
-             EVENT_NAME, REGISTERED_DATE, RAW_JSON, CREATED_DATE)
-          VALUES
-            (@sourceName, @sourceRefId, @category, @name, @firstName, @lastName, @email, @mobile, @phone,
-             @designation, @department, @company, @city, @state, @country, @website, @ipAddress,
-             @eventName, @registeredDate, @rawJson, GETDATE());
-          SELECT 1 AS inserted;
+          -- Not a known source ref id — before creating a new lead, check whether this
+          -- person (by email or phone/mobile) already exists in the table, so a single
+          -- person re-registering under a new source ref id doesn't create a duplicate lead.
+          DECLARE @dupLeadId BIGINT = NULL, @dupPushed BIT = NULL;
+
+          SELECT TOP 1 @dupLeadId = LEAD_ID, @dupPushed = CASE WHEN PUSHED_BATCH_CODE IS NULL THEN 0 ELSE 1 END
+          FROM ${T} WITH (UPDLOCK, HOLDLOCK)
+          WHERE (
+              (@email IS NOT NULL AND LOWER(LTRIM(RTRIM(EMAIL))) = LOWER(@email))
+              OR (@mobile IS NOT NULL AND MOBILE = @mobile)
+              OR (@phone IS NOT NULL AND PHONE = @phone)
+            )
+          ORDER BY CASE WHEN PUSHED_BATCH_CODE IS NULL THEN 0 ELSE 1 END ASC, LEAD_ID DESC;
+
+          IF @dupLeadId IS NOT NULL
+          BEGIN
+            IF @dupPushed = 0
+            BEGIN
+              -- Still an open lead — refresh it with the latest registration details.
+              UPDATE ${T}
+              SET CATEGORY = @category, NAME = @name, FIRST_NAME = @firstName, LAST_NAME = @lastName,
+                  EMAIL = @email, MOBILE = @mobile, PHONE = @phone, DESIGNATION = @designation,
+                  DEPARTMENT = @department, COMPANY = @company, CITY = @city, STATE = @state,
+                  COUNTRY = @country, WEBSITE = @website, IP_ADDRESS = @ipAddress,
+                  EVENT_NAME = @eventName, REGISTERED_DATE = @registeredDate,
+                  RAW_JSON = @rawJson, UPDATED_DATE = GETDATE()
+              WHERE LEAD_ID = @dupLeadId;
+            END
+            -- else: already pushed/converted — leave that record untouched, just skip the insert.
+            SELECT 0 AS inserted, 1 AS deduped;
+          END
+          ELSE
+          BEGIN
+            INSERT INTO ${T}
+              (SOURCE_NAME, SOURCE_REF_ID, CATEGORY, NAME, FIRST_NAME, LAST_NAME, EMAIL, MOBILE, PHONE,
+               DESIGNATION, DEPARTMENT, COMPANY, CITY, STATE, COUNTRY, WEBSITE, IP_ADDRESS,
+               EVENT_NAME, REGISTERED_DATE, RAW_JSON, CREATED_DATE)
+            VALUES
+              (@sourceName, @sourceRefId, @category, @name, @firstName, @lastName, @email, @mobile, @phone,
+               @designation, @department, @company, @city, @state, @country, @website, @ipAddress,
+               @eventName, @registeredDate, @rawJson, GETDATE());
+            SELECT 1 AS inserted, 0 AS deduped;
+          END
         END
-        ELSE SELECT 0 AS inserted;
+        ELSE SELECT 0 AS inserted, 0 AS deduped;
       `));
     inserted += result.recordset?.[0]?.inserted || 0;
+    deduped += result.recordset?.[0]?.deduped || 0;
   }
-  return inserted;
+  return { inserted, deduped };
 }
 
 async function runVisitorRegSync() {
@@ -156,6 +192,7 @@ async function runVisitorRegSync() {
   let afterId = await readCursor(pool);
   let seen = 0;
   let inserted = 0;
+  let deduped = 0;
 
   try {
     for (;;) {
@@ -163,7 +200,9 @@ async function runVisitorRegSync() {
       if (rows.length === 0) break;
 
       seen += rows.length;
-      inserted += await upsertRows(pool, rows);
+      const batchResult = await upsertRows(pool, rows);
+      inserted += batchResult.inserted;
+      deduped += batchResult.deduped;
 
       const maxId = Number.isInteger(lastId)
         ? lastId
@@ -171,14 +210,14 @@ async function runVisitorRegSync() {
       if (maxId <= afterId) break;
       afterId = maxId;
 
-      await writeCursor(pool, afterId, 'RUNNING', `${seen} fetched, ${inserted} new`);
+      await writeCursor(pool, afterId, 'RUNNING', `${seen} fetched, ${inserted} new, ${deduped} deduped`);
       if (rows.length < BATCH_SIZE) break;
     }
 
-    const msg = `${seen} fetched, ${inserted} new`;
+    const msg = `${seen} fetched, ${inserted} new, ${deduped} deduped`;
     await writeCursor(pool, afterId, 'SUCCESS', msg);
     console.log(`visitorRegSyncJob: ${msg} (cursor at id ${afterId})`);
-    return { seen, inserted };
+    return { seen, inserted, deduped };
   } catch (err) {
     await writeCursor(pool, null, 'FAILED', String(err.message).slice(0, 1000));
     console.error('visitorRegSyncJob error:', err.message);

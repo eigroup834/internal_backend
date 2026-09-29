@@ -1,6 +1,7 @@
 const { poolPromise, sql } = require('../db');
 const { TABLES } = require('../helper');
 const ExcelJS = require('exceljs');
+const crypto = require('crypto');
 
 const VISITOR_HEAD_LEVELS = [2, 5];
 const isVisitorHead = (req) => VISITOR_HEAD_LEVELS.includes(Number(req.user?.access_level));
@@ -26,6 +27,7 @@ const CONTACT_ALIASES = `
 
 const MY_CONTACTS_SORT = {
   contact:     SEARCH_PERSON_NAME,
+  company:     `CD.COMPANY_NAME`,
   designation: `CASE WHEN ISJSON(CP.DESIG)=1 THEN JSON_VALUE(CP.DESIG,'$[0].value') ELSE CP.DESIG END`,
   department:  `CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[0]')         ELSE CP.DEPT  END`,
   mobile:      `CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END`,
@@ -243,11 +245,33 @@ exports.createBatch = async (req, res) => {
   }
 };
 
-const normalizeHeader = (v) => String(v ?? '').trim().toLowerCase().replace(/[^a-z]/g, '');
+// ExcelJS hands back plain strings/numbers for simple cells, but headers/values that
+// carry any formatting (very common when a column is bolded, copy-pasted from another
+// sheet, or a code was entered via a formula) come back as objects instead — e.g.
+// { richText: [...] }, { text, hyperlink }, or { formula, result }. A naive
+// String(cell.value) turns those into "[object Object]", which silently fails the
+// "Person Code" / "Company Code" header match even though the column is right there.
+const cellText = (v) => {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') {
+    if (Array.isArray(v.richText)) return v.richText.map((rt) => rt.text || '').join('');
+    if (typeof v.text === 'string') return v.text;
+    if (v.result !== undefined && v.result !== null) return String(v.result);
+    if (v instanceof Date) return v.toISOString();
+    return '';
+  }
+  return String(v);
+};
+
+const normalizeHeader = (v) => cellText(v).trim().toLowerCase().replace(/[^a-z]/g, '');
 
 async function readPersonCompanyRows(buffer) {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
+  try {
+    await workbook.xlsx.load(buffer);
+  } catch (err) {
+    throw new Error('Could not read this file. It must be a valid .xlsx workbook (legacy .xls files are not supported — please re-save as .xlsx).');
+  }
   const sheet = workbook.worksheets[0];
   if (!sheet) throw new Error('The uploaded file has no sheet');
 
@@ -266,8 +290,8 @@ async function readPersonCompanyRows(buffer) {
   const rows = [];
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
-    const personCode = String(row.getCell(personColIdx).value ?? '').trim();
-    const companyCode = String(row.getCell(companyColIdx).value ?? '').trim();
+    const personCode = cellText(row.getCell(personColIdx).value).trim();
+    const companyCode = cellText(row.getCell(companyColIdx).value).trim();
     if (personCode && companyCode) rows.push({ personCode, companyCode });
   });
   return rows;
@@ -277,6 +301,11 @@ exports.uploadBatch = async (req, res) => {
   const pool = await poolPromise;
   const transaction = new sql.Transaction(pool);
   let began = false;
+  // A local (#) temp table doesn't reliably survive across separate Request objects on
+  // this driver/pool setup, even within the same transaction — so we use a global (##)
+  // temp table instead, with a random per-upload suffix so two people uploading at the
+  // same time never collide, and drop it explicitly once we're done with it.
+  const uploadTable = `##Upload_${crypto.randomBytes(8).toString('hex')}`;
   try {
     const { batchName, notes } = req.body;
     if (!batchName || !batchName.trim()) {
@@ -295,7 +324,7 @@ exports.uploadBatch = async (req, res) => {
     began = true;
 
     const setupReq = new sql.Request(transaction);
-    await setupReq.query('CREATE TABLE #Upload (PERSON_CODE VARCHAR(100), COMPANY_CODE VARCHAR(100));');
+    await setupReq.query(`CREATE TABLE ${uploadTable} (PERSON_CODE VARCHAR(100), COMPANY_CODE VARCHAR(100));`);
 
     const CHUNK = 500; // keeps each round trip well under SQL Server's parameter cap
     for (let i = 0; i < rows.length; i += CHUNK) {
@@ -306,7 +335,7 @@ exports.uploadBatch = async (req, res) => {
         chunkReq.input(`p${idx}`, sql.VarChar(100), r.personCode);
         chunkReq.input(`c${idx}`, sql.VarChar(100), r.companyCode);
       });
-      await chunkReq.query(`INSERT INTO #Upload (PERSON_CODE, COMPANY_CODE) VALUES ${placeholders};`);
+      await chunkReq.query(`INSERT INTO ${uploadTable} (PERSON_CODE, COMPANY_CODE) VALUES ${placeholders};`);
     }
 
     const finalReq = new sql.Request(transaction);
@@ -317,20 +346,18 @@ exports.uploadBatch = async (req, res) => {
 
     const finalSql = `
       DECLARE @batchCode VARCHAR(100) = CONVERT(VARCHAR(36), NEWID());
-      DECLARE @uniqueCount INT, @dupCount INT, @missingCount INT, @eligibleCount INT;
+      DECLARE @uniqueCount INT, @missingCount INT, @eligibleCount INT;
 
       SELECT DISTINCT PERSON_CODE, COMPANY_CODE
       INTO #Deduped
-      FROM #Upload
+      FROM ${uploadTable}
       WHERE PERSON_CODE <> '' AND COMPANY_CODE <> '';
       SET @uniqueCount = @@ROWCOUNT;
 
+      -- A person/company already sitting in another batch is fine — batches are allowed
+      -- to overlap, so the only thing that excludes a row here is missing contact info.
       SELECT
         d.PERSON_CODE, d.COMPANY_CODE,
-        CASE WHEN EXISTS (
-          SELECT 1 FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] bc
-          WHERE bc.PERSON_CODE = d.PERSON_CODE AND bc.COMPANY_CODE = d.COMPANY_CODE
-        ) THEN 1 ELSE 0 END AS IS_DUP,
         (CASE WHEN ISJSON(cp.MOBILE)=1       THEN JSON_VALUE(cp.MOBILE,'$[0].number') ELSE NULL END) AS MOBILE_VAL,
         (CASE WHEN ISJSON(cp.PERSON_EMAIL)=1 THEN JSON_VALUE(cp.PERSON_EMAIL,'$[0]')  ELSE NULL END) AS EMAIL_VAL
       INTO #Checked
@@ -340,10 +367,9 @@ exports.uploadBatch = async (req, res) => {
       SELECT DISTINCT PERSON_CODE, COMPANY_CODE
       INTO #Eligible
       FROM #Checked
-      WHERE IS_DUP = 0 AND MOBILE_VAL IS NOT NULL AND EMAIL_VAL IS NOT NULL;
+      WHERE MOBILE_VAL IS NOT NULL AND EMAIL_VAL IS NOT NULL;
 
-      SET @dupCount      = (SELECT COUNT(*) FROM #Checked WHERE IS_DUP = 1);
-      SET @missingCount  = (SELECT COUNT(*) FROM #Checked WHERE IS_DUP = 0 AND (MOBILE_VAL IS NULL OR EMAIL_VAL IS NULL));
+      SET @missingCount  = (SELECT COUNT(*) FROM #Checked WHERE MOBILE_VAL IS NULL OR EMAIL_VAL IS NULL);
       SET @eligibleCount = (SELECT COUNT(*) FROM #Eligible);
 
       IF @eligibleCount > 0
@@ -362,7 +388,6 @@ exports.uploadBatch = async (req, res) => {
       SELECT
         CASE WHEN @eligibleCount > 0 THEN @batchCode ELSE NULL END AS BATCH_ID,
         @uniqueCount   AS UNIQUE_ROWS,
-        @dupCount      AS DUPLICATE_SKIPPED,
         @missingCount  AS MISSING_SKIPPED,
         @eligibleCount AS IMPORTED;
     `;
@@ -373,10 +398,9 @@ exports.uploadBatch = async (req, res) => {
     const summary = result.recordset[0];
     if (!summary.IMPORTED) {
       return res.status(400).json({
-        error: `No records were imported — ${summary.DUPLICATE_SKIPPED} already existed and ${summary.MISSING_SKIPPED} are missing a mobile number or email.`,
+        error: `No records were imported — ${summary.MISSING_SKIPPED} row(s) are missing a mobile number or email.`,
         totalRowsInFile: rows.length,
         uniqueRows: summary.UNIQUE_ROWS,
-        duplicateSkipped: summary.DUPLICATE_SKIPPED,
         missingSkipped: summary.MISSING_SKIPPED,
       });
     }
@@ -386,7 +410,6 @@ exports.uploadBatch = async (req, res) => {
       batchId: summary.BATCH_ID,
       totalRowsInFile: rows.length,
       inFileDuplicates: rows.length - summary.UNIQUE_ROWS,
-      duplicateSkipped: summary.DUPLICATE_SKIPPED,
       missingSkipped: summary.MISSING_SKIPPED,
       imported: summary.IMPORTED,
     });
@@ -394,6 +417,13 @@ exports.uploadBatch = async (req, res) => {
     if (began) { try { await transaction.rollback(); } catch {} }
     console.error('uploadBatch error:', err);
     res.status(err.message && !err.number ? 400 : 500).json({ error: err.message || 'Server error' });
+  } finally {
+    // Best-effort cleanup — a committed transaction keeps the global temp table around
+    // until something drops it, and a rolled-back one usually undoes the CREATE anyway,
+    // but this guarantees it never lingers in tempdb either way.
+    try {
+      await pool.request().query(`IF OBJECT_ID('tempdb..${uploadTable}') IS NOT NULL DROP TABLE ${uploadTable};`);
+    } catch {}
   }
 };
 
@@ -942,13 +972,13 @@ exports.getFollowups = async (req, res) => {
     else if (member) leadWhere.push('el.ASSIGNED_TO_USER_CODE = @mb');
     else             leadWhere.push('el.ASSIGNED_TO_USER_CODE IS NOT NULL');
     if (search) leadWhere.push('(el.NAME LIKE @s OR el.COMPANY LIKE @s OR el.MOBILE LIKE @s)');
+    leadWhere.push("ISNULL(el.CATEGORY, '') <> 'SPEAKER'");
     const leadSQL = 'WHERE ' + leadWhere.join(' AND ');
 
     let rangeSQL = 'NEXT_FOLLOWUP IS NOT NULL';
-    if (range === 'today')         rangeSQL = 'NEXT_FOLLOWUP = CAST(GETDATE() AS DATE)';
-    else if (range === 'overdue')  rangeSQL = 'NEXT_FOLLOWUP < CAST(GETDATE() AS DATE)';
-    else if (range === 'tomorrow') rangeSQL = 'NEXT_FOLLOWUP = DATEADD(DAY, 1, CAST(GETDATE() AS DATE))';
-    else if (range === 'upcoming') rangeSQL = 'NEXT_FOLLOWUP > DATEADD(DAY, 1, CAST(GETDATE() AS DATE))';
+    if (range === 'today')         rangeSQL = 'CAST(NEXT_FOLLOWUP AS DATE) = CAST(GETDATE() AS DATE)';
+    else if (range === 'overdue')  rangeSQL = 'CAST(NEXT_FOLLOWUP AS DATE) < CAST(GETDATE() AS DATE)';
+    else if (range === 'upcoming') rangeSQL = 'CAST(NEXT_FOLLOWUP AS DATE) > CAST(GETDATE() AS DATE)';
 
     const batchBranch = `
       SELECT
@@ -959,7 +989,8 @@ exports.getFollowups = async (req, res) => {
         b.BATCH_NAME,
         u.USERNAME AS MEMBER_NAME,
         fu.NEXT_FOLLOWUP,
-        lo.STATUS AS LAST_OUTCOME
+        lo.STATUS AS LAST_OUTCOME,
+        CAST(NULL AS VARCHAR(20)) AS CATEGORY
       FROM FU fu
       JOIN dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c ON c.CONTACT_CODE = fu.CONTACT_CODE
         AND fu.rn = 1 AND fu.NEXT_FOLLOWUP IS NOT NULL
@@ -990,7 +1021,8 @@ exports.getFollowups = async (req, res) => {
         CAST(NULL AS NVARCHAR(200)) AS BATCH_NAME,
         u2.USERNAME AS MEMBER_NAME,
         fl.NEXT_FOLLOWUP,
-        lo2.STATUS AS LAST_OUTCOME
+        lo2.STATUS AS LAST_OUTCOME,
+        el.CATEGORY
       FROM FL fl
       JOIN dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el ON el.LEAD_ID = fl.LEAD_ID
         AND fl.rn = 1 AND fl.NEXT_FOLLOWUP IS NOT NULL
@@ -1045,10 +1077,9 @@ exports.getFollowups = async (req, res) => {
       OFFSET ${offset} ROWS FETCH NEXT ${limitNum} ROWS ONLY;
 
       SELECT
-        SUM(CASE WHEN NEXT_FOLLOWUP < CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS overdue,
-        SUM(CASE WHEN NEXT_FOLLOWUP = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS today,
-        SUM(CASE WHEN NEXT_FOLLOWUP = DATEADD(DAY, 1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) AS tomorrow,
-        SUM(CASE WHEN NEXT_FOLLOWUP > DATEADD(DAY, 1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) AS upcoming
+        SUM(CASE WHEN CAST(NEXT_FOLLOWUP AS DATE) < CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS overdue,
+        SUM(CASE WHEN CAST(NEXT_FOLLOWUP AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS today,
+        SUM(CASE WHEN CAST(NEXT_FOLLOWUP AS DATE) > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS upcoming
       FROM #FU WHERE SRC = @src AND NEXT_FOLLOWUP IS NOT NULL;
 
       -- Tab badge totals — one pending-follow-up count per source, independent
@@ -1061,13 +1092,12 @@ exports.getFollowups = async (req, res) => {
     request.input('src', sql.VarChar(10), srcFilter);
 
     const result = await request.query(q);
-    const counts = result.recordsets[2][0] || { overdue: 0, today: 0, tomorrow: 0, upcoming: 0 };
+    const counts = result.recordsets[2][0] || { overdue: 0, today: 0, upcoming: 0 };
     const total =
       range === 'today'    ? counts.today :
       range === 'overdue'  ? counts.overdue :
-      range === 'tomorrow' ? counts.tomorrow :
       range === 'upcoming' ? counts.upcoming :
-      (counts.overdue || 0) + (counts.today || 0) + (counts.tomorrow || 0) + (counts.upcoming || 0);
+      (counts.overdue || 0) + (counts.today || 0) + (counts.upcoming || 0);
 
     const sourceCounts = { batch: 0, lead: 0 };
     result.recordsets[3].forEach(r => { sourceCounts[r.SRC === 'LEAD' ? 'lead' : 'batch'] = r.n; });
@@ -1100,7 +1130,7 @@ exports.addContactLog = async (req, res) => {
 
     request.input('contactId',  sql.VarChar(100),  contactId);
     request.input('actionType', sql.VarChar(100),   actionType  || null);
-    request.input('nextFU',     sql.Date,          nextFollowup || null);
+    request.input('nextFU',     sql.DateTime,      nextFollowup || null);
     request.input('remarks',    sql.NVarChar(1000), remarks    || null);
     request.input('userCode',   sql.VarChar(100),  userCode);
     request.input('userName',   sql.NVarChar(200), userName);
@@ -1110,9 +1140,9 @@ exports.addContactLog = async (req, res) => {
     request.input('callDuration', sql.Int,          Number.isInteger(callDuration) ? callDuration : null);
 
     if (nextFollowup) {
-      const todayStr = new Date().toISOString().split('T')[0];
-      if (String(nextFollowup).split('T')[0] <= todayStr) {
-        return res.status(400).json({ error: 'Follow-up date must be after today.' });
+      const fuDate = new Date(nextFollowup);
+      if (Number.isNaN(fuDate.getTime()) || fuDate <= new Date()) {
+        return res.status(400).json({ error: 'Follow-up must be a future date and time.' });
       }
       const cntReq = pool.request();
       cntReq.input('contactId', sql.VarChar(100), contactId);
@@ -1143,6 +1173,47 @@ exports.addContactLog = async (req, res) => {
     res.json({ success: true, contact: result.recordset[0] });
   } catch (err) {
     console.error('addContactLog error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Same person or company sitting in a *different* batch, where that other copy already
+// has at least one logged action. Surfaced so an agent about to work a lead can see it
+// was already touched elsewhere first — batches are allowed to overlap, so this is the
+// only warning signal we have against double-contacting someone.
+exports.getContactCrossBatchHistory = async (req, res) => {
+  try {
+    const { contactId } = req.params;
+    const pool = await poolPromise;
+
+    const me = await pool.request()
+      .input('contactId', sql.VarChar(100), contactId)
+      .query(`SELECT PERSON_CODE, COMPANY_CODE FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE CONTACT_CODE = @contactId`);
+    if (!me.recordset.length) return res.json([]);
+    const { PERSON_CODE, COMPANY_CODE } = me.recordset[0];
+
+    const result = await pool.request()
+      .input('contactId', sql.VarChar(100), contactId)
+      .input('personCode', sql.VarChar(100), PERSON_CODE)
+      .input('companyCode', sql.VarChar(100), COMPANY_CODE)
+      .query(`
+        SELECT
+          c.CONTACT_CODE, c.BATCH_CODE, b.BATCH_NAME, b.BATCH_YEAR,
+          CASE WHEN c.PERSON_CODE = @personCode THEN 'PERSON' ELSE 'COMPANY' END AS MATCH_TYPE,
+          u.USERNAME AS ASSIGNED_TO_NAME,
+          ll.STATUS, ll.ACTION_TYPE, ll.REMARKS, ll.CREATED_DATE, ll.NEXT_FOLLOWUP,
+          ll.USER_NAME AS DONE_BY_NAME
+        FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
+        JOIN dbo.[${TABLES.VISITOR_BATCH}] b ON b.BATCH_CODE = c.BATCH_CODE
+        LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = c.ASSIGNED_TO_USER_CODE
+        JOIN dbo.[${TABLES.VISITOR_CONTACT_LOG}] ll ON ll.CONTACT_CODE = c.CONTACT_CODE
+        WHERE c.CONTACT_CODE <> @contactId
+          AND (c.PERSON_CODE = @personCode OR c.COMPANY_CODE = @companyCode)
+        ORDER BY ll.CREATED_DATE DESC
+      `);
+    res.json(result.recordset);
+  } catch (err) {
+    console.error('getContactCrossBatchHistory error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -1645,10 +1716,15 @@ exports.getDashboard = async (req, res) => {
   }
 };
 
-function reportRangeBounds(range) {
+function reportRangeBounds(range, dateStr) {
   const now = new Date();
   if (range === 'today') {
-    const from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let base = now;
+    if (dateStr) {
+      const parsed = new Date(`${dateStr}T00:00:00`);
+      if (!Number.isNaN(parsed.getTime())) base = parsed;
+    }
+    const from = new Date(base.getFullYear(), base.getMonth(), base.getDate());
     const to = new Date(from); to.setDate(to.getDate() + 1);
     return { from, to };
   }
@@ -1671,7 +1747,8 @@ exports.getMyStats = async (req, res) => {
     if (!userCode) return res.status(401).json({ error: 'Unauthorized' });
 
     const range = String(req.query.range || 'all').toLowerCase();
-    const { from, to } = reportRangeBounds(range);
+    const dateStr = range === 'today' ? String(req.query.date || '').trim() : '';
+    const { from, to } = reportRangeBounds(range, dateStr);
 
     const pool = await poolPromise;
     const request = pool.request();
@@ -1741,6 +1818,7 @@ exports.getMyStats = async (req, res) => {
 
     res.json({
       range,
+      date: dateStr || null,
       batch: { total: batchTotal, assigned: batchAssigned, worked: batchWorked, pending: batchTotal - batchWorked },
       lead: { total: leadTotal, assigned: leadAssigned, worked: leadWorked, pending: leadTotal - leadWorked },
       overall: {

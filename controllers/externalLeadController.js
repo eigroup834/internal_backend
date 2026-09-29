@@ -6,7 +6,7 @@ const USER = `dbo.[${TABLES.USER}]`;
 const LEAD_LOG = `dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}]`;
 
 const SOURCES = ['POST_SHOW_SALES', 'VISITOR_REGISTRATION', 'EXHIBITOR_TURNED_VISITOR'];
-const CATEGORIES = ['VISITOR', 'DELEGATE', 'SPEAKER', 'BUYER', 'OTHER'];
+const CATEGORIES = ['VISITOR', 'DELEGATE', 'SPEAKER', 'BUYER', 'OTHER', 'INVALID'];
 
 const LEAD_LOG_JOIN = `
   OUTER APPLY (
@@ -18,15 +18,19 @@ const LEAD_LOG_JOIN = `
 `;
 
 const SORT_EXPR = {
-  contact:     'l.NAME',
-  designation: 'l.DESIGNATION',
-  department:  'l.DEPARTMENT',
-  industry:    'l.INDUSTRY',
-  mobile:      'l.MOBILE',
-  email:       'l.EMAIL',
-  source:      'l.SOURCE_NAME',
-  status:      'LatestLog.STATUS',
-  updated:     'LatestLog.CREATED_DATE',
+  contact:      'l.NAME',
+  company:      'l.COMPANY',
+  designation:  'l.DESIGNATION',
+  department:   'l.DEPARTMENT',
+  industry:     'l.INDUSTRY',
+  mobile:       'l.MOBILE',
+  email:        'l.EMAIL',
+  source:       'l.SOURCE_NAME',
+  city:         'l.CITY',
+  event:        'l.EVENT_NAME',
+  registered:   'l.REGISTERED_DATE',
+  status:       'LatestLog.STATUS',
+  updated:      'LatestLog.CREATED_DATE',
 };
 
 const HEAD_LEVELS = [2, 5];
@@ -84,6 +88,7 @@ exports.list = async (req, res) => {
       request.input('category', sql.VarChar(20), category);
       categoryFilter = 'l.CATEGORY = @category';
     }
+    const excludeInvalid = category === 'INVALID' ? null : "ISNULL(l.CATEGORY, '') <> 'INVALID'";
     let assignedFilter = null;
     if (assigned === 'yes') assignedFilter = 'l.ASSIGNED_TO_USER_CODE IS NOT NULL';
     else if (assigned === 'no') assignedFilter = 'l.ASSIGNED_TO_USER_CODE IS NULL';
@@ -97,12 +102,12 @@ exports.list = async (req, res) => {
     if (worked === 'yes') workedFilter = 'LatestLog.STATUS IS NOT NULL';
     else if (worked === 'no') workedFilter = 'LatestLog.STATUS IS NULL';
 
-    const listWhere = `WHERE ${[...baseFilters, sourceFilter, categoryFilter, assignedFilter, statusFilter, workedFilter].filter(Boolean).join(' AND ')}`;
-    const bySourceWhere = `WHERE ${[...baseFilters, categoryFilter, assignedFilter, statusFilter, workedFilter].filter(Boolean).join(' AND ')}`;
+    const listWhere = `WHERE ${[...baseFilters, excludeInvalid, sourceFilter, categoryFilter, assignedFilter, statusFilter, workedFilter].filter(Boolean).join(' AND ')}`;
+    const bySourceWhere = `WHERE ${[...baseFilters, excludeInvalid, categoryFilter, assignedFilter, statusFilter, workedFilter].filter(Boolean).join(' AND ')}`;
     const byCategoryWhere = `WHERE ${[...baseFilters, sourceFilter, assignedFilter, statusFilter, workedFilter].filter(Boolean).join(' AND ')}`;
-    const byAssignedWhere = `WHERE ${[...baseFilters, sourceFilter, categoryFilter, statusFilter, workedFilter].filter(Boolean).join(' AND ')}`;
-    const byStatusWhere = `WHERE ${[...baseFilters, sourceFilter, categoryFilter, assignedFilter, workedFilter].filter(Boolean).join(' AND ')}`;
-    const byWorkedWhere = `WHERE ${[...baseFilters, sourceFilter, categoryFilter, assignedFilter, statusFilter].filter(Boolean).join(' AND ')}`;
+    const byAssignedWhere = `WHERE ${[...baseFilters, excludeInvalid, sourceFilter, categoryFilter, statusFilter, workedFilter].filter(Boolean).join(' AND ')}`;
+    const byStatusWhere = `WHERE ${[...baseFilters, excludeInvalid, sourceFilter, categoryFilter, assignedFilter, workedFilter].filter(Boolean).join(' AND ')}`;
+    const byWorkedWhere = `WHERE ${[...baseFilters, excludeInvalid, sourceFilter, categoryFilter, assignedFilter, statusFilter].filter(Boolean).join(' AND ')}`;
 
     request.input('offset', sql.Int, offset);
     request.input('limitNum', sql.Int, limitNum);
@@ -110,7 +115,7 @@ exports.list = async (req, res) => {
     const q = `
       SELECT
         l.LEAD_ID, l.SOURCE_NAME, l.CATEGORY, l.NAME, l.DESIGNATION, l.DEPARTMENT, l.COMPANY,
-        l.EMAIL, l.MOBILE, l.INDUSTRY, l.EVENT_NAME, l.REGISTERED_DATE,
+        l.EMAIL, l.MOBILE, l.INDUSTRY, l.CITY, l.EVENT_NAME, l.REGISTERED_DATE,
         l.ASSIGNED_TO_USER_CODE, u.USERNAME AS ASSIGNED_TO_NAME,
         LatestLog.STATUS AS CURRENT_STATUS,
         LatestLog.REMARKS AS LAST_REMARK,
@@ -246,20 +251,41 @@ exports.reclassify = async (req, res) => {
     const leadId = parseInt(id, 10);
     if (!Number.isInteger(leadId)) return res.status(400).json({ error: 'Invalid lead ID' });
 
+    const userCode = req.user?.user_code || 'SYSTEM';
+    const userName = req.user?.username || '';
+
     const pool = await poolPromise;
     const result = await pool.request()
       .input('leadId', sql.BigInt, leadId)
       .input('category', sql.VarChar(20), category)
+      .input('userCode', sql.VarChar(100), userCode)
+      .input('userName', sql.NVarChar(200), userName)
       .query(`
+        DECLARE @oldCategory VARCHAR(20) = (SELECT CATEGORY FROM ${T} WHERE LEAD_ID = @leadId);
+
         UPDATE ${T}
         SET CATEGORY = @category, UPDATED_DATE = GETDATE()
         WHERE LEAD_ID = @leadId;
 
-        SELECT @@ROWCOUNT AS updated;
+        DECLARE @updated INT = @@ROWCOUNT;
+
+        -- Reclassify history rides on the same activity log the timeline already shows,
+        -- so "who changed this to what, and when" is visible right where agents already look.
+        IF @updated > 0 AND ISNULL(@oldCategory, '') <> @category
+        BEGIN
+          INSERT INTO ${LEAD_LOG} (LOG_ID, LEAD_ID, ACTION_TYPE, REMARKS, USER_CODE, USER_NAME, CREATED_DATE)
+          VALUES (
+            CONVERT(VARCHAR(36), NEWID()), @leadId, 'RECLASSIFY',
+            'Reclassified from ' + ISNULL(NULLIF(@oldCategory, ''), '(none)') + ' to ' + @category,
+            @userCode, @userName, GETDATE()
+          );
+        END
+
+        SELECT @updated AS updated, @oldCategory AS oldCategory;
       `);
 
     if (!result.recordset[0].updated) return res.status(404).json({ error: 'Lead not found' });
-    res.json({ success: true });
+    res.json({ success: true, oldCategory: result.recordset[0].oldCategory, newCategory: category });
   } catch (err) {
     console.error('externalLeads.reclassify error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -280,7 +306,7 @@ exports.addLeadLog = async (req, res) => {
 
     request.input('leadId', sql.BigInt, leadId);
     request.input('actionType', sql.VarChar(30), actionType || null);
-    request.input('nextFU', sql.Date, nextFollowup || null);
+    request.input('nextFU', sql.DateTime, nextFollowup || null);
     request.input('remarks', sql.NVarChar(1000), remarks || null);
     request.input('userCode', sql.VarChar(100), userCode);
     request.input('userName', sql.NVarChar(200), userName);
@@ -290,9 +316,9 @@ exports.addLeadLog = async (req, res) => {
     request.input('callDuration', sql.Int, Number.isInteger(callDuration) ? callDuration : null);
 
     if (nextFollowup) {
-      const todayStr = new Date().toISOString().split('T')[0];
-      if (String(nextFollowup).split('T')[0] <= todayStr) {
-        return res.status(400).json({ error: 'Follow-up date must be after today.' });
+      const fuDate = new Date(nextFollowup);
+      if (Number.isNaN(fuDate.getTime()) || fuDate <= new Date()) {
+        return res.status(400).json({ error: 'Follow-up must be a future date and time.' });
       }
       const cnt = await pool.request()
         .input('leadId', sql.BigInt, leadId)
@@ -324,6 +350,41 @@ exports.addLeadLog = async (req, res) => {
     res.json({ success: true, lead: rows[0] });
   } catch (err) {
     console.error('externalLeads.addLeadLog error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+exports.editRemark = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { remarks } = req.body;
+    const leadId = parseInt(id, 10);
+    if (!Number.isInteger(leadId)) return res.status(400).json({ error: 'Invalid lead ID' });
+    if (typeof remarks !== 'string' || !remarks.trim()) {
+      return res.status(400).json({ error: 'Remarks cannot be empty' });
+    }
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('leadId', sql.BigInt, leadId)
+      .input('remarks', sql.NVarChar(1000), remarks.trim())
+      .query(`
+        UPDATE TOP (1) ${LEAD_LOG}
+        SET REMARKS = @remarks
+        WHERE LOG_ID = (
+          SELECT TOP 1 LOG_ID FROM ${LEAD_LOG} WHERE LEAD_ID = @leadId ORDER BY CREATED_DATE DESC
+        );
+
+        DECLARE @updated INT = @@ROWCOUNT;
+        IF @updated > 0 UPDATE ${T} SET UPDATED_DATE = GETDATE() WHERE LEAD_ID = @leadId;
+
+        SELECT @updated AS updated;
+      `);
+
+    if (!result.recordset[0].updated) return res.status(404).json({ error: 'No remark to edit for this lead' });
+    res.json({ success: true, leadId, remarks: remarks.trim() });
+  } catch (err) {
+    console.error('externalLeads.editRemark error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };

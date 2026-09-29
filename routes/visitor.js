@@ -37,6 +37,7 @@ router.post('/external-leads/assign',            requireLevel(MANAGE), extCtrl.a
 router.patch('/external-leads/:id/reclassify',   requireLevel(LOG), extCtrl.reclassify);
 router.post('/external-leads/:id/log',           requireLevel(LOG), extCtrl.addLeadLog);
 router.get('/external-leads/:id/logs',           requireLevel(LOG), extCtrl.getLeadLogs);
+router.patch('/external-leads/:id/remark',       requireLevel(LOG), extCtrl.editRemark);
 
 router.get('/team-members',                 ctrl.getTeamMembers);
 
@@ -48,5 +49,6 @@ router.get('/followups',                    ctrl.getFollowups);
 
 router.post('/contacts/:contactId/log',     requireLevel(LOG), ctrl.addContactLog);
 router.get('/contacts/:contactId/logs',     ctrl.getContactLogs);
+router.get('/contacts/:contactId/cross-batch-history', requireLevel(LOG), ctrl.getContactCrossBatchHistory);
 
 module.exports = router;
