@@ -26,16 +26,16 @@ const CONTACT_ALIASES = `
   c.ASSIGNED_TO_USER_CODE AS ASSIGNED_TO`;
 
 const MY_CONTACTS_SORT = {
-  contact:     SEARCH_PERSON_NAME,
-  company:     `CD.COMPANY_NAME`,
+  contact: SEARCH_PERSON_NAME,
+  company: `CD.COMPANY_NAME`,
   designation: `CASE WHEN ISJSON(CP.DESIG)=1 THEN JSON_VALUE(CP.DESIG,'$[0].value') ELSE CP.DESIG END`,
-  department:  `CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[0]')         ELSE CP.DEPT  END`,
-  mobile:      `CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END`,
-  email:       `CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE NULL END`,
-  industry:    `CSI.INDUSTRIES`,
-  batch:       `b.BATCH_NAME`,
-  status:      `LatestLog.STATUS`,
-  updated:     `LatestLog.CREATED_DATE`,
+  department: `CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[0]')         ELSE CP.DEPT  END`,
+  mobile: `CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END`,
+  email: `CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE NULL END`,
+  industry: `CSI.INDUSTRIES`,
+  batch: `b.BATCH_NAME`,
+  status: `LatestLog.STATUS`,
+  updated: `LatestLog.CREATED_DATE`,
 };
 
 function buildReportParts(params, request) {
@@ -48,18 +48,18 @@ function buildReportParts(params, request) {
 
   const whereClauses = ['1=1'];
   const industryList = industries ? industries.split(',').filter(Boolean) : [];
-  const segmentList  = segments  ? segments.split(',').filter(Boolean)  : [];
+  const segmentList = segments ? segments.split(',').filter(Boolean) : [];
 
   let exhApplySQL = '';
-  const needsExh  = !!(exhName || attendee || event);
+  const needsExh = !!(exhName || attendee || event);
 
   if (needsExh) {
     const conds = [];
-    if (exhName)  { request.input('exhName',  sql.NVarChar, `%${exhName}%`);  conds.push('EXH_NAME LIKE @exhName'); }
+    if (exhName) { request.input('exhName', sql.NVarChar, `%${exhName}%`); conds.push('EXH_NAME LIKE @exhName'); }
     if (attendee) { request.input('attendee', sql.NVarChar, `%${attendee}%`); conds.push('ATTENDEE LIKE @attendee'); }
-    if (event)    { request.input('event',    sql.NVarChar, `%${event}%`);    conds.push('EVENT LIKE @event'); }
-    const exhWhere    = conds.length ? 'WHERE '  + conds.join(' AND ') : '';
-    const exhAndConds = conds.length ? ' AND '   + conds.join(' AND ') : '';
+    if (event) { request.input('event', sql.NVarChar, `%${event}%`); conds.push('EVENT LIKE @event'); }
+    const exhWhere = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+    const exhAndConds = conds.length ? ' AND ' + conds.join(' AND ') : '';
     if (exhType === 'company') {
       whereClauses.push(`CP.COMPANY_CODE IN (SELECT COMPANY_CODE FROM dbo.[${TABLES.COMP_EXH_HISTORY}] ${exhWhere})`);
       exhApplySQL = `OUTER APPLY (SELECT TOP 1 EXH_NAME FROM dbo.[${TABLES.COMP_EXH_HISTORY}] WHERE COMPANY_CODE=CP.COMPANY_CODE${exhAndConds}) EHD`;
@@ -70,7 +70,7 @@ function buildReportParts(params, request) {
   }
 
   if (dateFrom) { request.input('dateFrom', sql.Date, dateFrom); whereClauses.push('CAST(CP.UPDATED_DATE AS DATE) >= @dateFrom'); }
-  if (dateTo)   { request.input('dateTo',   sql.Date, dateTo);   whereClauses.push('CAST(CP.UPDATED_DATE AS DATE) <= @dateTo'); }
+  if (dateTo) { request.input('dateTo', sql.Date, dateTo); whereClauses.push('CAST(CP.UPDATED_DATE AS DATE) <= @dateTo'); }
 
   if (industryList.length > 0) {
     const p = industryList.map((v, i) => { request.input(`ind_${i}`, sql.NVarChar, v); return `@ind_${i}`; });
@@ -99,12 +99,12 @@ function createTtlCache(ttlMs) {
   return async (key, producer) => {
     const hit = store.get(key);
     if (hit) {
-      if (hit.promise) return hit.promise;          
-      if (hit.expires > Date.now()) return hit.value; 
+      if (hit.promise) return hit.promise;
+      if (hit.expires > Date.now()) return hit.value;
     }
     const promise = Promise.resolve().then(producer).then(
       (value) => { store.set(key, { value, expires: Date.now() + ttlMs }); return value; },
-      (err)   => { store.delete(key); throw err; }
+      (err) => { store.delete(key); throw err; }
     );
     store.set(key, { promise });
     return promise;
@@ -113,7 +113,7 @@ function createTtlCache(ttlMs) {
 
 exports.getReportPreview = async (req, res) => {
   try {
-    const pool    = await poolPromise;
+    const pool = await poolPromise;
     const request = pool.request();
     const { whereSQL, exhApplySQL } = buildReportParts(req.query, request);
 
@@ -148,9 +148,9 @@ exports.getReportPreview = async (req, res) => {
 
     const result = await request.query(query);
     res.json({
-      data:    result.recordsets[0],
-      total:   result.recordsets[1][0].total,
-      capped:  result.recordsets[1][0].total > 100,
+      data: result.recordsets[0],
+      total: result.recordsets[1][0].total,
+      capped: result.recordsets[1][0].total > 100,
     });
   } catch (err) {
     console.error('getReportPreview error:', err);
@@ -170,7 +170,7 @@ exports.createBatch = async (req, res) => {
       return res.status(400).json({ error: 'Batch name and year are required' });
     }
 
-    const pool    = await poolPromise;
+    const pool = await poolPromise;
 
     const ACTIVE_CONTACT_CAP = 200000;
     const capCheck = await pool.request().query(`
@@ -180,7 +180,7 @@ exports.createBatch = async (req, res) => {
       WHERE b.STATUS = 'Y';
     `);
     const activeTotal = capCheck.recordset[0].activeTotal;
-    const remaining   = ACTIVE_CONTACT_CAP - activeTotal;
+    const remaining = ACTIVE_CONTACT_CAP - activeTotal;
     if (remaining <= 0) {
       return res.status(400).json({
         error: 'You already have many active batches open and the 2 lakh contact limit is full. Please close or delete some batches and reassign before creating a new one.',
@@ -195,10 +195,10 @@ exports.createBatch = async (req, res) => {
       request
     );
 
-    request.input('batchName', sql.NVarChar(200),  batchName);
-    request.input('batchYear', sql.Int,            parseInt(batchYear));
-    request.input('remarks',   sql.NVarChar(1000), notes || null);
-    request.input('userCode',  sql.VarChar(100),   assignedTo || (req.user?.user_code || null));
+    request.input('batchName', sql.NVarChar(200), batchName);
+    request.input('batchYear', sql.Int, parseInt(batchYear));
+    request.input('remarks', sql.NVarChar(1000), notes || null);
+    request.input('userCode', sql.VarChar(100), assignedTo || (req.user?.user_code || null));
 
     // BATCH_CODE / CONTACT_CODE are varchar codes generated with NEWID().
     const insertQuery = `
@@ -227,12 +227,12 @@ exports.createBatch = async (req, res) => {
              (SELECT TOTAL_CONTACTS FROM dbo.[${TABLES.VISITOR_BATCH}] WHERE BATCH_CODE = @batchCode) AS TOTAL_CONTACTS;
     `;
 
-    const result  = await request.query(insertQuery);
+    const result = await request.query(insertQuery);
     const created = result.recordset[0];
-    const capped  = created.TOTAL_CONTACTS >= remaining; // insert hit the remaining room
+    const capped = created.TOTAL_CONTACTS >= remaining; // insert hit the remaining room
     res.json({
-      success:       true,
-      batchId:       created.BATCH_ID,
+      success: true,
+      batchId: created.BATCH_ID,
       totalContacts: created.TOTAL_CONTACTS,
       capped,
       message: capped
@@ -297,14 +297,12 @@ async function readPersonCompanyRows(buffer) {
   return rows;
 }
 
+const DRY_RUN = false;
 exports.uploadBatch = async (req, res) => {
   const pool = await poolPromise;
   const transaction = new sql.Transaction(pool);
   let began = false;
-  // A local (#) temp table doesn't reliably survive across separate Request objects on
-  // this driver/pool setup, even within the same transaction — so we use a global (##)
-  // temp table instead, with a random per-upload suffix so two people uploading at the
-  // same time never collide, and drop it explicitly once we're done with it.
+
   const uploadTable = `##Upload_${crypto.randomBytes(8).toString('hex')}`;
   try {
     const { batchName, notes } = req.body;
@@ -326,7 +324,7 @@ exports.uploadBatch = async (req, res) => {
     const setupReq = new sql.Request(transaction);
     await setupReq.query(`CREATE TABLE ${uploadTable} (PERSON_CODE VARCHAR(100), COMPANY_CODE VARCHAR(100));`);
 
-    const CHUNK = 500; // keeps each round trip well under SQL Server's parameter cap
+    const CHUNK = 500;
     for (let i = 0; i < rows.length; i += CHUNK) {
       const chunk = rows.slice(i, i + CHUNK);
       const chunkReq = new sql.Request(transaction);
@@ -343,6 +341,7 @@ exports.uploadBatch = async (req, res) => {
     finalReq.input('batchYear', sql.Int, new Date().getFullYear());
     finalReq.input('remarks', sql.NVarChar(1000), notes || null);
     finalReq.input('userCode', sql.VarChar(100), req.user?.user_code || null);
+    finalReq.input('dryRun', sql.Bit, DRY_RUN ? 1 : 0);
 
     const finalSql = `
       DECLARE @batchCode VARCHAR(100) = CONVERT(VARCHAR(36), NEWID());
@@ -354,12 +353,17 @@ exports.uploadBatch = async (req, res) => {
       WHERE PERSON_CODE <> '' AND COMPANY_CODE <> '';
       SET @uniqueCount = @@ROWCOUNT;
 
-      -- A person/company already sitting in another batch is fine — batches are allowed
-      -- to overlap, so the only thing that excludes a row here is missing contact info.
       SELECT
         d.PERSON_CODE, d.COMPANY_CODE,
+        (CASE WHEN cp.PERSON_CODE IS NULL THEN 0 ELSE 1 END) AS FOUND_IN_DB,
         (CASE WHEN ISJSON(cp.MOBILE)=1       THEN JSON_VALUE(cp.MOBILE,'$[0].number') ELSE NULL END) AS MOBILE_VAL,
-        (CASE WHEN ISJSON(cp.PERSON_EMAIL)=1 THEN JSON_VALUE(cp.PERSON_EMAIL,'$[0]')  ELSE NULL END) AS EMAIL_VAL
+        (CASE WHEN ISJSON(cp.PERSON_EMAIL)=1 THEN JSON_VALUE(cp.PERSON_EMAIL,'$[0]')  ELSE NULL END) AS EMAIL_VAL,
+        (CASE WHEN LTRIM(RTRIM(CAST(cp.OLD_MOBILE AS VARCHAR(500)))) LIKE '%[0-9]%'
+              THEN LTRIM(RTRIM(CAST(cp.OLD_MOBILE AS VARCHAR(500))))
+              ELSE NULL END) AS OLD_MOBILE_VAL,
+        LEFT(CAST(cp.MOBILE       AS NVARCHAR(MAX)), 200) AS MOBILE_RAW,
+        LEFT(CAST(cp.PERSON_EMAIL AS NVARCHAR(MAX)), 200) AS EMAIL_RAW,
+        LEFT(CAST(cp.OLD_MOBILE   AS NVARCHAR(MAX)), 200) AS OLD_MOBILE_RAW
       INTO #Checked
       FROM #Deduped d
       LEFT JOIN dbo.[${TABLES.COMP_PERSON}] cp ON cp.PERSON_CODE = d.PERSON_CODE;
@@ -367,12 +371,15 @@ exports.uploadBatch = async (req, res) => {
       SELECT DISTINCT PERSON_CODE, COMPANY_CODE
       INTO #Eligible
       FROM #Checked
-      WHERE MOBILE_VAL IS NOT NULL AND EMAIL_VAL IS NOT NULL;
+      WHERE EMAIL_VAL IS NOT NULL
+        AND (MOBILE_VAL IS NOT NULL OR OLD_MOBILE_VAL IS NOT NULL);
 
-      SET @missingCount  = (SELECT COUNT(*) FROM #Checked WHERE MOBILE_VAL IS NULL OR EMAIL_VAL IS NULL);
+      SET @missingCount  = (SELECT COUNT(*) FROM #Checked
+                      WHERE EMAIL_VAL IS NULL
+                         OR (MOBILE_VAL IS NULL AND OLD_MOBILE_VAL IS NULL));
       SET @eligibleCount = (SELECT COUNT(*) FROM #Eligible);
 
-      IF @eligibleCount > 0
+      IF @eligibleCount > 0 AND @dryRun = 0
       BEGIN
         INSERT INTO dbo.[${TABLES.VISITOR_BATCH}]
           (BATCH_CODE, BATCH_NAME, BATCH_YEAR, REMARKS, STATUS, USER_CODE, TOTAL_CONTACTS, CREATED_DATE)
@@ -385,20 +392,70 @@ exports.uploadBatch = async (req, res) => {
         FROM #Eligible;
       END
 
+      -- recordset 1: summary
       SELECT
-        CASE WHEN @eligibleCount > 0 THEN @batchCode ELSE NULL END AS BATCH_ID,
+        CASE WHEN @eligibleCount > 0 AND @dryRun = 0 THEN @batchCode ELSE NULL END AS BATCH_ID,
         @uniqueCount   AS UNIQUE_ROWS,
         @missingCount  AS MISSING_SKIPPED,
         @eligibleCount AS IMPORTED;
+
+      -- recordset 2: every skipped row with the reason(s) and raw DB values
+      SELECT
+        PERSON_CODE, COMPANY_CODE,
+        LTRIM(RTRIM(CONCAT(
+          CASE WHEN FOUND_IN_DB = 0 THEN 'NOT_IN_DB ' ELSE '' END,
+          CASE WHEN FOUND_IN_DB = 1 AND EMAIL_VAL IS NULL THEN 'NO_EMAIL ' ELSE '' END,
+          CASE WHEN FOUND_IN_DB = 1 AND MOBILE_VAL IS NULL AND OLD_MOBILE_VAL IS NULL
+              THEN 'NO_MOBILE_AND_OLD_MOBILE ' ELSE '' END
+        ))) AS REASON,
+        MOBILE_RAW, EMAIL_RAW, OLD_MOBILE_RAW
+      FROM #Checked
+      WHERE EMAIL_VAL IS NULL
+        OR (MOBILE_VAL IS NULL AND OLD_MOBILE_VAL IS NULL)
+      ORDER BY PERSON_CODE;
     `;
     const result = await finalReq.query(finalSql);
+
+    const summary = result.recordsets[0][0];
+    const skipped = result.recordsets[1] || [];
+
+    // ---------- LOGGING ----------
+    const reasonCounts = {};
+    skipped.forEach((s) => s.REASON.split(' ').filter(Boolean).forEach((r) => {
+      reasonCounts[r] = (reasonCounts[r] || 0) + 1;
+    }));
+    console.log('================ uploadBatch CHECK ================');
+    console.log(`Mode: ${DRY_RUN ? 'DRY RUN (nothing saved)' : 'LIVE'}`);
+    console.log(`Rows read from Excel   : ${rows.length}`);
+    console.log(`Unique person/company  : ${summary.UNIQUE_ROWS}`);
+    console.log(`Would import / imported: ${summary.IMPORTED}`);
+    console.log(`Skipped                : ${summary.MISSING_SKIPPED}`);
+    console.log('Skipped by reason      :', reasonCounts, '(a row can have several reasons)');
+    console.table(skipped);
+    console.log('===================================================');
+
+    if (DRY_RUN) {
+      await transaction.rollback();
+      began = false;
+      return res.status(400).json({
+        error: `DRY RUN — nothing saved. Eligible: ${summary.IMPORTED}, skipped: ${summary.MISSING_SKIPPED}. See server log for details.`,
+        dryRun: true,
+        totalRowsInFile: rows.length,
+        uniqueRows: summary.UNIQUE_ROWS,
+        inFileDuplicates: rows.length - summary.UNIQUE_ROWS,
+        missingSkipped: summary.MISSING_SKIPPED,
+        imported: summary.IMPORTED,
+        reasonCounts,
+        skippedRows: skipped,
+      });
+    }
+
     await transaction.commit();
     began = false;
 
-    const summary = result.recordset[0];
     if (!summary.IMPORTED) {
       return res.status(400).json({
-        error: `No records were imported — ${summary.MISSING_SKIPPED} row(s) are missing a mobile number or email.`,
+        error: `No records were imported — ${summary.MISSING_SKIPPED} row(s) are missing a mobile number, old mobile or email.`,
         totalRowsInFile: rows.length,
         uniqueRows: summary.UNIQUE_ROWS,
         missingSkipped: summary.MISSING_SKIPPED,
@@ -414,27 +471,24 @@ exports.uploadBatch = async (req, res) => {
       imported: summary.IMPORTED,
     });
   } catch (err) {
-    if (began) { try { await transaction.rollback(); } catch {} }
+    if (began) { try { await transaction.rollback(); } catch { } }
     console.error('uploadBatch error:', err);
     res.status(err.message && !err.number ? 400 : 500).json({ error: err.message || 'Server error' });
   } finally {
-    // Best-effort cleanup — a committed transaction keeps the global temp table around
-    // until something drops it, and a rolled-back one usually undoes the CREATE anyway,
-    // but this guarantees it never lingers in tempdb either way.
     try {
       await pool.request().query(`IF OBJECT_ID('tempdb..${uploadTable}') IS NOT NULL DROP TABLE ${uploadTable};`);
-    } catch {}
+    } catch { }
   }
 };
 
 exports.getMyCreatedBatches = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const pageNum  = parseInt(page, 10)  || 1;
+    const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 20;
-    const offset   = (pageNum - 1) * limitNum;
+    const offset = (pageNum - 1) * limitNum;
 
-    const pool    = await poolPromise;
+    const pool = await poolPromise;
     const request = pool.request();
     request.input('me', sql.VarChar(100), req.user?.user_code || '');
 
@@ -452,9 +506,9 @@ exports.getMyCreatedBatches = async (req, res) => {
     `);
 
     res.json({
-      data:  result.recordsets[0],
+      data: result.recordsets[0],
       total: result.recordsets[1][0].total,
-      page:  pageNum,
+      page: pageNum,
       limit: limitNum,
     });
   } catch (err) {
@@ -466,18 +520,18 @@ exports.getMyCreatedBatches = async (req, res) => {
 exports.getBatches = async (req, res) => {
   try {
     const { year, search = '', page = 1, limit = 20 } = req.query;
-    const pageNum   = parseInt(page, 10)  || 1;
-    const limitNum  = parseInt(limit, 10) || 20;
-    const offset    = (pageNum - 1) * limitNum;
-    const pool      = await poolPromise;
-    const request   = pool.request();
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 20;
+    const offset = (pageNum - 1) * limitNum;
+    const pool = await poolPromise;
+    const request = pool.request();
 
     const isHead = isVisitorHead(req);
     if (!isHead) request.input('me', sql.VarChar(100), req.user?.user_code || '');
 
     const where = ["b.STATUS = 'Y'"];
-    if (year)   { request.input('yr', sql.Int,      parseInt(year)); where.push('b.BATCH_YEAR = @yr'); }
-    if (search) { request.input('s',  sql.NVarChar, `%${search}%`);  where.push('b.BATCH_NAME LIKE @s'); }
+    if (year) { request.input('yr', sql.Int, parseInt(year)); where.push('b.BATCH_YEAR = @yr'); }
+    if (search) { request.input('s', sql.NVarChar, `%${search}%`); where.push('b.BATCH_NAME LIKE @s'); }
     if (!isHead) {
       where.push(`EXISTS (SELECT 1 FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] mc WHERE mc.BATCH_CODE = b.BATCH_CODE AND mc.ASSIGNED_TO_USER_CODE = @me)`);
     }
@@ -523,13 +577,13 @@ exports.getBatches = async (req, res) => {
 
     const result = await request.query(q);
     res.json({
-      data:       result.recordsets[0],
-      total:      result.recordsets[1][0].total,
-      years:      result.recordsets[2].map(r => r.year),
+      data: result.recordsets[0],
+      total: result.recordsets[1][0].total,
+      years: result.recordsets[2].map(r => r.year),
       industries: [],
-      segments:   [],
-      page:       pageNum,
-      limit:      limitNum,
+      segments: [],
+      page: pageNum,
+      limit: limitNum,
     });
   } catch (err) {
     console.error('getBatches error:', err);
@@ -540,13 +594,13 @@ exports.getBatches = async (req, res) => {
 exports.getBatchDetail = async (req, res) => {
   try {
     const { batchId } = req.params;
-    const pool    = await poolPromise;
+    const pool = await poolPromise;
     const request = pool.request();
     request.input('batchId', sql.VarChar(100), batchId);
 
     const isHead = isVisitorHead(req);
     if (!isHead) request.input('me', sql.VarChar(100), req.user?.user_code || '');
-    
+
     const statScope = isHead ? '' : 'AND ASSIGNED_TO_USER_CODE = @me';
     const memberScope = isHead ? '' : 'AND c.ASSIGNED_TO_USER_CODE = @me';
 
@@ -620,11 +674,11 @@ exports.getBatchContacts = async (req, res) => {
       unassignedOnly = 'false',
     } = req.query;
 
-    const pageNum  = parseInt(page, 10)  || 1;
+    const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 50;
-    const offset   = (pageNum - 1) * limitNum;
-    const pool     = await poolPromise;
-    const request  = pool.request();
+    const offset = (pageNum - 1) * limitNum;
+    const pool = await poolPromise;
+    const request = pool.request();
 
     request.input('batchId', sql.VarChar(100), batchId);
     const where = ['c.BATCH_CODE = @batchId'];
@@ -676,9 +730,9 @@ exports.getBatchContacts = async (req, res) => {
 
     const result = await request.query(q);
     res.json({
-      data:  result.recordsets[0],
+      data: result.recordsets[0],
       total: result.recordsets[1][0].total,
-      page:  pageNum,
+      page: pageNum,
       limit: limitNum,
     });
   } catch (err) {
@@ -698,12 +752,12 @@ exports.assignContacts = async (req, res) => {
     if (!assignedTo) return res.status(400).json({ error: 'Assignee is required' });
 
     const assignedBy = req.user?.user_code || 'SYSTEM';
-    const pool       = await poolPromise;
-    const request    = pool.request();
+    const pool = await poolPromise;
+    const request = pool.request();
 
     request.input('assignedTo', sql.VarChar(100), assignedTo);
     request.input('assignedBy', sql.VarChar(100), assignedBy);
-    request.input('batchId',    sql.VarChar(100), batchId);
+    request.input('batchId', sql.VarChar(100), batchId);
 
     const safeIds = contactIds.map(id => String(id)).filter(Boolean);
     if (safeIds.length === 0) return res.status(400).json({ error: 'Invalid contact IDs' });
@@ -733,9 +787,9 @@ exports.assignContacts = async (req, res) => {
 
 exports.getTeamMembers = async (req, res) => {
   try {
-    const pool    = await poolPromise;
+    const pool = await poolPromise;
     const request = pool.request();
-    
+
     request.input('me', sql.VarChar(100), req.user?.user_code || '');
     const q = `
       SELECT USER_CODE, USERNAME, DEPARTMENT, ACCESS_LEVEL
@@ -941,43 +995,43 @@ exports.getMyContacts = async (req, res) => {
 exports.getFollowups = async (req, res) => {
   try {
     const userCode = req.user?.user_code;
-    const level    = Number(req.user?.access_level);
+    const level = Number(req.user?.access_level);
     if (!userCode) return res.status(401).json({ error: 'Unauthorized' });
 
     const isHead = isVisitorHead(req);
 
     const { range = 'all', member = '', batchId = '', source = 'batch', search = '', page = 1, limit = 50 } = req.query;
-    const pageNum  = parseInt(page, 10)  || 1;
+    const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 50;
-    const offset   = (pageNum - 1) * limitNum;
+    const offset = (pageNum - 1) * limitNum;
     const srcFilter = source === 'lead' ? 'LEAD' : 'BATCH';
 
-    const pool    = await poolPromise;
+    const pool = await poolPromise;
     const request = pool.request();
 
     const memberWhere = [];
-    if (!isHead)     { request.input('uc', sql.VarChar(100), userCode); memberWhere.push('c.ASSIGNED_TO_USER_CODE = @uc'); }
-    else if (member) { request.input('mb', sql.VarChar(100), member);   memberWhere.push('c.ASSIGNED_TO_USER_CODE = @mb'); }
-    else             { memberWhere.push('c.ASSIGNED_TO_USER_CODE IS NOT NULL'); }
+    if (!isHead) { request.input('uc', sql.VarChar(100), userCode); memberWhere.push('c.ASSIGNED_TO_USER_CODE = @uc'); }
+    else if (member) { request.input('mb', sql.VarChar(100), member); memberWhere.push('c.ASSIGNED_TO_USER_CODE = @mb'); }
+    else { memberWhere.push('c.ASSIGNED_TO_USER_CODE IS NOT NULL'); }
     const memberSQL = 'WHERE ' + memberWhere.join(' AND ');
 
     const fuWhere = [...memberWhere];
-    if (batchId) { request.input('bid', sql.VarChar(100), batchId);    fuWhere.push('c.BATCH_CODE = @bid'); }
-    if (search)  { request.input('s', sql.NVarChar, `%${search}%`);    fuWhere.push(`(${SEARCH_PERSON_NAME} LIKE @s OR CD.COMPANY_NAME LIKE @s OR CP.MOBILE LIKE @s)`); }
+    if (batchId) { request.input('bid', sql.VarChar(100), batchId); fuWhere.push('c.BATCH_CODE = @bid'); }
+    if (search) { request.input('s', sql.NVarChar, `%${search}%`); fuWhere.push(`(${SEARCH_PERSON_NAME} LIKE @s OR CD.COMPANY_NAME LIKE @s OR CP.MOBILE LIKE @s)`); }
     const fuSQL = 'WHERE ' + fuWhere.join(' AND ');
 
     // Same member/search scope, translated onto the external-lead columns.
     const leadWhere = [];
-    if (!isHead)     leadWhere.push('el.ASSIGNED_TO_USER_CODE = @uc');
+    if (!isHead) leadWhere.push('el.ASSIGNED_TO_USER_CODE = @uc');
     else if (member) leadWhere.push('el.ASSIGNED_TO_USER_CODE = @mb');
-    else             leadWhere.push('el.ASSIGNED_TO_USER_CODE IS NOT NULL');
+    else leadWhere.push('el.ASSIGNED_TO_USER_CODE IS NOT NULL');
     if (search) leadWhere.push('(el.NAME LIKE @s OR el.COMPANY LIKE @s OR el.MOBILE LIKE @s)');
     leadWhere.push("ISNULL(el.CATEGORY, '') <> 'SPEAKER'");
     const leadSQL = 'WHERE ' + leadWhere.join(' AND ');
 
     let rangeSQL = 'NEXT_FOLLOWUP IS NOT NULL';
-    if (range === 'today')         rangeSQL = 'CAST(NEXT_FOLLOWUP AS DATE) = CAST(GETDATE() AS DATE)';
-    else if (range === 'overdue')  rangeSQL = 'CAST(NEXT_FOLLOWUP AS DATE) < CAST(GETDATE() AS DATE)';
+    if (range === 'today') rangeSQL = 'CAST(NEXT_FOLLOWUP AS DATE) = CAST(GETDATE() AS DATE)';
+    else if (range === 'overdue') rangeSQL = 'CAST(NEXT_FOLLOWUP AS DATE) < CAST(GETDATE() AS DATE)';
     else if (range === 'upcoming') rangeSQL = 'CAST(NEXT_FOLLOWUP AS DATE) > CAST(GETDATE() AS DATE)';
 
     const batchBranch = `
@@ -1094,23 +1148,23 @@ exports.getFollowups = async (req, res) => {
     const result = await request.query(q);
     const counts = result.recordsets[2][0] || { overdue: 0, today: 0, upcoming: 0 };
     const total =
-      range === 'today'    ? counts.today :
-      range === 'overdue'  ? counts.overdue :
-      range === 'upcoming' ? counts.upcoming :
-      (counts.overdue || 0) + (counts.today || 0) + (counts.upcoming || 0);
+      range === 'today' ? counts.today :
+        range === 'overdue' ? counts.overdue :
+          range === 'upcoming' ? counts.upcoming :
+            (counts.overdue || 0) + (counts.today || 0) + (counts.upcoming || 0);
 
     const sourceCounts = { batch: 0, lead: 0 };
     result.recordsets[3].forEach(r => { sourceCounts[r.SRC === 'LEAD' ? 'lead' : 'batch'] = r.n; });
 
     res.json({
       batches: result.recordsets[0],
-      data:    result.recordsets[1],
+      data: result.recordsets[1],
       counts,
       total,
       sourceCounts,
       isHead,
-      page:    pageNum,
-      limit:   limitNum,
+      page: pageNum,
+      limit: limitNum,
     });
   } catch (err) {
     console.error('getFollowups error:', err);
@@ -1124,20 +1178,20 @@ exports.addContactLog = async (req, res) => {
     const { actionType, nextFollowup, remarks, newStatus, callId, callStatus, callDuration } = req.body;
 
     const userCode = req.user?.user_code || 'SYSTEM';
-    const userName = req.user?.username  || '';
-    const pool     = await poolPromise;
-    const request  = pool.request();
+    const userName = req.user?.username || '';
+    const pool = await poolPromise;
+    const request = pool.request();
 
-    request.input('contactId',  sql.VarChar(100),  contactId);
-    request.input('actionType', sql.VarChar(100),   actionType  || null);
-    request.input('nextFU',     sql.DateTime,      nextFollowup || null);
-    request.input('remarks',    sql.NVarChar(1000), remarks    || null);
-    request.input('userCode',   sql.VarChar(100),  userCode);
-    request.input('userName',   sql.NVarChar(200), userName);
+    request.input('contactId', sql.VarChar(100), contactId);
+    request.input('actionType', sql.VarChar(100), actionType || null);
+    request.input('nextFU', sql.DateTime, nextFollowup || null);
+    request.input('remarks', sql.NVarChar(1000), remarks || null);
+    request.input('userCode', sql.VarChar(100), userCode);
+    request.input('userName', sql.NVarChar(200), userName);
     request.input('newStatus', sql.VarChar(100), newStatus);
-    request.input('callId',       sql.VarChar(100), callId || null);
-    request.input('callStatus',   sql.VarChar(30),  callStatus || null);
-    request.input('callDuration', sql.Int,          Number.isInteger(callDuration) ? callDuration : null);
+    request.input('callId', sql.VarChar(100), callId || null);
+    request.input('callStatus', sql.VarChar(30), callStatus || null);
+    request.input('callDuration', sql.Int, Number.isInteger(callDuration) ? callDuration : null);
 
     if (nextFollowup) {
       const fuDate = new Date(nextFollowup);
@@ -1221,7 +1275,7 @@ exports.getContactCrossBatchHistory = async (req, res) => {
 exports.getContactLogs = async (req, res) => {
   try {
     const { contactId } = req.params;
-    const pool    = await poolPromise;
+    const pool = await poolPromise;
     const request = pool.request();
     request.input('contactId', sql.VarChar(100), contactId);
 
@@ -1245,13 +1299,13 @@ exports.getContactLogs = async (req, res) => {
 exports.updateBatchStatus = async (req, res) => {
   try {
     const { batchId } = req.params;
-    const { status }  = req.body;
-    if (!['Y','N'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+    const { status } = req.body;
+    if (!['Y', 'N'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
 
-    const pool    = await poolPromise;
+    const pool = await poolPromise;
     const request = pool.request();
     request.input('batchId', sql.VarChar(100), batchId);
-    request.input('status',  sql.VarChar(10),  status);
+    request.input('status', sql.VarChar(10), status);
 
     await request.query(`
       UPDATE dbo.[${TABLES.VISITOR_BATCH}]
@@ -1267,13 +1321,13 @@ exports.updateBatchStatus = async (req, res) => {
 
 exports.smartAssign = async (req, res) => {
   try {
-    const { batchId }                      = req.params;
+    const { batchId } = req.params;
     const { mode, assignTo, count, members } = req.body;
     const assignedBy = req.user?.user_code || 'SYSTEM';
-    const pool       = await poolPromise;
-    const request    = pool.request();
+    const pool = await poolPromise;
+    const request = pool.request();
 
-    request.input('batchId',    sql.VarChar(100), batchId);
+    request.input('batchId', sql.VarChar(100), batchId);
     request.input('assignedBy', sql.VarChar(100), assignedBy);
 
     let q = '';
@@ -1284,7 +1338,7 @@ exports.smartAssign = async (req, res) => {
       const n = parseInt(count, 10);
       if (isNaN(n) || n < 1) return res.status(400).json({ error: 'count must be a positive number' });
       request.input('assignTo', sql.VarChar(100), assignTo);
-      request.input('countN',   sql.Int,          n);
+      request.input('countN', sql.Int, n);
       q = `
         WITH ToUpdate AS (
           SELECT TOP (@countN) CONTACT_CODE
@@ -1310,8 +1364,8 @@ exports.smartAssign = async (req, res) => {
         const cnt = parseInt(m.count, 10);
         if (!cnt || cnt < 1) return;
         request.input(`dm_${i}`, sql.VarChar(100), m.userCode);
-        request.input(`ds_${i}`, sql.Int,          offset + 1);
-        request.input(`de_${i}`, sql.Int,          offset + cnt);
+        request.input(`ds_${i}`, sql.Int, offset + 1);
+        request.input(`de_${i}`, sql.Int, offset + cnt);
         cases.push(`WHEN ur.rn BETWEEN @ds_${i} AND @de_${i} THEN @dm_${i}`);
         offset += cnt;
       });
@@ -1339,7 +1393,7 @@ exports.smartAssign = async (req, res) => {
       // Divide ALL unassigned evenly among given members
       if (!Array.isArray(members) || members.length === 0) return res.status(400).json({ error: 'members array required' });
       const memberCodes = members.filter(Boolean);
-      const mCount      = memberCodes.length;
+      const mCount = memberCodes.length;
       request.input('mCount', sql.Int, mCount);
       memberCodes.forEach((code, i) => request.input(`em_${i}`, sql.VarChar(100), code));
       const memberCase = memberCodes
@@ -1376,19 +1430,19 @@ exports.smartAssign = async (req, res) => {
 
 exports.reassignContacts = async (req, res) => {
   try {
-    const { batchId }                  = req.params;
-    const { fromUser, toUser, count }  = req.body;
+    const { batchId } = req.params;
+    const { fromUser, toUser, count } = req.body;
 
     if (!fromUser || !toUser) return res.status(400).json({ error: 'fromUser and toUser are required' });
-    if (fromUser === toUser)  return res.status(400).json({ error: 'Cannot reassign to the same member' });
+    if (fromUser === toUser) return res.status(400).json({ error: 'Cannot reassign to the same member' });
 
     const assignedBy = req.user?.user_code || 'SYSTEM';
-    const pool       = await poolPromise;
-    const request    = pool.request();
+    const pool = await poolPromise;
+    const request = pool.request();
 
-    request.input('batchId',    sql.VarChar(100), batchId);
-    request.input('fromUser',   sql.VarChar(100), fromUser);
-    request.input('toUser',     sql.VarChar(100), toUser);
+    request.input('batchId', sql.VarChar(100), batchId);
+    request.input('fromUser', sql.VarChar(100), fromUser);
+    request.input('toUser', sql.VarChar(100), toUser);
     request.input('assignedBy', sql.VarChar(100), assignedBy);
 
     // TOP filter only when a positive count is supplied; otherwise move all.
@@ -1433,14 +1487,14 @@ const NOT_CONNECTED_SQL = `'Wrong_Number','No_Number','Invalid','Foreign_Number'
 function analyticsScope(alias, { batchId, year }) {
   const conds = [];
   if (batchId) conds.push(`${alias}.BATCH_CODE = @bid`);
-  if (year)    conds.push(`${alias}.BATCH_CODE IN (SELECT BATCH_CODE FROM dbo.[${TABLES.VISITOR_BATCH}] WHERE BATCH_YEAR = @yr)`);
+  if (year) conds.push(`${alias}.BATCH_CODE IN (SELECT BATCH_CODE FROM dbo.[${TABLES.VISITOR_BATCH}] WHERE BATCH_YEAR = @yr)`);
   return conds.length ? conds.join(' AND ') : '1=1';
 }
 
 // SQL expression that buckets a datetime column by the chosen granularity.
 function bucketExpr(granularity, col) {
   if (granularity === 'month') return `DATEFROMPARTS(YEAR(${col}), MONTH(${col}), 1)`;
-  if (granularity === 'week')  return `DATEADD(DAY, 1 - DATEPART(WEEKDAY, ${col}), CAST(${col} AS DATE))`;
+  if (granularity === 'week') return `DATEADD(DAY, 1 - DATEPART(WEEKDAY, ${col}), CAST(${col} AS DATE))`;
   return `CAST(${col} AS DATE)`; // day
 }
 
@@ -1455,27 +1509,27 @@ exports.getAnalytics = async (req, res) => {
 
     // Date range — default last 30 days. Previous window = same length, immediately before.
     const today = new Date();
-    const to    = req.query.to   ? new Date(req.query.to)   : today;
-    const from  = req.query.from ? new Date(req.query.from) : new Date(today.getTime() - 29 * 86400000);
-    const spanMs   = Math.max(0, to.getTime() - from.getTime());
-    const prevTo   = new Date(from.getTime() - 86400000);
+    const to = req.query.to ? new Date(req.query.to) : today;
+    const from = req.query.from ? new Date(req.query.from) : new Date(today.getTime() - 29 * 86400000);
+    const spanMs = Math.max(0, to.getTime() - from.getTime());
+    const prevTo = new Date(from.getTime() - 86400000);
     const prevFrom = new Date(prevTo.getTime() - spanMs);
 
     const cacheKey = JSON.stringify({ b: batchId || '', y: year || '', g: granularity, f: ymd(from), t: ymd(to) });
     const payload = await analyticsCache(cacheKey, async () => {
-    const pool    = await poolPromise;
-    const request = pool.request();
-    if (batchId) request.input('bid', sql.VarChar(100), batchId);
-    if (year)    request.input('yr',  sql.Int, parseInt(year, 10));
-    request.input('from',     sql.Date, ymd(from));
-    request.input('to',       sql.Date, ymd(to));
-    request.input('prevFrom', sql.Date, ymd(prevFrom));
-    request.input('prevTo',   sql.Date, ymd(prevTo));
+      const pool = await poolPromise;
+      const request = pool.request();
+      if (batchId) request.input('bid', sql.VarChar(100), batchId);
+      if (year) request.input('yr', sql.Int, parseInt(year, 10));
+      request.input('from', sql.Date, ymd(from));
+      request.input('to', sql.Date, ymd(to));
+      request.input('prevFrom', sql.Date, ymd(prevFrom));
+      request.input('prevTo', sql.Date, ymd(prevTo));
 
-    const scopeC  = analyticsScope('c', { batchId, year });
-    const bucketL = bucketExpr(granularity, 'l.CREATED_DATE');
+      const scopeC = analyticsScope('c', { batchId, year });
+      const bucketL = bucketExpr(granularity, 'l.CREATED_DATE');
 
-    const q = `
+      const q = `
       -- Latest-log outcome per contact, computed once from the (small) log table and
       -- joined to the scoped contacts — avoids a per-contact correlated seek over 90k rows.
       ;WITH LatestLog AS (
@@ -1585,26 +1639,26 @@ exports.getAnalytics = async (req, res) => {
       DROP TABLE #C;
     `;
 
-    const r = await request.query(q);
+      const r = await request.query(q);
 
-    // Zero-fill the outcome breakdown so every known outcome appears.
-    const rawOutcomes = Object.fromEntries(r.recordsets[1].map(x => [x.outcome, x.cnt]));
-    const outcomeBreakdown = OUTCOME_KEYS.map(k => ({ key: k, count: rawOutcomes[k] || 0 }));
-    const pending = rawOutcomes['Pending'] || 0;
+      // Zero-fill the outcome breakdown so every known outcome appears.
+      const rawOutcomes = Object.fromEntries(r.recordsets[1].map(x => [x.outcome, x.cnt]));
+      const outcomeBreakdown = OUTCOME_KEYS.map(k => ({ key: k, count: rawOutcomes[k] || 0 }));
+      const pending = rawOutcomes['Pending'] || 0;
 
-    return {
-      filters: { batchId: batchId || null, year: year || null, granularity, from: ymd(from), to: ymd(to) },
-      overview: r.recordsets[0][0],
-      outcomeBreakdown,
-      pending,
-      members: r.recordsets[2],
-      batches: r.recordsets[3],
-      timeseries: r.recordsets[4],
-      memberSeries: r.recordsets[5],
-      activity: r.recordsets[6][0],
-      years: r.recordsets[7].map(x => x.year),
-      batchOptions: r.recordsets[8],
-    };
+      return {
+        filters: { batchId: batchId || null, year: year || null, granularity, from: ymd(from), to: ymd(to) },
+        overview: r.recordsets[0][0],
+        outcomeBreakdown,
+        pending,
+        members: r.recordsets[2],
+        batches: r.recordsets[3],
+        timeseries: r.recordsets[4],
+        memberSeries: r.recordsets[5],
+        activity: r.recordsets[6][0],
+        years: r.recordsets[7].map(x => x.year),
+        batchOptions: r.recordsets[8],
+      };
     });
 
     res.json(payload);
@@ -1617,14 +1671,14 @@ exports.getAnalytics = async (req, res) => {
 exports.getDashboard = async (req, res) => {
   try {
     const { batchId, year } = req.query;
-    const pool    = await poolPromise;
+    const pool = await poolPromise;
     const request = pool.request();
 
     const bWhere = ["b.STATUS = 'Y'"];
     const cWhere = ['1=1'];
     if (batchId) { request.input('bid', sql.VarChar(100), batchId); bWhere.push('b.BATCH_CODE = @bid'); cWhere.push('c.BATCH_CODE = @bid'); }
-    if (year)    { request.input('yr',  sql.Int, parseInt(year));   bWhere.push('b.BATCH_YEAR = @yr'); cWhere.push(`c.BATCH_CODE IN (SELECT BATCH_CODE FROM dbo.[${TABLES.VISITOR_BATCH}] WHERE BATCH_YEAR = @yr)`); }
-    const batchWhereSQL   = 'WHERE ' + bWhere.join(' AND ');
+    if (year) { request.input('yr', sql.Int, parseInt(year)); bWhere.push('b.BATCH_YEAR = @yr'); cWhere.push(`c.BATCH_CODE IN (SELECT BATCH_CODE FROM dbo.[${TABLES.VISITOR_BATCH}] WHERE BATCH_YEAR = @yr)`); }
+    const batchWhereSQL = 'WHERE ' + bWhere.join(' AND ');
     const contactWhereSQL = 'WHERE ' + cWhere.join(' AND ');
 
     const q = `
@@ -1657,7 +1711,7 @@ exports.getDashboard = async (req, res) => {
         (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l WHERE l.USER_CODE = c.ASSIGNED_TO_USER_CODE AND CAST(l.CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE)) AS TODAY_LOGS
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
       LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = c.ASSIGNED_TO_USER_CODE
-      ${contactWhereSQL.replace('1=1','c.ASSIGNED_TO_USER_CODE IS NOT NULL')}
+      ${contactWhereSQL.replace('1=1', 'c.ASSIGNED_TO_USER_CODE IS NOT NULL')}
       GROUP BY c.ASSIGNED_TO_USER_CODE, u.USERNAME
       ORDER BY WORKED_COUNT DESC;
 
@@ -1702,13 +1756,13 @@ exports.getDashboard = async (req, res) => {
 
     const result = await request.query(q);
     res.json({
-      overview:     result.recordsets[0][0],
-      members:      result.recordsets[1],
-      overdue:      result.recordsets[2][0]?.overdue || 0,
-      todayLogs:    result.recordsets[3][0]?.today_logs || 0,
-      statusBreak:  result.recordsets[4],
-      batches:      result.recordsets[5],
-      years:        result.recordsets[6].map(r => r.year),
+      overview: result.recordsets[0][0],
+      members: result.recordsets[1],
+      overdue: result.recordsets[2][0]?.overdue || 0,
+      todayLogs: result.recordsets[3][0]?.today_logs || 0,
+      statusBreak: result.recordsets[4],
+      batches: result.recordsets[5],
+      years: result.recordsets[6].map(r => r.year),
     });
   } catch (err) {
     console.error('getDashboard error:', err);
@@ -1759,7 +1813,7 @@ exports.getMyStats = async (req, res) => {
     }
     const bcDateFilter = from && to ? 'AND l.CREATED_DATE >= @from AND l.CREATED_DATE < @to' : '';
     const elDateFilter = from && to ? 'AND ll.CREATED_DATE >= @from AND ll.CREATED_DATE < @to' : '';
-   
+
     const bcAssignedFilter = from && to ? 'AND c.ASSIGNED_DATE >= @from AND c.ASSIGNED_DATE < @to' : '';
     const elAssignedFilter = from && to ? 'AND el.ASSIGNED_DATE >= @from AND el.ASSIGNED_DATE < @to' : '';
 
