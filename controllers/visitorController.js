@@ -10,13 +10,25 @@ const PERSON_COLS = `
   LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
   CASE WHEN ISJSON(CP.DESIG)=1        THEN JSON_VALUE(CP.DESIG,'$[0].value')   ELSE CP.DESIG END AS DESIGNATION,
   CASE WHEN ISJSON(CP.DEPT)=1         THEN JSON_VALUE(CP.DEPT,'$[0]')          ELSE CP.DEPT  END AS DEPARTMENT,
-  CASE WHEN ISJSON(CP.MOBILE)=1       THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS MOBILE,
-  CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]')  ELSE NULL END AS EMAIL,
+  CASE WHEN CM.ACTIVE = 1 THEN 'XXXXXXXXXX'
+       WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS MOBILE,
+  CASE WHEN CM.ACTIVE = 1 THEN 'xxxxxx@xxxxx.xxx'
+       WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]')  ELSE NULL END AS EMAIL,
+  CASE WHEN ISNULL(CM.ACTIVE, 0) <> 1 THEN 1 ELSE 0 END AS COMPANY_ACTIVE,
   CD.COMPANY_NAME, CD.DIVISION, CD.CITY, CD.STATE, CD.COUNTRY`;
+
+const OTHER_BATCH_LOGS_COL = `
+  (SELECT COUNT(*)
+     FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] oc
+     JOIN dbo.[${TABLES.VISITOR_CONTACT_LOG}] ol ON ol.CONTACT_CODE = oc.CONTACT_CODE
+    WHERE oc.PERSON_CODE = c.PERSON_CODE AND oc.CONTACT_CODE <> c.CONTACT_CODE) AS OTHER_BATCH_LOGS`;
+
+const SEARCH_CONTACT_INFO = `(ISNULL(CM.ACTIVE, 0) <> 1 AND (CP.MOBILE LIKE @s OR CP.PERSON_EMAIL LIKE @s))`;
 
 const PERSON_JOINS = `
   LEFT JOIN dbo.[${TABLES.COMP_PERSON}]    CP ON CP.PERSON_CODE  = c.PERSON_CODE
-  LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD ON CD.COMPANY_CODE = c.COMPANY_CODE`;
+  LEFT JOIN dbo.[${TABLES.COMPANY_DETAIL}] CD ON CD.COMPANY_CODE = c.COMPANY_CODE
+  LEFT JOIN dbo.[${TABLES.COMP_MASTER}]    CM ON CM.COMPANY_CODE = c.COMPANY_CODE`;
 
 const SEARCH_PERSON_NAME = `LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,'')))`;
 
@@ -699,7 +711,7 @@ exports.getBatchContacts = async (req, res) => {
 
     if (search) {
       request.input('s', sql.NVarChar, `%${search}%`);
-      where.push(`(${SEARCH_PERSON_NAME} LIKE @s OR CD.COMPANY_NAME LIKE @s OR CP.MOBILE LIKE @s OR CP.PERSON_EMAIL LIKE @s)`);
+      where.push(`(${SEARCH_PERSON_NAME} LIKE @s OR CD.COMPANY_NAME LIKE @s OR ${SEARCH_CONTACT_INFO})`);
     }
     if (status) {
       request.input('st', sql.VarChar(30), status);
@@ -713,6 +725,7 @@ exports.getBatchContacts = async (req, res) => {
         SELECT c.*,
           ${CONTACT_ALIASES},
           ${PERSON_COLS},
+          ${OTHER_BATCH_LOGS_COL},
           u.USERNAME AS ASSIGNED_TO_NAME,
           ROW_NUMBER() OVER (ORDER BY c.CONTACT_CODE) AS RowNum
         FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
@@ -862,7 +875,7 @@ exports.getMyContacts = async (req, res) => {
         (
           ${SEARCH_PERSON_NAME} LIKE @s
           OR CD.COMPANY_NAME LIKE @s
-          OR CP.MOBILE LIKE @s
+          OR ${SEARCH_CONTACT_INFO}
         )
       `);
     }
@@ -882,6 +895,7 @@ exports.getMyContacts = async (req, res) => {
 
           ${CONTACT_ALIASES},
           ${PERSON_COLS},
+          ${OTHER_BATCH_LOGS_COL},
           CSI.INDUSTRIES AS INDUSTRY,
 
           b.BATCH_NAME,
@@ -1020,7 +1034,6 @@ exports.getFollowups = async (req, res) => {
     if (search) { request.input('s', sql.NVarChar, `%${search}%`); fuWhere.push(`(${SEARCH_PERSON_NAME} LIKE @s OR CD.COMPANY_NAME LIKE @s OR CP.MOBILE LIKE @s)`); }
     const fuSQL = 'WHERE ' + fuWhere.join(' AND ');
 
-    // Same member/search scope, translated onto the external-lead columns.
     const leadWhere = [];
     if (!isHead) leadWhere.push('el.ASSIGNED_TO_USER_CODE = @uc');
     else if (member) leadWhere.push('el.ASSIGNED_TO_USER_CODE = @mb');
@@ -1068,6 +1081,7 @@ exports.getFollowups = async (req, res) => {
         'LEAD' AS SRC,
         CAST(el.LEAD_ID AS NVARCHAR(50)) AS ITEM_ID,
         el.NAME AS PERSON_NAME, el.DESIGNATION, el.DEPARTMENT, el.MOBILE, el.EMAIL,
+        CAST(1 AS INT) AS COMPANY_ACTIVE,
         el.COMPANY AS COMPANY_NAME,
         CAST(NULL AS NVARCHAR(200)) AS DIVISION, CAST(NULL AS NVARCHAR(100)) AS CITY,
         CAST(NULL AS NVARCHAR(100)) AS STATE, CAST(NULL AS NVARCHAR(100)) AS COUNTRY,
