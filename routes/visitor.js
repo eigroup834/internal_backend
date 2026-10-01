@@ -49,6 +49,7 @@ router.get('/followups',                    ctrl.getFollowups);
 
 router.post('/contacts/:contactId/log',     requireLevel(LOG), ctrl.addContactLog);
 router.get('/contacts/:contactId/logs',     ctrl.getContactLogs);
+router.patch('/contacts/:contactId/reclassify', requireLevel(LOG), ctrl.reclassifyContact);
 router.get('/contacts/:contactId/cross-batch-history', requireLevel(LOG), ctrl.getContactCrossBatchHistory);
 
 module.exports = router;

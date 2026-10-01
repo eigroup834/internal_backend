@@ -5,6 +5,21 @@ const crypto = require('crypto');
 
 const VISITOR_HEAD_LEVELS = [2, 5];
 const isVisitorHead = (req) => VISITOR_HEAD_LEVELS.includes(Number(req.user?.access_level));
+const INTERNAL_LEAD_CATEGORIES = ['VISITOR', 'DELEGATE', 'BUYER', 'OTHER', 'INVALID'];
+let contactLeadCategorySchemaPromise;
+
+function ensureContactLeadCategoryColumn(pool) {
+  if (!contactLeadCategorySchemaPromise) {
+    contactLeadCategorySchemaPromise = pool.request().query(`
+      IF COL_LENGTH('dbo.${TABLES.VISITOR_BATCH_CONTACT}', 'LEAD_CATEGORY') IS NULL
+        ALTER TABLE dbo.[${TABLES.VISITOR_BATCH_CONTACT}] ADD LEAD_CATEGORY VARCHAR(20) NULL;
+    `).catch((err) => {
+      contactLeadCategorySchemaPromise = null;
+      throw err;
+    });
+  }
+  return contactLeadCategorySchemaPromise;
+}
 
 const PERSON_COLS = `
   LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
@@ -12,6 +27,7 @@ const PERSON_COLS = `
   CASE WHEN ISJSON(CP.DEPT)=1         THEN JSON_VALUE(CP.DEPT,'$[0]')          ELSE CP.DEPT  END AS DEPARTMENT,
   CASE WHEN CM.ACTIVE = 1 THEN 'XXXXXXXXXX'
        WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS MOBILE,
+  CP.[OLD_MOBILE] AS OLD_MOBILE,
   CASE WHEN CM.ACTIVE = 1 THEN 'xxxxxx@xxxxx.xxx'
        WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]')  ELSE NULL END AS EMAIL,
   CASE WHEN ISNULL(CM.ACTIVE, 0) <> 1 THEN 1 ELSE 0 END AS COMPANY_ACTIVE,
@@ -831,6 +847,7 @@ exports.getMyContacts = async (req, res) => {
       search = "",
       batchId = "",
       outcome = "",
+      category = "",
       worked = "",
       sortBy = "",
       sortDir = ""
@@ -848,6 +865,7 @@ exports.getMyContacts = async (req, res) => {
       : `ISNULL(LatestLog.CREATED_DATE, c.CREATED_DATE) DESC, c.CONTACT_CODE`;
 
     const pool = await poolPromise;
+    await ensureContactLeadCategoryColumn(pool);
     const request = pool.request();
 
     request.input("uc", sql.VarChar(100), userCode);
@@ -859,6 +877,14 @@ exports.getMyContacts = async (req, res) => {
     if (batchId) {
       request.input("bid", sql.VarChar(100), batchId);
       where.push("c.BATCH_CODE = @bid");
+    }
+
+    if (category) {
+      if (!INTERNAL_LEAD_CATEGORIES.includes(category)) {
+        return res.status(400).json({ error: "Invalid lead category" });
+      }
+      request.input("category", sql.VarChar(20), category);
+      where.push("c.LEAD_CATEGORY = @category");
     }
 
     if (outcome) {
@@ -892,6 +918,7 @@ exports.getMyContacts = async (req, res) => {
           c.ASSIGNED_TO_USER_CODE,
           c.ASSIGNED_DATE,
           c.CREATED_DATE,
+          c.LEAD_CATEGORY,
 
           ${CONTACT_ALIASES},
           ${PERSON_COLS},
@@ -1021,6 +1048,7 @@ exports.getFollowups = async (req, res) => {
     const srcFilter = source === 'lead' ? 'LEAD' : 'BATCH';
 
     const pool = await poolPromise;
+    await ensureContactLeadCategoryColumn(pool);
     const request = pool.request();
 
     const memberWhere = [];
@@ -1057,7 +1085,7 @@ exports.getFollowups = async (req, res) => {
         u.USERNAME AS MEMBER_NAME,
         fu.NEXT_FOLLOWUP,
         lo.STATUS AS LAST_OUTCOME,
-        CAST(NULL AS VARCHAR(20)) AS CATEGORY
+        c.LEAD_CATEGORY AS CATEGORY
       FROM FU fu
       JOIN dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c ON c.CONTACT_CODE = fu.CONTACT_CODE
         AND fu.rn = 1 AND fu.NEXT_FOLLOWUP IS NOT NULL
@@ -1080,7 +1108,9 @@ exports.getFollowups = async (req, res) => {
       SELECT
         'LEAD' AS SRC,
         CAST(el.LEAD_ID AS NVARCHAR(50)) AS ITEM_ID,
-        el.NAME AS PERSON_NAME, el.DESIGNATION, el.DEPARTMENT, el.MOBILE, el.EMAIL,
+        el.NAME AS PERSON_NAME, el.DESIGNATION, el.DEPARTMENT, el.MOBILE,
+        CAST(NULL AS NVARCHAR(MAX)) AS OLD_MOBILE,
+        el.EMAIL,
         CAST(1 AS INT) AS COMPANY_ACTIVE,
         el.COMPANY AS COMPANY_NAME,
         CAST(NULL AS NVARCHAR(200)) AS DIVISION, CAST(NULL AS NVARCHAR(100)) AS CITY,
@@ -1282,6 +1312,43 @@ exports.getContactCrossBatchHistory = async (req, res) => {
     res.json(result.recordset);
   } catch (err) {
     console.error('getContactCrossBatchHistory error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+exports.reclassifyContact = async (req, res) => {
+  try {
+    const { contactId } = req.params;
+    const { category } = req.body;
+    if (!INTERNAL_LEAD_CATEGORIES.includes(category)) {
+      return res.status(400).json({ error: 'Invalid lead type' });
+    }
+
+    const pool = await poolPromise;
+    await ensureContactLeadCategoryColumn(pool);
+    const result = await pool.request()
+      .input('contactId', sql.VarChar(100), contactId)
+      .input('category', sql.VarChar(20), category)
+      .input('userCode', sql.VarChar(100), req.user?.user_code || 'SYSTEM')
+      .input('userName', sql.NVarChar(200), req.user?.username || '')
+      .query(`
+        DECLARE @oldCategory VARCHAR(20) = (SELECT LEAD_CATEGORY FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE CONTACT_CODE = @contactId);
+        UPDATE dbo.[${TABLES.VISITOR_BATCH_CONTACT}] SET LEAD_CATEGORY = @category WHERE CONTACT_CODE = @contactId;
+        DECLARE @updated INT = @@ROWCOUNT;
+        IF @updated > 0 AND ISNULL(@oldCategory, '') <> @category
+          INSERT INTO dbo.[${TABLES.VISITOR_CONTACT_LOG}]
+            (LOG_ID, CONTACT_CODE, ACTION_TYPE, REMARKS, USER_CODE, USER_NAME, CREATED_DATE)
+          VALUES
+            (CONVERT(VARCHAR(36), NEWID()), @contactId, 'RECLASSIFY',
+             'Reclassified from ' + ISNULL(NULLIF(@oldCategory, ''), '(none)') + ' to ' + @category,
+             @userCode, @userName, GETDATE());
+        SELECT @updated AS updated, @oldCategory AS oldCategory;
+      `);
+
+    if (!result.recordset[0].updated) return res.status(404).json({ error: 'Contact not found' });
+    res.json({ success: true, contact: { CONTACT_ID: contactId, LEAD_CATEGORY: category } });
+  } catch (err) {
+    console.error('reclassifyContact error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -1490,11 +1557,7 @@ exports.reassignContacts = async (req, res) => {
   }
 };
 
-const OUTCOME_KEYS = [
-  'Interested', 'Not_Interested', 'Ringing', 'Busy', 'Switched_Off',
-  'Out_of_Network', 'No_Incoming', 'No_Number', 'Foreign_Number',
-  'Wrong_Number', 'Invalid', 'Out_of_Service', 'Followup',
-];
+const OUTCOME_KEYS = ['Interested', 'Not_Interested', 'No_Answer', 'Switched_Off', 'Wrong_Number', 'Callback_Requested'];
 
 const NOT_CONNECTED_SQL = `'Wrong_Number','No_Number','Invalid','Foreign_Number','Switched_Off','Out_of_Network','Out_of_Service','No_Incoming'`;
 
@@ -1514,25 +1577,29 @@ function bucketExpr(granularity, col) {
 
 const ymd = (d) => d.toISOString().slice(0, 10);
 
-const analyticsCache = createTtlCache(20000);
+const analyticsCache = createTtlCache(60000);
 
 exports.getAnalytics = async (req, res) => {
   try {
-    const { batchId, year } = req.query;
+    const { batchId, year, member = '' } = req.query;
     const granularity = ['day', 'week', 'month'].includes(req.query.granularity) ? req.query.granularity : 'day';
 
     // Date range — default last 30 days. Previous window = same length, immediately before.
     const today = new Date();
     const to = req.query.to ? new Date(req.query.to) : today;
     const from = req.query.from ? new Date(req.query.from) : new Date(today.getTime() - 29 * 86400000);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
+      return res.status(400).json({ error: 'Choose a valid date range with From on or before To.' });
+    }
     const spanMs = Math.max(0, to.getTime() - from.getTime());
     const prevTo = new Date(from.getTime() - 86400000);
     const prevFrom = new Date(prevTo.getTime() - spanMs);
 
-    const cacheKey = JSON.stringify({ b: batchId || '', y: year || '', g: granularity, f: ymd(from), t: ymd(to) });
+    const cacheKey = JSON.stringify({ m: member, b: batchId || '', y: year || '', g: granularity, f: ymd(from), t: ymd(to) });
     const payload = await analyticsCache(cacheKey, async () => {
       const pool = await poolPromise;
       const request = pool.request();
+      if (member) request.input('member', sql.VarChar(100), member);
       if (batchId) request.input('bid', sql.VarChar(100), batchId);
       if (year) request.input('yr', sql.Int, parseInt(year, 10));
       request.input('from', sql.Date, ymd(from));
@@ -1540,22 +1607,78 @@ exports.getAnalytics = async (req, res) => {
       request.input('prevFrom', sql.Date, ymd(prevFrom));
       request.input('prevTo', sql.Date, ymd(prevTo));
 
-      const scopeC = analyticsScope('c', { batchId, year });
+      const scopeC = analyticsScope('c', { batchId, year }) + (member ? ' AND c.ASSIGNED_TO_USER_CODE = @member' : '');
       const bucketL = bucketExpr(granularity, 'l.CREATED_DATE');
 
       const q = `
-      -- Latest-log outcome per contact, computed once from the (small) log table and
-      -- joined to the scoped contacts — avoids a per-contact correlated seek over 90k rows.
-      ;WITH LatestLog AS (
-        SELECT l.CONTACT_CODE, l.STATUS,
-          ROW_NUMBER() OVER (PARTITION BY l.CONTACT_CODE ORDER BY l.CREATED_DATE DESC) AS rn
-        FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
+      SET LOCK_TIMEOUT 3000;
+      BEGIN TRY
+      SELECT 'INTERNAL' AS KIND, CAST(l.CONTACT_CODE AS NVARCHAR(100)) AS CONTACT_CODE,
+        CASE
+          WHEN l.STATUS IN ('Ringing', 'Busy') THEN 'No_Answer'
+          WHEN l.STATUS = 'Followup' THEN 'Callback_Requested'
+          WHEN l.STATUS IN ('No_Number', 'Foreign_Number', 'Invalid', 'Out_of_Service') THEN 'Wrong_Number'
+          WHEN l.STATUS IN ('Out_of_Network', 'No_Incoming') THEN 'Switched_Off'
+          ELSE l.STATUS END AS STATUS, l.USER_CODE, l.CREATED_DATE
+      INTO #L
+      FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l WHERE l.STATUS IS NOT NULL AND (
+        (l.CREATED_DATE >= @prevFrom AND l.CREATED_DATE < DATEADD(DAY, 1, @to)) OR
+        (l.CREATED_DATE >= CAST(GETDATE() AS DATE) AND l.CREATED_DATE < DATEADD(DAY, 1, CAST(GETDATE() AS DATE)))
       )
-      SELECT c.CONTACT_CODE, c.BATCH_CODE, c.ASSIGNED_TO_USER_CODE, ll.STATUS AS OUTCOME
+      UNION ALL
+      SELECT 'EXTERNAL', CAST(l.LEAD_ID AS NVARCHAR(100)), CASE
+          WHEN l.STATUS IN ('Ringing', 'Busy') THEN 'No_Answer'
+          WHEN l.STATUS = 'Followup' THEN 'Callback_Requested'
+          WHEN l.STATUS IN ('No_Number', 'Foreign_Number', 'Invalid', 'Out_of_Service') THEN 'Wrong_Number'
+          WHEN l.STATUS IN ('Out_of_Network', 'No_Incoming') THEN 'Switched_Off'
+          ELSE l.STATUS END, l.USER_CODE, l.CREATED_DATE
+      FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}] l WHERE l.STATUS IS NOT NULL AND (
+        (l.CREATED_DATE >= @prevFrom AND l.CREATED_DATE < DATEADD(DAY, 1, @to)) OR
+        (l.CREATED_DATE >= CAST(GETDATE() AS DATE) AND l.CREATED_DATE < DATEADD(DAY, 1, CAST(GETDATE() AS DATE)))
+      );
+
+      CREATE CLUSTERED INDEX IX_AnalyticsLogs ON #L (KIND, CONTACT_CODE, CREATED_DATE DESC);
+      ;WITH RankedLogs AS (
+        SELECT KIND, CONTACT_CODE, STATUS,
+          ROW_NUMBER() OVER (PARTITION BY KIND, CONTACT_CODE ORDER BY CREATED_DATE DESC) AS rn
+        FROM #L WHERE CREATED_DATE >= @from AND CREATED_DATE < DATEADD(DAY, 1, @to)
+      )
+      SELECT KIND, CONTACT_CODE, STATUS INTO #Latest FROM RankedLogs WHERE rn = 1;
+      CREATE UNIQUE CLUSTERED INDEX IX_AnalyticsLatest ON #Latest (KIND, CONTACT_CODE);
+      SELECT 'INTERNAL' AS KIND, CAST(c.CONTACT_CODE AS NVARCHAR(100)) AS CONTACT_CODE,
+        c.BATCH_CODE, c.ASSIGNED_TO_USER_CODE, ll.STATUS AS OUTCOME,
+        c.LEAD_CATEGORY AS CATEGORY, CAST('INTERNAL' AS VARCHAR(40)) AS SOURCE_NAME
       INTO #C
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
-      LEFT JOIN LatestLog ll ON ll.CONTACT_CODE = c.CONTACT_CODE AND ll.rn = 1
-      WHERE ${scopeC};
+      LEFT JOIN #Latest ll ON ll.KIND = 'INTERNAL' AND ll.CONTACT_CODE = c.CONTACT_CODE
+      WHERE ${scopeC} AND (
+        (c.CREATED_DATE >= @from AND c.CREATED_DATE < DATEADD(DAY, 1, @to)) OR
+        (c.ASSIGNED_DATE >= @from AND c.ASSIGNED_DATE < DATEADD(DAY, 1, @to)) OR ll.CONTACT_CODE IS NOT NULL
+      );
+
+      SELECT 'EXTERNAL' AS KIND, CAST(el.LEAD_ID AS NVARCHAR(100)) AS CONTACT_CODE,
+        CAST(NULL AS VARCHAR(100)) AS BATCH_CODE, el.ASSIGNED_TO_USER_CODE, latest.STATUS AS OUTCOME,
+        el.CATEGORY, el.SOURCE_NAME
+      INTO #E
+      FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el
+      LEFT JOIN #Latest latest ON latest.KIND = 'EXTERNAL' AND latest.CONTACT_CODE = CAST(el.LEAD_ID AS NVARCHAR(100))
+      WHERE el.PUSHED_BATCH_CODE IS NULL
+        ${member ? 'AND el.ASSIGNED_TO_USER_CODE = @member' : ''}
+        ${batchId ? 'AND 1 = 0' : ''}
+        ${year ? 'AND YEAR(COALESCE(el.REGISTERED_DATE, el.CREATED_DATE)) = @yr' : ''}
+        AND (
+          (el.CREATED_DATE >= @from AND el.CREATED_DATE < DATEADD(DAY, 1, @to)) OR
+          (el.REGISTERED_DATE >= @from AND el.REGISTERED_DATE < DATEADD(DAY, 1, @to)) OR
+          (el.ASSIGNED_DATE >= @from AND el.ASSIGNED_DATE < DATEADD(DAY, 1, @to)) OR latest.STATUS IS NOT NULL
+        );
+      SELECT * INTO #A FROM #C UNION ALL SELECT * FROM #E;
+      CREATE UNIQUE CLUSTERED INDEX IX_AnalyticsLeads ON #A (KIND, CONTACT_CODE);
+      SELECT l.USER_CODE,
+        SUM(CASE WHEN l.CREATED_DATE >= @from AND l.CREATED_DATE < DATEADD(DAY, 1, @to) THEN 1 ELSE 0 END) AS RANGE_CALLS,
+        SUM(CASE WHEN l.CREATED_DATE >= CAST(GETDATE() AS DATE) AND l.CREATED_DATE < DATEADD(DAY, 1, CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END) AS TODAY_LOGS
+      INTO #MemberCalls FROM #L l
+      JOIN #A c ON c.KIND = l.KIND AND c.CONTACT_CODE = l.CONTACT_CODE
+      GROUP BY l.USER_CODE;
 
       -- 1. Overview (state)
       SELECT
@@ -1565,13 +1688,13 @@ exports.getAnalytics = async (req, res) => {
         SUM(CASE WHEN OUTCOME IS NOT NULL               THEN 1 ELSE 0 END) AS worked,
         SUM(CASE WHEN OUTCOME = 'Interested'            THEN 1 ELSE 0 END) AS interested,
         SUM(CASE WHEN OUTCOME = 'Not_Interested'        THEN 1 ELSE 0 END) AS not_interested,
-        SUM(CASE WHEN OUTCOME = 'Followup'              THEN 1 ELSE 0 END) AS followup,
+        SUM(CASE WHEN OUTCOME = 'Callback_Requested'              THEN 1 ELSE 0 END) AS followup,
         SUM(CASE WHEN OUTCOME IN (${NOT_CONNECTED_SQL}) THEN 1 ELSE 0 END) AS not_connected
-      FROM #C;
+      FROM #A;
 
       -- 2. Outcome breakdown (latest log per contact)
       SELECT ISNULL(OUTCOME, 'Pending') AS outcome, COUNT(*) AS cnt
-      FROM #C
+      FROM #A
       GROUP BY ISNULL(OUTCOME, 'Pending');
 
       -- 3. Team performance (state + range/today activity)
@@ -1582,18 +1705,14 @@ exports.getAnalytics = async (req, res) => {
         SUM(CASE WHEN c.OUTCOME IS NOT NULL THEN 1 ELSE 0 END)           AS WORKED_COUNT,
         SUM(CASE WHEN c.OUTCOME = 'Interested'     THEN 1 ELSE 0 END)    AS INTERESTED_COUNT,
         SUM(CASE WHEN c.OUTCOME = 'Not_Interested' THEN 1 ELSE 0 END)    AS NOT_INT_COUNT,
-        SUM(CASE WHEN c.OUTCOME = 'Ringing'        THEN 1 ELSE 0 END)    AS RINGING_COUNT,
-        SUM(CASE WHEN c.OUTCOME = 'Busy'           THEN 1 ELSE 0 END)    AS BUSY_COUNT,
-        SUM(CASE WHEN c.OUTCOME = 'Followup'       THEN 1 ELSE 0 END)    AS FOLLOWUP_COUNT,
-        SUM(CASE WHEN c.OUTCOME IN (${NOT_CONNECTED_SQL}) THEN 1 ELSE 0 END) AS NOT_CONNECTED_COUNT,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
-           JOIN #C cc ON cc.CONTACT_CODE = l.CONTACT_CODE
-           WHERE l.USER_CODE = c.ASSIGNED_TO_USER_CODE
-             AND CAST(l.CREATED_DATE AS DATE) BETWEEN @from AND @to)     AS RANGE_CALLS,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
-           WHERE l.USER_CODE = c.ASSIGNED_TO_USER_CODE
-             AND CAST(l.CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE)) AS TODAY_LOGS
-      FROM #C c
+        SUM(CASE WHEN c.OUTCOME = 'No_Answer'        THEN 1 ELSE 0 END)    AS NO_ANSWER_COUNT,
+        SUM(CASE WHEN c.OUTCOME = 'Switched_Off'           THEN 1 ELSE 0 END)    AS SWITCHED_OFF_COUNT,
+        SUM(CASE WHEN c.OUTCOME = 'Callback_Requested'       THEN 1 ELSE 0 END)    AS FOLLOWUP_COUNT,
+        SUM(CASE WHEN c.OUTCOME = 'Wrong_Number' THEN 1 ELSE 0 END) AS WRONG_NUMBER_COUNT,
+        ISNULL(MAX(mc.RANGE_CALLS), 0) AS RANGE_CALLS,
+        ISNULL(MAX(mc.TODAY_LOGS), 0) AS TODAY_LOGS
+      FROM #A c
+      LEFT JOIN #MemberCalls mc ON mc.USER_CODE = c.ASSIGNED_TO_USER_CODE
       LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = c.ASSIGNED_TO_USER_CODE
       WHERE c.ASSIGNED_TO_USER_CODE IS NOT NULL
       GROUP BY c.ASSIGNED_TO_USER_CODE, u.USERNAME
@@ -1607,42 +1726,31 @@ exports.getAnalytics = async (req, res) => {
         SUM(CASE WHEN c.ASSIGNED_TO_USER_CODE IS NOT NULL THEN 1 ELSE 0 END) AS STAT_ASSIGNED,
         SUM(CASE WHEN c.OUTCOME IS NOT NULL           THEN 1 ELSE 0 END) AS STAT_WORKED,
         SUM(CASE WHEN c.OUTCOME = 'Interested'        THEN 1 ELSE 0 END) AS STAT_INTERESTED,
-        SUM(CASE WHEN c.OUTCOME = 'Followup'          THEN 1 ELSE 0 END) AS STAT_FOLLOWUP
+        SUM(CASE WHEN c.OUTCOME = 'Callback_Requested'          THEN 1 ELSE 0 END) AS STAT_FOLLOWUP
       FROM #C c
       JOIN dbo.[${TABLES.VISITOR_BATCH}] b ON b.BATCH_CODE = c.BATCH_CODE
       LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = b.USER_CODE
       GROUP BY c.BATCH_CODE, b.BATCH_NAME, b.BATCH_YEAR, b.TOTAL_CONTACTS, u.USERNAME, b.USER_CODE, b.CREATED_DATE
       ORDER BY b.CREATED_DATE DESC;
 
-      -- 5. Activity time-series (logs in range, bucketed by granularity)
-      SELECT
-        ${bucketL} AS bucket,
-        COUNT(*)                                                          AS totalCalls,
-        SUM(CASE WHEN l.STATUS = 'Interested'     THEN 1 ELSE 0 END)      AS interested,
-        SUM(CASE WHEN l.STATUS = 'Not_Interested' THEN 1 ELSE 0 END)      AS notInterested,
-        SUM(CASE WHEN l.STATUS = 'Followup'       THEN 1 ELSE 0 END)      AS followup,
-        SUM(CASE WHEN l.STATUS IN (${NOT_CONNECTED_SQL}) THEN 1 ELSE 0 END) AS notConnected
-      FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
-      JOIN #C c ON c.CONTACT_CODE = l.CONTACT_CODE
-      WHERE CAST(l.CREATED_DATE AS DATE) BETWEEN @from AND @to
-      GROUP BY ${bucketL}
-      ORDER BY bucket;
+      -- Keep the response slot without calculating the removed trend chart.
+      SELECT CAST(NULL AS DATE) AS bucket WHERE 1 = 0;
 
       -- 6. Per-member activity series (for sparklines)
       SELECT l.USER_CODE AS ASSIGNED_TO, ${bucketL} AS bucket, COUNT(*) AS cnt
-      FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
-      JOIN #C c ON c.CONTACT_CODE = l.CONTACT_CODE
-      WHERE CAST(l.CREATED_DATE AS DATE) BETWEEN @from AND @to AND l.USER_CODE IS NOT NULL
+      FROM #L l
+      JOIN #A c ON c.CONTACT_CODE = l.CONTACT_CODE AND c.KIND = l.KIND
+      WHERE l.CREATED_DATE >= @from AND l.CREATED_DATE < DATEADD(DAY, 1, @to) AND l.USER_CODE IS NOT NULL
       GROUP BY l.USER_CODE, ${bucketL};
 
       -- 7. Activity KPIs (range vs previous period vs today)
       SELECT
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l JOIN #C c ON c.CONTACT_CODE = l.CONTACT_CODE
-           WHERE CAST(l.CREATED_DATE AS DATE) BETWEEN @from AND @to)         AS rangeCalls,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l JOIN #C c ON c.CONTACT_CODE = l.CONTACT_CODE
-           WHERE CAST(l.CREATED_DATE AS DATE) BETWEEN @prevFrom AND @prevTo) AS prevCalls,
-        (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l JOIN #C c ON c.CONTACT_CODE = l.CONTACT_CODE
-           WHERE CAST(l.CREATED_DATE AS DATE) = CAST(GETDATE() AS DATE))     AS todayCalls;
+        (SELECT COUNT(*) FROM #L l JOIN #A c ON c.CONTACT_CODE = l.CONTACT_CODE AND c.KIND = l.KIND
+           WHERE l.CREATED_DATE >= @from AND l.CREATED_DATE < DATEADD(DAY, 1, @to))         AS rangeCalls,
+        (SELECT COUNT(*) FROM #L l JOIN #A c ON c.CONTACT_CODE = l.CONTACT_CODE AND c.KIND = l.KIND
+           WHERE l.CREATED_DATE >= @prevFrom AND l.CREATED_DATE < DATEADD(DAY, 1, @prevTo)) AS prevCalls,
+        (SELECT COUNT(*) FROM #L l JOIN #A c ON c.CONTACT_CODE = l.CONTACT_CODE AND c.KIND = l.KIND
+           WHERE l.CREATED_DATE >= CAST(GETDATE() AS DATE) AND l.CREATED_DATE < DATEADD(DAY, 1, CAST(GETDATE() AS DATE)))     AS todayCalls;
 
       -- 8. Filter options
       SELECT DISTINCT BATCH_YEAR AS year FROM dbo.[${TABLES.VISITOR_BATCH}] ORDER BY year DESC;
@@ -1650,18 +1758,53 @@ exports.getAnalytics = async (req, res) => {
       FROM dbo.[${TABLES.VISITOR_BATCH}] WHERE STATUS = 'Y'
       ORDER BY BATCH_YEAR DESC, BATCH_NAME;
 
+      -- 10. External source counts, 11. Category totals, 12. Separate outcomes.
+      SELECT SOURCE_NAME, COUNT(*) AS cnt FROM #E GROUP BY SOURCE_NAME;
+      SELECT
+        COALESCE(SUM(CASE WHEN CATEGORY = 'BUYER' AND OUTCOME = 'Interested' THEN 1 ELSE 0 END), 0) AS interestedBuyers,
+        COALESCE(SUM(CASE WHEN CATEGORY = 'DELEGATE' THEN 1 ELSE 0 END), 0) AS delegates,
+        COALESCE(SUM(CASE WHEN CATEGORY = 'VISITOR' AND OUTCOME = 'Interested' THEN 1 ELSE 0 END), 0) AS interestedVisitors
+      FROM #A;
+      SELECT KIND, ISNULL(OUTCOME, 'Pending') AS outcome, COUNT(*) AS cnt
+      FROM #A GROUP BY KIND, ISNULL(OUTCOME, 'Pending');
+      SELECT u.USER_CODE, u.USERNAME FROM dbo.[${TABLES.USER}] u
+      WHERE (u.ACTIVE = 1 AND u.ACCESS_LEVEL IN (5, 6))
+        OR EXISTS (SELECT 1 FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c WHERE c.ASSIGNED_TO_USER_CODE = u.USER_CODE)
+        OR EXISTS (SELECT 1 FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el WHERE el.ASSIGNED_TO_USER_CODE = u.USER_CODE)
+      ORDER BY u.USERNAME;
+      DROP TABLE #MemberCalls;
+      DROP TABLE #Latest;
+      DROP TABLE #L;
+      DROP TABLE #E;
+      DROP TABLE #A;
       DROP TABLE #C;
+      SET LOCK_TIMEOUT -1;
+      END TRY
+      BEGIN CATCH
+        SET LOCK_TIMEOUT -1;
+        THROW;
+      END CATCH;
     `;
 
       const r = await request.query(q);
 
       // Zero-fill the outcome breakdown so every known outcome appears.
       const rawOutcomes = Object.fromEntries(r.recordsets[1].map(x => [x.outcome, x.cnt]));
-      const outcomeBreakdown = OUTCOME_KEYS.map(k => ({ key: k, count: rawOutcomes[k] || 0 }));
+      const outcomeKeys = [...new Set([...OUTCOME_KEYS, ...Object.keys(rawOutcomes).filter(k => k !== 'Pending')])];
+      const outcomeBreakdown = outcomeKeys.map(k => ({ key: k, count: rawOutcomes[k] || 0 }));
       const pending = rawOutcomes['Pending'] || 0;
 
+      const outcomesBySource = Object.fromEntries(['INTERNAL', 'EXTERNAL'].map(kind => {
+        const counts = Object.fromEntries(r.recordsets[11].filter(x => x.KIND === kind).map(x => [x.outcome, x.cnt]));
+        const breakdown = outcomeKeys.map(key => ({ key, count: counts[key] || 0 }));
+        return [kind.toLowerCase(), { breakdown, pending: counts.Pending || 0, worked: breakdown.reduce((sum, x) => sum + x.count, 0) }];
+      }));
       return {
-        filters: { batchId: batchId || null, year: year || null, granularity, from: ymd(from), to: ymd(to) },
+        sourceCounts: Object.fromEntries(r.recordsets[9].map(x => [x.SOURCE_NAME, x.cnt])),
+        categoryTotals: r.recordsets[10][0],
+        outcomesBySource,
+        memberOptions: r.recordsets[12],
+        filters: { member, batchId: batchId || null, year: year || null, granularity, from: ymd(from), to: ymd(to) },
         overview: r.recordsets[0][0],
         outcomeBreakdown,
         pending,
@@ -1678,6 +1821,9 @@ exports.getAnalytics = async (req, res) => {
     res.json(payload);
   } catch (err) {
     console.error('getAnalytics error:', err);
+    if (err.number === 1222 || err.code === 'ETIMEOUT') {
+      return res.status(503).json({ error: 'Analytics is temporarily busy. Please retry shortly.' });
+    }
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -1802,8 +1948,10 @@ function reportRangeBounds(range, dateStr) {
     return { from, to };
   }
   if (range === 'month') {
-    const from = new Date(now.getFullYear(), now.getMonth(), 1);
-    const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const selectedMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(dateStr || '')
+      ? new Date(`${dateStr}-01T00:00:00`) : now;
+    const from = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
+    const to = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 1);
     return { from, to };
   }
   return { from: null, to: null };
@@ -1815,7 +1963,8 @@ exports.getMyStats = async (req, res) => {
     if (!userCode) return res.status(401).json({ error: 'Unauthorized' });
 
     const range = String(req.query.range || 'all').toLowerCase();
-    const dateStr = range === 'today' ? String(req.query.date || '').trim() : '';
+    const dateStr = range === 'today' ? String(req.query.date || '').trim()
+      : range === 'month' ? String(req.query.month || '').trim() : '';
     const { from, to } = reportRangeBounds(range, dateStr);
 
     const pool = await poolPromise;
@@ -1830,6 +1979,13 @@ exports.getMyStats = async (req, res) => {
 
     const bcAssignedFilter = from && to ? 'AND c.ASSIGNED_DATE >= @from AND c.ASSIGNED_DATE < @to' : '';
     const elAssignedFilter = from && to ? 'AND el.ASSIGNED_DATE >= @from AND el.ASSIGNED_DATE < @to' : '';
+    
+    const bcPeriodScope = from && to
+      ? 'AND ((c.ASSIGNED_DATE >= @from AND c.ASSIGNED_DATE < @to) OR EXISTS (SELECT 1 FROM dbo.[' + TABLES.VISITOR_CONTACT_LOG + '] periodLog WHERE periodLog.CONTACT_CODE = c.CONTACT_CODE AND periodLog.CREATED_DATE >= @from AND periodLog.CREATED_DATE < @to))'
+      : '';
+    const elPeriodScope = from && to
+      ? 'AND ((el.ASSIGNED_DATE >= @from AND el.ASSIGNED_DATE < @to) OR EXISTS (SELECT 1 FROM dbo.[' + TABLES.VISITOR_EXTERNAL_LEAD_LOG + '] periodLog WHERE periodLog.LEAD_ID = el.LEAD_ID AND periodLog.CREATED_DATE >= @from AND periodLog.CREATED_DATE < @to))'
+      : '';
 
     const q = `
       SELECT c.CONTACT_CODE, LatestLog.STATUS
@@ -1838,18 +1994,18 @@ exports.getMyStats = async (req, res) => {
       INNER JOIN dbo.[${TABLES.VISITOR_BATCH}] b ON b.BATCH_CODE = c.BATCH_CODE
       OUTER APPLY (
         SELECT TOP 1 l.STATUS FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
-        WHERE l.CONTACT_CODE = c.CONTACT_CODE ${bcDateFilter} ORDER BY l.CREATED_DATE DESC
+        WHERE l.CONTACT_CODE = c.CONTACT_CODE AND l.STATUS IS NOT NULL ${bcDateFilter} ORDER BY l.CREATED_DATE DESC
       ) LatestLog
-      WHERE c.ASSIGNED_TO_USER_CODE = @me AND b.STATUS = 'Y';
+      WHERE c.ASSIGNED_TO_USER_CODE = @me ${bcPeriodScope};
 
       SELECT el.LEAD_ID, LatestLog.STATUS
       INTO #EL
       FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el
       OUTER APPLY (
         SELECT TOP 1 ll.STATUS FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}] ll
-        WHERE ll.LEAD_ID = el.LEAD_ID ${elDateFilter} ORDER BY ll.CREATED_DATE DESC
+        WHERE ll.LEAD_ID = el.LEAD_ID AND ll.STATUS IS NOT NULL ${elDateFilter} ORDER BY ll.CREATED_DATE DESC
       ) LatestLog
-      WHERE el.ASSIGNED_TO_USER_CODE = @me AND el.PUSHED_BATCH_CODE IS NULL;
+      WHERE el.ASSIGNED_TO_USER_CODE = @me AND el.PUSHED_BATCH_CODE IS NULL ${elPeriodScope};
 
       SELECT
         (SELECT COUNT(*) FROM #BC) AS batchTotal,
@@ -1858,7 +2014,7 @@ exports.getMyStats = async (req, res) => {
         (SELECT COUNT(*) FROM #EL WHERE STATUS IS NOT NULL) AS leadWorked,
         (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
            INNER JOIN dbo.[${TABLES.VISITOR_BATCH}] b ON b.BATCH_CODE = c.BATCH_CODE
-           WHERE c.ASSIGNED_TO_USER_CODE = @me AND b.STATUS = 'Y' ${bcAssignedFilter}) AS batchAssigned,
+           WHERE c.ASSIGNED_TO_USER_CODE = @me ${bcAssignedFilter}) AS batchAssigned,
         (SELECT COUNT(*) FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el
            WHERE el.ASSIGNED_TO_USER_CODE = @me AND el.PUSHED_BATCH_CODE IS NULL ${elAssignedFilter}) AS leadAssigned;
 

@@ -13,6 +13,15 @@ const API_KEY = process.env.POST_SHOW_API_KEY || '';
 const PAGE_SIZE = 500;
 const CATEGORIES = 'VISITOR,DELEGATE,SPEAKER';
 
+function textValue(value, maxLength) {
+  if (value === null || value === undefined) return null;
+  let text;
+  if (Array.isArray(value)) text = value.map((item) => textValue(item, maxLength)).filter(Boolean).join(', ');
+  else if (typeof value === 'object') text = value.name || value.label || value.value || JSON.stringify(value);
+  else text = String(value);
+  return text.trim().slice(0, maxLength) || null;
+}
+
 async function readCursor(pool) {
   const r = await withRetry(() => pool.request()
     .input('src', sql.VarChar(40), SOURCE_NAME)
@@ -54,24 +63,25 @@ async function fetchPage(page, since) {
   return { rows: body.data || [], meta: body.meta || {} };
 }
 
-async function upsertRows(pool, rows) {
+async function upsertRows(pool, rows, preserveLogged = false) {
   let written = 0;
   for (const r of rows) {
     if (!r?.id) continue;
     const rowSourceName = r.dataCategory === 'EXHIBITOR_TURNED_VISITOR' ? EXHIBITOR_TURNED_VISITOR : SOURCE_NAME;
     const result = await withRetry(() => pool.request()
+      .input('preserveLogged', sql.Bit, preserveLogged)
       .input('sourceName', sql.VarChar(40), rowSourceName)
       .input('sourceRefId', sql.VarChar(100), String(r.id))
-      .input('category', sql.VarChar(20), r.category || 'VISITOR')
-      .input('name', sql.NVarChar(200), r.name || null)
-      .input('firstName', sql.NVarChar(100), r.firstName || null)
-      .input('lastName', sql.NVarChar(100), r.lastName || null)
-      .input('email', sql.NVarChar(200), r.email || null)
-      .input('mobile', sql.VarChar(50), r.mobile || null)
-      .input('designation', sql.NVarChar(150), r.designation || null)
-      .input('company', sql.NVarChar(250), r.company || null)
-      .input('industry', sql.NVarChar(200), r.industry || null)
-      .input('eventName', sql.NVarChar(200), r.eventName || null)
+      .input('category', sql.VarChar(20), textValue(r.category, 20) || 'VISITOR')
+      .input('name', sql.NVarChar(200), textValue(r.name, 200))
+      .input('firstName', sql.NVarChar(100), textValue(r.firstName, 100))
+      .input('lastName', sql.NVarChar(100), textValue(r.lastName, 100))
+      .input('email', sql.NVarChar(200), textValue(r.email, 200))
+      .input('mobile', sql.VarChar(50), textValue(r.mobile, 50))
+      .input('designation', sql.NVarChar(150), textValue(r.designation, 150))
+      .input('company', sql.NVarChar(250), textValue(r.company, 250))
+      .input('industry', sql.NVarChar(200), textValue(r.industry, 200))
+      .input('eventName', sql.NVarChar(200), textValue(r.eventName, 200))
       .input('registeredDate', sql.DateTime, r.registeredAt ? new Date(r.registeredAt) : null)
       .input('rawJson', sql.NVarChar(sql.MAX), JSON.stringify(r))
       .query(`
@@ -81,7 +91,11 @@ async function upsertRows(pool, rows) {
             INDUSTRY = @industry, EVENT_NAME = @eventName, REGISTERED_DATE = @registeredDate,
             RAW_JSON = @rawJson, UPDATED_DATE = GETDATE()
         WHERE SOURCE_NAME = @sourceName AND SOURCE_REF_ID = @sourceRefId
-          AND PUSHED_BATCH_CODE IS NULL;
+          AND PUSHED_BATCH_CODE IS NULL
+          AND (@preserveLogged = 0 OR NOT EXISTS (
+            SELECT 1 FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}] ll
+            WHERE ll.LEAD_ID = ${T}.LEAD_ID
+          ));
 
         IF @@ROWCOUNT = 0 AND NOT EXISTS (
           SELECT 1 FROM ${T} WHERE SOURCE_NAME = @sourceName AND SOURCE_REF_ID = @sourceRefId
@@ -143,10 +157,10 @@ async function runPostShowSync() {
 
 if (require.main === module) {
   runPostShowSync().then(() => process.exit(0)).catch(() => process.exit(1));
-} else {
+} else if (process.env.POST_SHOW_SYNC_DISABLED !== '1') {
   const schedule = process.env.POST_SHOW_SYNC_CRON || '0 * * * *';
   cron.schedule(schedule, () => { runPostShowSync().catch(() => {}); });
   console.log(`postShowSyncJob scheduled: ${schedule}`);
 }
 
-module.exports = { runPostShowSync };
+module.exports = { runPostShowSync, fetchPage, upsertRows, writeCursor };
