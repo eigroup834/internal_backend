@@ -1587,7 +1587,7 @@ exports.getAnalytics = async (req, res) => {
     // Date range — default last 30 days. Previous window = same length, immediately before.
     const today = new Date();
     const to = req.query.to ? new Date(req.query.to) : today;
-    const from = req.query.from ? new Date(req.query.from) : new Date(today.getTime() - 29 * 86400000);
+    const from = req.query.from ? new Date(req.query.from) : new Date('1900-01-01T00:00:00Z');
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
       return res.status(400).json({ error: 'Choose a valid date range with From on or before To.' });
     }
@@ -1595,7 +1595,7 @@ exports.getAnalytics = async (req, res) => {
     const prevTo = new Date(from.getTime() - 86400000);
     const prevFrom = new Date(prevTo.getTime() - spanMs);
 
-    const cacheKey = JSON.stringify({ m: member, b: batchId || '', y: year || '', g: granularity, f: ymd(from), t: ymd(to) });
+    const cacheKey = JSON.stringify({ m: member, b: batchId || '', y: year || '', g: granularity, allDates: !req.query.from && !req.query.to, f: ymd(from), t: ymd(to) });
     const payload = await analyticsCache(cacheKey, async () => {
       const pool = await poolPromise;
       const request = pool.request();
@@ -1607,6 +1607,7 @@ exports.getAnalytics = async (req, res) => {
       request.input('prevFrom', sql.Date, ymd(prevFrom));
       request.input('prevTo', sql.Date, ymd(prevTo));
 
+      const allDates = !req.query.from && !req.query.to;
       const scopeC = analyticsScope('c', { batchId, year }) + (member ? ' AND c.ASSIGNED_TO_USER_CODE = @member' : '');
       const bucketL = bucketExpr(granularity, 'l.CREATED_DATE');
 
@@ -1652,6 +1653,7 @@ exports.getAnalytics = async (req, res) => {
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
       LEFT JOIN #Latest ll ON ll.KIND = 'INTERNAL' AND ll.CONTACT_CODE = c.CONTACT_CODE
       WHERE ${scopeC} AND (
+        ${allDates ? '1=1 OR' : ''}
         (c.CREATED_DATE >= @from AND c.CREATED_DATE < DATEADD(DAY, 1, @to)) OR
         (c.ASSIGNED_DATE >= @from AND c.ASSIGNED_DATE < DATEADD(DAY, 1, @to)) OR ll.CONTACT_CODE IS NOT NULL
       );
@@ -1667,6 +1669,7 @@ exports.getAnalytics = async (req, res) => {
         ${batchId ? 'AND 1 = 0' : ''}
         ${year ? 'AND YEAR(COALESCE(el.REGISTERED_DATE, el.CREATED_DATE)) = @yr' : ''}
         AND (
+          ${allDates ? '1=1 OR' : ''}
           (el.CREATED_DATE >= @from AND el.CREATED_DATE < DATEADD(DAY, 1, @to)) OR
           (el.REGISTERED_DATE >= @from AND el.REGISTERED_DATE < DATEADD(DAY, 1, @to)) OR
           (el.ASSIGNED_DATE >= @from AND el.ASSIGNED_DATE < DATEADD(DAY, 1, @to)) OR latest.STATUS IS NOT NULL
@@ -1700,7 +1703,7 @@ exports.getAnalytics = async (req, res) => {
       -- 3. Team performance (state + range/today activity)
       SELECT
         c.ASSIGNED_TO_USER_CODE                                          AS ASSIGNED_TO,
-        ISNULL(u.USERNAME, c.ASSIGNED_TO_USER_CODE)                      AS MEMBER_NAME,
+        COALESCE(u.USERNAME, c.ASSIGNED_TO_USER_CODE, 'Not assigned')     AS MEMBER_NAME,
         COUNT(*)                                                          AS ASSIGNED_COUNT,
         SUM(CASE WHEN c.OUTCOME IS NOT NULL THEN 1 ELSE 0 END)           AS WORKED_COUNT,
         SUM(CASE WHEN c.OUTCOME = 'Interested'     THEN 1 ELSE 0 END)    AS INTERESTED_COUNT,
@@ -1714,7 +1717,6 @@ exports.getAnalytics = async (req, res) => {
       FROM #A c
       LEFT JOIN #MemberCalls mc ON mc.USER_CODE = c.ASSIGNED_TO_USER_CODE
       LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = c.ASSIGNED_TO_USER_CODE
-      WHERE c.ASSIGNED_TO_USER_CODE IS NOT NULL
       GROUP BY c.ASSIGNED_TO_USER_CODE, u.USERNAME
       ORDER BY ASSIGNED_COUNT DESC;
 
@@ -1759,7 +1761,10 @@ exports.getAnalytics = async (req, res) => {
       ORDER BY BATCH_YEAR DESC, BATCH_NAME;
 
       -- 10. External source counts, 11. Category totals, 12. Separate outcomes.
-      SELECT SOURCE_NAME, COUNT(*) AS cnt FROM #E GROUP BY SOURCE_NAME;
+      SELECT SOURCE_NAME, COUNT(*) AS cnt,
+        SUM(CASE WHEN ASSIGNED_TO_USER_CODE IS NOT NULL THEN 1 ELSE 0 END) AS assigned,
+        SUM(CASE WHEN ASSIGNED_TO_USER_CODE IS NULL THEN 1 ELSE 0 END) AS unassigned
+      FROM #A GROUP BY SOURCE_NAME;
       SELECT
         COALESCE(SUM(CASE WHEN CATEGORY = 'BUYER' AND OUTCOME = 'Interested' THEN 1 ELSE 0 END), 0) AS interestedBuyers,
         COALESCE(SUM(CASE WHEN CATEGORY = 'DELEGATE' THEN 1 ELSE 0 END), 0) AS delegates,
@@ -1772,6 +1777,13 @@ exports.getAnalytics = async (req, res) => {
         OR EXISTS (SELECT 1 FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c WHERE c.ASSIGNED_TO_USER_CODE = u.USER_CODE)
         OR EXISTS (SELECT 1 FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el WHERE el.ASSIGNED_TO_USER_CODE = u.USER_CODE)
       ORDER BY u.USERNAME;
+      -- 14. Interested category breakdown for each assignment group.
+      SELECT ASSIGNED_TO_USER_CODE AS ASSIGNED_TO,
+        COALESCE(NULLIF(LTRIM(RTRIM(CATEGORY)), ''), 'Uncategorized') AS CATEGORY,
+        COUNT(*) AS INTERESTED_COUNT
+      FROM #A WHERE OUTCOME = 'Interested'
+      GROUP BY ASSIGNED_TO_USER_CODE,
+        COALESCE(NULLIF(LTRIM(RTRIM(CATEGORY)), ''), 'Uncategorized');
       DROP TABLE #MemberCalls;
       DROP TABLE #Latest;
       DROP TABLE #L;
@@ -1801,6 +1813,7 @@ exports.getAnalytics = async (req, res) => {
       }));
       return {
         sourceCounts: Object.fromEntries(r.recordsets[9].map(x => [x.SOURCE_NAME, x.cnt])),
+        sourceAssignmentCounts: Object.fromEntries(r.recordsets[9].map(x => [x.SOURCE_NAME, { total: x.cnt, assigned: x.assigned, unassigned: x.unassigned }])),
         categoryTotals: r.recordsets[10][0],
         outcomesBySource,
         memberOptions: r.recordsets[12],
@@ -1808,7 +1821,10 @@ exports.getAnalytics = async (req, res) => {
         overview: r.recordsets[0][0],
         outcomeBreakdown,
         pending,
-        members: r.recordsets[2],
+        members: r.recordsets[2].map(member => ({
+          ...member,
+          interestedCategories: r.recordsets[13].filter(category => category.ASSIGNED_TO === member.ASSIGNED_TO),
+        })),
         batches: r.recordsets[3],
         timeseries: r.recordsets[4],
         memberSeries: r.recordsets[5],
