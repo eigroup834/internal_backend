@@ -18,6 +18,7 @@ const requestTiming = require('./middleware/requestTiming');
 // require('./jobs/duplicateCheckJob');
 require('./jobs/postShowSyncJob');
 require('./jobs/visitorRegSyncJob');
+require('./jobs/fintechDelegateSyncJob');
 
 const app = express();
 
@@ -33,6 +34,10 @@ app.use('/api/visitor', visitorRoutes);
 app.use('/api/network', networkRoutes);
 app.use('/api/search', smartSearchRoutes);
 app.use('/api/offlineData', offlineDataRoutes);
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'API route not found' });
+});
 
 app.use(express.static(
   path.join(__dirname, '../frontend/build')

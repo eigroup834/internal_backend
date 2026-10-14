@@ -1,0 +1,248 @@
+if (require.main === module) require('dotenv').config({ path: require('path').join(__dirname, '../.env'), quiet: true });
+const cron = require('node-cron');
+const { getPool, withRetry } = require('../db');
+const { TABLES } = require('../helper');
+const sql = require('mssql');
+
+const SOURCE_NAME = 'FINTECH_DELEGATE';
+const T = `dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}]`;
+const STATE = `dbo.[${TABLES.VISITOR_SYNC_STATE}]`;
+
+const API_URL = process.env.FINTECH_API_URL || 'https://www.convergenceindia.org/fintech_delegate_leads.aspx';
+const API_KEY = process.env.FINTECH_API_KEY || '';
+const API_TIMEOUT_MS = parseInt(process.env.FINTECH_API_TIMEOUT_MS, 10) || 20000;
+const BATCH_SIZE = 500;
+
+function fullName(r) {
+  if (r.name) return String(r.name).trim() || null;
+  return [r.title, r.fname, r.lname]
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+    .join(' ') || null;
+}
+
+const clean = (v) => {
+  const s = String(v ?? '').trim();
+  return s || null;
+};
+
+const toDate = (v) => {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+async function readCursor(pool) {
+  const r = await withRetry(() => pool.request()
+    .input('src', sql.VarChar(40), SOURCE_NAME)
+    .query(`SELECT LAST_SYNCED_ID FROM ${STATE} WHERE SOURCE_NAME = @src`));
+  const n = parseInt(r.recordset[0]?.LAST_SYNCED_ID, 10);
+  return Number.isInteger(n) ? n : 0;
+}
+
+async function writeCursor(pool, lastId, status, message) {
+  await withRetry(() => pool.request()
+    .input('src', sql.VarChar(40), SOURCE_NAME)
+    .input('lastId', sql.VarChar(100), lastId === null ? null : String(lastId))
+    .input('status', sql.VarChar(20), status)
+    .input('message', sql.NVarChar(1000), message || null)
+    .query(`
+      UPDATE ${STATE}
+      SET LAST_SYNCED_ID  = COALESCE(@lastId, LAST_SYNCED_ID),
+          LAST_RUN_DATE   = GETDATE(),
+          LAST_RUN_STATUS = @status,
+          LAST_RUN_MESSAGE = @message
+      WHERE SOURCE_NAME = @src;
+
+      IF @@ROWCOUNT = 0
+        INSERT INTO ${STATE} (SOURCE_NAME, LAST_SYNCED_ID, LAST_RUN_DATE, LAST_RUN_STATUS, LAST_RUN_MESSAGE)
+        VALUES (@src, @lastId, GETDATE(), @status, @message);
+    `));
+}
+
+async function fetchBatch(afterId) {
+  const url = new URL(API_URL);
+  url.searchParams.set('since_id', String(afterId));
+  url.searchParams.set('top', String(BATCH_SIZE));
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      headers: { 'X-Api-Key': API_KEY, Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Fintech API returned HTTP ${res.status} ${res.statusText}`);
+    const payload = await res.json();
+    if (payload.status !== 'success' && payload.success !== true) {
+      throw new Error(`Source API error: ${payload.message || 'unexpected response'}`);
+    }
+    const rows = payload.data;
+    if (!Array.isArray(rows)) throw new Error('Source API returned no data array');
+    return { rows, lastId: payload.last_id };
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error(`Source API timed out after ${API_TIMEOUT_MS}ms`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function upsertRows(pool, rows) {
+  let inserted = 0;
+  let deduped = 0;
+  for (const r of rows) {
+    if (!Number.isSafeInteger(Number(r.id)) || Number(r.id) <= 0) throw new Error('Fintech API returned a delegate without a valid numeric id');
+    const result = await withRetry(() => pool.request()
+      .input('sourceName', sql.VarChar(40), SOURCE_NAME)
+      .input('sourceRefId', sql.VarChar(100), String(r.id))
+      .input('category', sql.VarChar(20), 'DELEGATE')
+      .input('name', sql.NVarChar(200), fullName(r))
+      .input('firstName', sql.NVarChar(100), clean(r.fname))
+      .input('lastName', sql.NVarChar(100), clean(r.lname))
+      .input('email', sql.NVarChar(200), clean(r.email))
+      .input('mobile', sql.VarChar(50), clean(r.mobile))
+      .input('phone', sql.VarChar(50), clean(r.phone))
+      .input('designation', sql.NVarChar(150), clean(r.designation))
+      .input('department', sql.NVarChar(200), clean(r.department))
+      .input('company', sql.NVarChar(250), clean(r.company))
+      .input('industry', sql.NVarChar(200), clean(r.industry))
+      .input('city', sql.NVarChar(100), clean(r.city))
+      .input('state', sql.NVarChar(100), clean(r.state))
+      .input('country', sql.NVarChar(100), clean(r.country))
+      .input('website', sql.NVarChar(200), clean(r.website))
+      .input('ipAddress', sql.VarChar(45), clean(r.ip_address))
+      .input('eventName', sql.NVarChar(200), clean(r.event_name))
+      .input('registeredDate', sql.DateTime, toDate(r.date || r.create_date))
+      .input('rawJson', sql.NVarChar(sql.MAX), JSON.stringify(r))
+      .query(`
+        UPDATE ${T}
+        SET NAME = @name, FIRST_NAME = @firstName, LAST_NAME = @lastName,
+            EMAIL = @email, MOBILE = @mobile, PHONE = @phone, DESIGNATION = @designation,
+            DEPARTMENT = @department, COMPANY = @company, INDUSTRY = @industry, CITY = @city, STATE = @state,
+            COUNTRY = @country, WEBSITE = @website, IP_ADDRESS = @ipAddress,
+            EVENT_NAME = @eventName, REGISTERED_DATE = @registeredDate,
+            RAW_JSON = @rawJson, UPDATED_DATE = GETDATE()
+        WHERE SOURCE_NAME = @sourceName AND SOURCE_REF_ID = @sourceRefId
+          AND PUSHED_BATCH_CODE IS NULL;
+
+        IF @@ROWCOUNT = 0 AND NOT EXISTS (
+          SELECT 1 FROM ${T} WHERE SOURCE_NAME = @sourceName AND SOURCE_REF_ID = @sourceRefId
+        )
+        BEGIN
+          -- Not a known source ref id — before creating a new lead, check whether this
+          -- person (by email or mobile) already exists in the table, so a single
+          -- person re-registering under a new source ref id doesn't create a duplicate lead.
+          DECLARE @dupLeadId BIGINT = NULL, @dupPushed BIT = NULL;
+
+          SELECT TOP 1 @dupLeadId = LEAD_ID, @dupPushed = CASE WHEN PUSHED_BATCH_CODE IS NULL THEN 0 ELSE 1 END
+          FROM ${T} WITH (UPDLOCK, HOLDLOCK)
+          WHERE SOURCE_NAME = @sourceName AND (
+              (@email IS NOT NULL AND LOWER(LTRIM(RTRIM(EMAIL))) = LOWER(@email))
+              OR (@mobile IS NOT NULL AND MOBILE = @mobile)
+
+            )
+          ORDER BY CASE WHEN PUSHED_BATCH_CODE IS NULL THEN 0 ELSE 1 END ASC, LEAD_ID DESC;
+
+          IF @dupLeadId IS NOT NULL
+          BEGIN
+            IF @dupPushed = 0
+            BEGIN
+              -- Still an open lead — refresh it with the latest registration details.
+              UPDATE ${T}
+              SET NAME = @name, FIRST_NAME = @firstName, LAST_NAME = @lastName,
+                  EMAIL = @email, MOBILE = @mobile, PHONE = @phone, DESIGNATION = @designation,
+                  DEPARTMENT = @department, COMPANY = @company, INDUSTRY = @industry, CITY = @city, STATE = @state,
+                  COUNTRY = @country, WEBSITE = @website, IP_ADDRESS = @ipAddress,
+                  EVENT_NAME = @eventName, REGISTERED_DATE = @registeredDate,
+                  RAW_JSON = @rawJson, UPDATED_DATE = GETDATE()
+              WHERE LEAD_ID = @dupLeadId;
+            END
+            -- else: already pushed/converted — leave that record untouched, just skip the insert.
+            SELECT 0 AS inserted, 1 AS deduped;
+          END
+          ELSE
+          BEGIN
+            INSERT INTO ${T}
+              (SOURCE_NAME, SOURCE_REF_ID, CATEGORY, NAME, FIRST_NAME, LAST_NAME, EMAIL, MOBILE, PHONE,
+               DESIGNATION, DEPARTMENT, COMPANY, INDUSTRY, CITY, STATE, COUNTRY, WEBSITE, IP_ADDRESS,
+               EVENT_NAME, REGISTERED_DATE, RAW_JSON, CREATED_DATE)
+            VALUES
+              (@sourceName, @sourceRefId, @category, @name, @firstName, @lastName, @email, @mobile, @phone,
+               @designation, @department, @company, @industry, @city, @state, @country, @website, @ipAddress,
+               @eventName, @registeredDate, @rawJson, GETDATE());
+            SELECT 1 AS inserted, 0 AS deduped;
+          END
+        END
+        ELSE SELECT 0 AS inserted, 0 AS deduped;
+      `));
+    inserted += result.recordset?.[0]?.inserted || 0;
+    deduped += result.recordset?.[0]?.deduped || 0;
+  }
+  return { inserted, deduped };
+}
+
+let running = false;
+
+async function syncDelegates() {
+  if (!API_URL || !API_KEY) {
+    console.warn('fintechDelegateSyncJob: FINTECH_API_URL / FINTECH_API_KEY not set — skipping.');
+    return { skipped: true };
+  }
+
+  const pool = await getPool();
+  let afterId = await readCursor(pool);
+  let seen = 0;
+  let inserted = 0;
+  let deduped = 0;
+
+  try {
+    for (;;) {
+      const { rows, lastId } = await fetchBatch(afterId);
+      if (rows.length === 0) break;
+
+      seen += rows.length;
+      const batchResult = await upsertRows(pool, rows);
+      inserted += batchResult.inserted;
+      deduped += batchResult.deduped;
+
+      const maxId = Number.isInteger(lastId)
+        ? lastId
+        : rows.reduce((m, r) => Math.max(m, Number(r.id) || 0), afterId);
+      if (maxId <= afterId) throw new Error('Fintech API pagination did not advance; cursor was not updated');
+      afterId = maxId;
+
+      await writeCursor(pool, afterId, 'RUNNING', `${seen} fetched, ${inserted} new, ${deduped} deduped`);
+      if (rows.length < BATCH_SIZE) break;
+    }
+
+    const msg = `${seen} fetched, ${inserted} new, ${deduped} deduped`;
+    await writeCursor(pool, afterId, 'SUCCESS', msg);
+    console.log(`fintechDelegateSyncJob: ${msg} (cursor at id ${afterId})`);
+    return { seen, inserted, deduped };
+  } catch (err) {
+    await writeCursor(pool, null, 'FAILED', String(err.message).slice(0, 1000));
+    console.error('fintechDelegateSyncJob error:', err.message);
+    throw err;
+  }
+}
+
+async function runFintechDelegateSync() {
+  if (running) throw new Error('Fintech delegate sync is already running');
+  running = true;
+  try { return await syncDelegates(); } finally { running = false; }
+}
+
+if (require.main === module) {
+  runFintechDelegateSync().then(() => process.exit(0)).catch(() => process.exit(1));
+} else {
+  const schedule = process.env.FINTECH_DELEGATE_SYNC_CRON || '*/10 * * * *';
+  cron.schedule(schedule, () => { runFintechDelegateSync().catch(() => {}); });
+  console.log(`fintechDelegateSyncJob scheduled: ${schedule}`);
+ 
+  runFintechDelegateSync().catch((err) => {
+    console.error("fintechDelegateSyncJob startup sync failed:", err.message);
+  });
+}
+
+module.exports = { runFintechDelegateSync };

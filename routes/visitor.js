@@ -31,13 +31,33 @@ router.post('/batches/:batchId/assign',         requireLevel(MANAGE), ctrl.assig
 router.post('/batches/:batchId/smart-assign',   requireLevel(MANAGE), ctrl.smartAssign);
 router.post('/batches/:batchId/reassign',       requireLevel(MANAGE), ctrl.reassignContacts);
 
+const fintechCollection = (req, res, next) => { req.leadCollection = 'fintech'; next(); };
+router.get('/fintech-delegates', requireLevel(VIEW), fintechCollection, extCtrl.list);
+router.get('/fintech-delegates/designations', requireLevel(VIEW), fintechCollection, extCtrl.designations);
+router.post('/fintech-delegates/assign', requireLevel(MANAGE), fintechCollection, extCtrl.assign);
+router.patch('/fintech-delegates/:id/reclassify', requireLevel(LOG), fintechCollection, extCtrl.requireLeadAccess, extCtrl.reclassify);
+router.post('/fintech-delegates/:id/log', requireLevel(LOG), fintechCollection, extCtrl.requireLeadAccess, extCtrl.addLeadLog);
+router.get('/fintech-delegates/:id/logs', requireLevel(LOG), fintechCollection, extCtrl.requireLeadAccess, extCtrl.getLeadLogs);
+router.patch('/fintech-delegates/:id/remark', requireLevel(LOG), fintechCollection, extCtrl.requireLeadAccess, extCtrl.editRemark);
+
+router.post('/fintech-delegates/sync', requireLevel(MANAGE), async (req, res) => {
+  try {
+    const result = await require('../jobs/fintechDelegateSyncJob').runFintechDelegateSync();
+    if (result.skipped) return res.status(503).json({ error: 'Fintech API key is not configured' });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('Fintech delegate sync failed:', err.message);
+    res.status(502).json({ error: 'Unable to sync Fintech delegates. Check the source API and backend sync logs.' });
+  }
+});
+
 router.get('/external-leads',                    requireLevel(VIEW), extCtrl.list);
 router.get('/external-leads/designations',       requireLevel(VIEW), extCtrl.designations);
 router.post('/external-leads/assign',            requireLevel(MANAGE), extCtrl.assign);
-router.patch('/external-leads/:id/reclassify',   requireLevel(LOG), extCtrl.reclassify);
-router.post('/external-leads/:id/log',           requireLevel(LOG), extCtrl.addLeadLog);
-router.get('/external-leads/:id/logs',           requireLevel(LOG), extCtrl.getLeadLogs);
-router.patch('/external-leads/:id/remark',       requireLevel(LOG), extCtrl.editRemark);
+router.patch('/external-leads/:id/reclassify',   requireLevel(LOG), extCtrl.requireLeadAccess, extCtrl.reclassify);
+router.post('/external-leads/:id/log',           requireLevel(LOG), extCtrl.requireLeadAccess, extCtrl.addLeadLog);
+router.get('/external-leads/:id/logs',           requireLevel(LOG), extCtrl.requireLeadAccess, extCtrl.getLeadLogs);
+router.patch('/external-leads/:id/remark',       requireLevel(LOG), extCtrl.requireLeadAccess, extCtrl.editRemark);
 
 router.get('/team-members',                 ctrl.getTeamMembers);
 

@@ -5,7 +5,7 @@ const T = `dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}]`;
 const USER = `dbo.[${TABLES.USER}]`;
 const LEAD_LOG = `dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}]`;
 
-const SOURCES = ['POST_SHOW_SALES', 'VISITOR_REGISTRATION', 'EXHIBITOR_TURNED_VISITOR'];
+const SOURCES = ['POST_SHOW_SALES', 'VISITOR_REGISTRATION', 'EXHIBITOR_TURNED_VISITOR', 'FINTECH_DELEGATE'];
 const CATEGORIES = ['VISITOR', 'DELEGATE', 'SPEAKER', 'BUYER', 'OTHER', 'INVALID'];
 
 const LEAD_LOG_JOIN = `
@@ -68,6 +68,7 @@ exports.list = async (req, res) => {
     const request = pool.request();
 
     const baseFilters = ['l.PUSHED_BATCH_CODE IS NULL'];
+    baseFilters.push(req.leadCollection === 'fintech' ? "l.SOURCE_NAME = 'FINTECH_DELEGATE'" : "l.SOURCE_NAME <> 'FINTECH_DELEGATE'");
     scopeToMember(req, request, baseFilters);
     if (search) {
       request.input('search', sql.NVarChar, `%${search}%`);
@@ -180,6 +181,7 @@ exports.designations = async (req, res) => {
       'l.PUSHED_BATCH_CODE IS NULL',
       "l.DESIGNATION IS NOT NULL AND LTRIM(RTRIM(l.DESIGNATION)) <> ''",
     ];
+    filters.push(req.leadCollection === 'fintech' ? "l.SOURCE_NAME = 'FINTECH_DELEGATE'" : "l.SOURCE_NAME <> 'FINTECH_DELEGATE'");
     scopeToMember(req, request, filters);
 
     const result = await request.query(`
@@ -229,7 +231,8 @@ exports.assign = async (req, res) => {
           ASSIGNED_DATE         = GETDATE(),
           UPDATED_DATE          = GETDATE()
       WHERE LEAD_ID IN (${idParams.join(',')})
-        AND PUSHED_BATCH_CODE IS NULL;
+        AND PUSHED_BATCH_CODE IS NULL
+        AND ${req.leadCollection === 'fintech' ? "SOURCE_NAME = 'FINTECH_DELEGATE'" : "SOURCE_NAME <> 'FINTECH_DELEGATE'"};
 
       SELECT @@ROWCOUNT AS updated;
     `);
@@ -409,6 +412,27 @@ exports.getLeadLogs = async (req, res) => {
     res.json(result.recordset);
   } catch (err) {
     console.error('externalLeads.getLeadLogs error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+exports.requireLeadAccess = async (req, res, next) => {
+  const leadId = Number(req.params.id);
+  if (!Number.isSafeInteger(leadId) || leadId <= 0) return res.status(400).json({ error: 'Invalid lead ID' });
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('leadId', sql.BigInt, leadId)
+      .query(`SELECT ASSIGNED_TO_USER_CODE FROM ${T} WHERE LEAD_ID = @leadId AND PUSHED_BATCH_CODE IS NULL
+        ${req.leadCollection === 'fintech' ? "AND SOURCE_NAME = 'FINTECH_DELEGATE'" : ''}`);
+    const lead = result.recordset[0];
+    if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    if (!HEAD_LEVELS.includes(Number(req.user?.access_level)) && lead.ASSIGNED_TO_USER_CODE !== req.user?.user_code) {
+      return res.status(403).json({ error: 'This lead is not assigned to you' });
+    }
+    next();
+  } catch (err) {
+    console.error('externalLeads.requireLeadAccess error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };

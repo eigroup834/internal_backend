@@ -89,12 +89,13 @@ async function fetchBatch(afterId) {
   }
 }
 
-async function upsertRows(pool, rows) {
+async function upsertRows(pool, rows, recoverMissing = false) {
   let inserted = 0;
   let deduped = 0;
   for (const r of rows) {
     if (r.id === null || r.id === undefined) continue;
     const result = await withRetry(() => pool.request()
+      .input('recoverMissing', sql.Bit, recoverMissing)
       .input('sourceName', sql.VarChar(40), SOURCE_NAME)
       .input('sourceRefId', sql.VarChar(100), String(r.id))
       .input('category', sql.VarChar(20), 'VISITOR')
@@ -124,29 +125,29 @@ async function upsertRows(pool, rows) {
             EVENT_NAME = @eventName, REGISTERED_DATE = @registeredDate,
             RAW_JSON = @rawJson, UPDATED_DATE = GETDATE()
         WHERE SOURCE_NAME = @sourceName AND SOURCE_REF_ID = @sourceRefId
-          AND PUSHED_BATCH_CODE IS NULL;
+          AND PUSHED_BATCH_CODE IS NULL
+          AND @recoverMissing = 0;
 
         IF @@ROWCOUNT = 0 AND NOT EXISTS (
           SELECT 1 FROM ${T} WHERE SOURCE_NAME = @sourceName AND SOURCE_REF_ID = @sourceRefId
         )
         BEGIN
           -- Not a known source ref id — before creating a new lead, check whether this
-          -- person (by email or phone/mobile) already exists in the table, so a single
+          -- person (by email or mobile) already exists in the table, so a single
           -- person re-registering under a new source ref id doesn't create a duplicate lead.
           DECLARE @dupLeadId BIGINT = NULL, @dupPushed BIT = NULL;
 
           SELECT TOP 1 @dupLeadId = LEAD_ID, @dupPushed = CASE WHEN PUSHED_BATCH_CODE IS NULL THEN 0 ELSE 1 END
           FROM ${T} WITH (UPDLOCK, HOLDLOCK)
-          WHERE (
+          WHERE SOURCE_NAME <> 'FINTECH_DELEGATE' AND (
               (@email IS NOT NULL AND LOWER(LTRIM(RTRIM(EMAIL))) = LOWER(@email))
               OR (@mobile IS NOT NULL AND MOBILE = @mobile)
-              OR (@phone IS NOT NULL AND PHONE = @phone)
             )
           ORDER BY CASE WHEN PUSHED_BATCH_CODE IS NULL THEN 0 ELSE 1 END ASC, LEAD_ID DESC;
 
           IF @dupLeadId IS NOT NULL
           BEGIN
-            IF @dupPushed = 0
+            IF @dupPushed = 0 AND @recoverMissing = 0
             BEGIN
               -- Still an open lead — refresh it with the latest registration details.
               UPDATE ${T}
@@ -182,14 +183,14 @@ async function upsertRows(pool, rows) {
   return { inserted, deduped };
 }
 
-async function runVisitorRegSync() {
+async function runVisitorRegSync({ recoverMissing = false } = {}) {
   if (!API_URL || !API_KEY) {
     console.warn('visitorRegSyncJob: VISITOR_API_URL / VISITOR_API_KEY not set — skipping.');
     return { skipped: true };
   }
 
   const pool = await getPool();
-  let afterId = await readCursor(pool);
+  let afterId = recoverMissing ? 0 : await readCursor(pool);
   let seen = 0;
   let inserted = 0;
   let deduped = 0;
@@ -200,7 +201,7 @@ async function runVisitorRegSync() {
       if (rows.length === 0) break;
 
       seen += rows.length;
-      const batchResult = await upsertRows(pool, rows);
+      const batchResult = await upsertRows(pool, rows, recoverMissing);
       inserted += batchResult.inserted;
       deduped += batchResult.deduped;
 
@@ -210,23 +211,24 @@ async function runVisitorRegSync() {
       if (maxId <= afterId) break;
       afterId = maxId;
 
-      await writeCursor(pool, afterId, 'RUNNING', `${seen} fetched, ${inserted} new, ${deduped} deduped`);
+      if (!recoverMissing) await writeCursor(pool, afterId, 'RUNNING', `${seen} fetched, ${inserted} new, ${deduped} deduped`);
       if (rows.length < BATCH_SIZE) break;
     }
 
     const msg = `${seen} fetched, ${inserted} new, ${deduped} deduped`;
-    await writeCursor(pool, afterId, 'SUCCESS', msg);
-    console.log(`visitorRegSyncJob: ${msg} (cursor at id ${afterId})`);
+    if (!recoverMissing) await writeCursor(pool, afterId, 'SUCCESS', msg);
+    console.log(`visitorRegSyncJob${recoverMissing ? " recovery" : ""}: ${msg} (cursor at id ${afterId})`);
     return { seen, inserted, deduped };
   } catch (err) {
-    await writeCursor(pool, null, 'FAILED', String(err.message).slice(0, 1000));
+    if (!recoverMissing) await writeCursor(pool, null, 'FAILED', String(err.message).slice(0, 1000));
     console.error('visitorRegSyncJob error:', err.message);
     throw err;
   }
 }
 
 if (require.main === module) {
-  runVisitorRegSync().then(() => process.exit(0)).catch(() => process.exit(1));
+  runVisitorRegSync({ recoverMissing: process.argv.includes("--recover-missing") })
+    .then(() => process.exit(0)).catch(() => process.exit(1));
 } else {
   const schedule = process.env.VISITOR_REG_SYNC_CRON || '15 * * * *';
   cron.schedule(schedule, () => { runVisitorRegSync().catch(() => {}); });
