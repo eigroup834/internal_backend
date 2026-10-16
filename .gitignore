@@ -1,3 +1,8 @@
 node_modules/
 .env
 .DS_Store
+
+.local/
+
+.role-security.json
+.role-security.json.*.tmp

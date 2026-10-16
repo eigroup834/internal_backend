@@ -1,3 +1,4 @@
+const requireLevel = require('../middleware/requireLevel');
 const express = require('express');
 const router = express.Router();
 const commonController = require('../controllers/commonController');
@@ -32,8 +33,8 @@ router.post('/addGroup', authenticateToken, commonController.addGroup);
 router.put('/groups/:groupCode', authenticateToken, commonController.updateGroup);
 router.delete('/groups/:groupCode', authenticateToken, commonController.deleteGroup);
 
-router.post('/addEditor', authenticateToken, commonController.addEditor);
-router.post('/editEditor', authenticateToken, commonController.editEditor);
+router.post('/addEditor', authenticateToken, requireLevel(1, 2), commonController.addEditor);
+router.post('/editEditor', authenticateToken, requireLevel(1), commonController.editEditor);
 
 router.get('/dashboard/stats', authenticateToken, commonController.getDashboardStats);
 router.get('/dashboard/activity', authenticateToken, commonController.getDashboardActivity);
@@ -43,5 +44,8 @@ router.get('/reports/salesReport',    authenticateToken, commonController.getSal
 router.get('/reports/tagReport',      authenticateToken, commonController.getTagReport);
 router.get('/reports/vipInviteeReport', authenticateToken, commonController.getVipInviteeReport);
 router.get('/reports/salesDataView',  authenticateToken, commonController.getSalesDataView);
+
+router.get('/editor/:userCode', authenticateToken, requireLevel(1, 2), commonController.getEditorByCode);
+router.put('/editor/:userCode', authenticateToken, requireLevel(1, 2), commonController.updateEditorByCode);
 
 module.exports = router;

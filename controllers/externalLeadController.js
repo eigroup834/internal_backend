@@ -1,3 +1,4 @@
+const { hasAccessLevel } = require('../utils/accessLevels');
 const { poolPromise, sql } = require('../db');
 const { TABLES } = require('../helper');
 
@@ -36,9 +37,8 @@ const SORT_EXPR = {
 const HEAD_LEVELS = [2, 5];
 
 function scopeToMember(req, request, filters) {
-  const level = Number(req.user?.access_level);
   const userCode = req.user?.user_code;
-  const isHead = HEAD_LEVELS.includes(level);
+  const isHead = hasAccessLevel(req.user, HEAD_LEVELS);
 
   if (!isHead) {
     request.input('scopeUser', sql.VarChar(100), userCode);
@@ -214,7 +214,7 @@ exports.assign = async (req, res) => {
     const member = await pool.request()
       .input('uc', sql.VarChar(100), String(userCode))
       .input('me', sql.VarChar(100), req.user?.user_code || '')
-      .query(`SELECT USER_CODE FROM ${USER} WHERE USER_CODE = @uc AND ACTIVE = 1 AND (ACCESS_LEVEL IN (5, 6) OR USER_CODE = @me)`);
+      .query(`SELECT USER_CODE FROM ${USER} WHERE USER_CODE = @uc AND ACTIVE = 1 AND ((ACCESS_LEVEL IN (5, 6) OR EXISTS (SELECT 1 FROM STRING_SPLIT(ISNULL(ACCESS_LEVELS, ''), ',') roleLevel WHERE TRY_CONVERT(INT, roleLevel.value) IN (5, 6))) OR USER_CODE = @me)`);
     if (!member.recordset.length) {
       return res.status(400).json({ error: 'Assignee is not an active visitor team member' });
     }
@@ -427,7 +427,7 @@ exports.requireLeadAccess = async (req, res, next) => {
         ${req.leadCollection === 'fintech' ? "AND SOURCE_NAME = 'FINTECH_DELEGATE'" : ''}`);
     const lead = result.recordset[0];
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
-    if (!HEAD_LEVELS.includes(Number(req.user?.access_level)) && lead.ASSIGNED_TO_USER_CODE !== req.user?.user_code) {
+    if (!hasAccessLevel(req.user, HEAD_LEVELS) && lead.ASSIGNED_TO_USER_CODE !== req.user?.user_code) {
       return res.status(403).json({ error: 'This lead is not assigned to you' });
     }
     next();

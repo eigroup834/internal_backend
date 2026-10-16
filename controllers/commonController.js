@@ -1,3 +1,6 @@
+const bcrypt = require('bcrypt');
+const { accountAllowed, userSchema, optionalSignature, publicUser } = require('../utils/roleSignature');
+const { hasAccessLevel, validateAccessLevels } = require('../utils/accessLevels');
 const { Country, State, City } = require("country-state-city");
 const { poolPromise, sql } = require("../db");
 const { TABLES } = require('../helper');
@@ -130,7 +133,7 @@ exports.getEditors = async (req, res) => {
     const result = await request.query(query);
 
     res.json({
-      data: result.recordsets[0],
+      data: result.recordsets[0].map(publicUser),
       total: result.recordsets[1][0].total,
       page: pageNum,
       limit: limitNum,
@@ -1206,12 +1209,17 @@ exports.addEditor = async (req, res) => {
       telecmi_password,
     } = req.body;
 
-    if (!name || !password) {
+    if (!name || typeof password !== "string" || !password || !usercode || !department) {
       return res
         .status(400)
         .json({ error: "USERNAME and PASSWORD are required" });
     }
 
+    if (Buffer.byteLength(password, "utf8") > 72) return res.status(400).json({ error: "Password must be at most 72 UTF-8 bytes." });
+    let levels;
+    try { levels = validateAccessLevels(req.body.access_levels ?? role); }
+    catch (err) { return res.status(400).json({ error: err.message }); }
+    if (levels.includes(1) && !hasAccessLevel(req.user, [1])) return res.status(403).json({ error: 'Only administrators can assign Administrator access.' });
     const pool = await poolPromise;
 
     const duplicate = await pool.request()
@@ -1248,12 +1256,20 @@ exports.addEditor = async (req, res) => {
     `);
 
     const ID = idResult.recordset[0].NextID;
+    const passwordHash = await bcrypt.hash(password, 12);
+    const schema = await userSchema(pool);
+    if (!schema.levels && levels.length > 1) return res.status(409).json({ error: "Run the user table preparation script before assigning multiple roles." });
+    const signature = optionalSignature({ ID, USER_CODE: usercode, USERNAME: name,
+      DEPARTMENT: department, PASSWORD: passwordHash, ACTIVE: true,
+      ACCESS_LEVEL: String(levels[0]), ACCESS_LEVELS: levels.join(',') }, schema);
     await pool.request()
       .input("ID", sql.SmallInt, ID)
       .input("USERNAME", sql.VarChar(100), name)
-      .input("PASSWORD", sql.VarChar(255), password)
+      .input("PASSWORD", sql.VarChar(255), passwordHash)
+      .input("ROLE_SIGNATURE", sql.VarChar(64), signature)
       .input("DEPARTMENT", sql.VarChar(50), department)
-      .input("ACCESS_LEVEL", sql.Char(1), role)
+      .input("ACCESS_LEVEL", sql.Char(1), String(levels[0]))
+      .input("ACCESS_LEVELS", sql.VarChar(50), levels.join(","))
       .input("USER_CODE", sql.VarChar(50), usercode)
       .input("DATA_COUNT", sql.Decimal(18, 0), data_count)
       .input("EMAIL", sql.VarChar(100), email)
@@ -1264,12 +1280,12 @@ exports.addEditor = async (req, res) => {
       .query(`
         INSERT INTO dbo.[${TABLES.USER}] (
           ID, USERNAME, PASSWORD, DEPARTMENT,
-          ACCESS_LEVEL, USER_CODE, DATA_COUNT, EMAIL, PHONE,
+          ACCESS_LEVEL, ${schema.levels ? 'ACCESS_LEVELS,' : ''} ${schema.signature ? 'ROLE_SIGNATURE,' : ''} USER_CODE, DATA_COUNT, EMAIL, PHONE,
           ACTIVE, TELECMI_USER_ID, TELECMI_PASSWORD, UPDATED_DATE, CREATED_DATE
         )
         VALUES (
           @ID, @USERNAME, @PASSWORD, @DEPARTMENT,
-          @ACCESS_LEVEL, @USER_CODE, @DATA_COUNT, @EMAIL, @PHONE,
+          @ACCESS_LEVEL, ${schema.levels ? '@ACCESS_LEVELS,' : ''} ${schema.signature ? '@ROLE_SIGNATURE,' : ''} @USER_CODE, @DATA_COUNT, @EMAIL, @PHONE,
           @ACTIVE, @TELECMI_USER_ID, @TELECMI_PASSWORD, GETDATE(), GETDATE()
         );
       `);
@@ -1287,79 +1303,14 @@ exports.addEditor = async (req, res) => {
   }
 };
 
-exports.editEditor = async (req, res) => {
-  try {
-    let {
-      USERNAME,
-      PASSWORD,
-      DEPARTMENT,
-      DEPARTMENT_HEAD,
-      ACCESS_LEVEL,
-      USER_CODE,
-      DATA_COUNT,
-      EMAIL,
-      PHONE,
-      ACTIVE,
-      TELECMI_USER_ID,
-      TELECMI_PASSWORD
-    } = req.body;
-
-    if (!USERNAME || !PASSWORD) {
-      return res.status(400).json({ error: "USERNAME and PASSWORD are required" });
-    }
-
-    const pool = await poolPromise;
-    const idResult = await pool.request().query(`
-      SELECT ISNULL(MAX(ID), 0) + 1 AS NextID FROM dbo.[${TABLES.USER}]
-    `);
-
-    const ID = idResult.recordset[0].NextID;
-
-    const existingCode = await pool.request()
-      .input("USER_CODE", sql.VarChar(50), USER_CODE)
-      .query(`SELECT 1 FROM dbo.[${TABLES.USER}] WHERE USER_CODE = @USER_CODE`);
-
-    if (existingCode.recordset.length > 0) {
-      return res.status(400).json({ error: "USER_CODE already exists" });
-    }
-
-    const insert = await pool.request()
-      .input("ID", sql.SmallInt, ID)
-      .input("USERNAME", sql.VarChar(100), USERNAME)
-      .input("PASSWORD", sql.VarChar(255), PASSWORD)
-      .input("DEPARTMENT", sql.VarChar(50), DEPARTMENT)
-      .input("DEPARTMENT_HEAD", sql.VarChar(50), DEPARTMENT_HEAD)
-      .input("ACCESS_LEVEL", sql.Char(1), ACCESS_LEVEL)
-      .input("USER_CODE", sql.VarChar(50), USER_CODE)
-      .input("DATA_COUNT", sql.Decimal(18, 0), DATA_COUNT)
-      .input("EMAIL", sql.VarChar(100), EMAIL)
-      .input("PHONE", sql.VarChar(50), PHONE)
-      .input("ACTIVE", sql.Bit, ACTIVE ?? 1)
-      .input("TELECMI_USER_ID", sql.VarChar(100), TELECMI_USER_ID || null)
-      .input("TELECMI_PASSWORD", sql.VarChar(255), TELECMI_PASSWORD || null)
-      .query(`
-        INSERT INTO dbo.[${TABLES.USER}] (
-          ID, USERNAME, PASSWORD, DEPARTMENT, DEPARTMENT_HEAD,
-          ACCESS_LEVEL, USER_CODE, DATA_COUNT, EMAIL, PHONE,
-          ACTIVE, TELECMI_USER_ID, TELECMI_PASSWORD, UPDATED_DATE, CREATED_DATE
-        )
-        VALUES (
-          @ID, @USERNAME, @PASSWORD, @DEPARTMENT, @DEPARTMENT_HEAD,
-          @ACCESS_LEVEL, @USER_CODE, @DATA_COUNT, @EMAIL, @PHONE,
-          @ACTIVE, @TELECMI_USER_ID, @TELECMI_PASSWORD, GETDATE(), GETDATE()
-        );
-      `);
-
-    return res.json({
-      message: "User created successfully",
-      USER_CODE,
-      ID
-    });
-
-  } catch (err) {
-    console.error("addUser error:", err);
-    return res.status(500).json({ error: "Server error", details: err.message });
-  }
+// Legacy endpoint uses the same validated and signed creation path.
+exports.editEditor = (req, res) => {
+  const data = req.body;
+  req.body = { name: data.USERNAME, password: data.PASSWORD, department: data.DEPARTMENT,
+    role: data.ACCESS_LEVEL, access_levels: data.access_levels, usercode: data.USER_CODE,
+    data_count: data.DATA_COUNT, email: data.EMAIL, phone: data.PHONE,
+    telecmi_user_id: data.TELECMI_USER_ID, telecmi_password: data.TELECMI_PASSWORD };
+  return exports.addEditor(req, res);
 };
 
 exports.getDashboardStats = async (req, res) => {
@@ -2539,3 +2490,44 @@ exports.exportData = async (req, res) => {
 
 
 
+
+exports.getEditorByCode = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().input('code', sql.VarChar(50), req.params.userCode)
+      .query(`SELECT * FROM dbo.[${TABLES.USER}] WHERE USER_CODE = @code`);
+    if (!result.recordset.length) return res.status(404).json({ error: 'User not found.' });
+    res.json({ data: publicUser(result.recordset[0]) });
+  } catch (err) { res.status(500).json({ error: 'Unable to load user.' }); }
+};
+exports.updateEditorByCode = async (req, res) => {
+  let levels;
+  try { levels = validateAccessLevels(req.body.access_levels ?? req.body.role); }
+  catch (err) { return res.status(400).json({ error: err.message }); }
+  const { name, email, phone, department } = req.body;
+  if (!name || !email || !phone || !department) return res.status(400).json({ error: 'Name, email, phone and department are required.' });
+  try {
+    const pool = await poolPromise;
+    const existing = await pool.request().input('code', sql.VarChar(50), req.params.userCode)
+      .query(`SELECT * FROM dbo.[${TABLES.USER}] WHERE USER_CODE = @code`);
+    if (!existing.recordset.length) return res.status(404).json({ error: 'User not found.' });
+    if (!accountAllowed(existing.recordset[0])) return res.status(403).json({ error: 'Account signature is invalid. Review the account before migration.' });
+    if (!hasAccessLevel(req.user, [1]) && (levels.includes(1) || hasAccessLevel(existing.recordset[0], [1]))) {
+      return res.status(403).json({ error: 'Only administrators can modify Administrator access.' });
+    }
+    const schema = await userSchema(pool);
+    if (!schema.levels && levels.length > 1) return res.status(409).json({ error: 'Run the user table preparation script before assigning multiple roles.' });
+    // Keep unsigned accounts unsigned until they are reviewed by the migration operator.
+    const signature = existing.recordset[0].ROLE_SIGNATURE ? optionalSignature({ ...existing.recordset[0], USERNAME: name, DEPARTMENT: department, ACCESS_LEVEL: String(levels[0]), ACCESS_LEVELS: levels.join(',') }, schema) : null;
+    const update = await pool.request().input('oldSignature', sql.VarChar(64), existing.recordset[0].ROLE_SIGNATURE)
+      .input('signature', sql.VarChar(64), signature).input('code', sql.VarChar(50), req.params.userCode)
+      .input('name', sql.VarChar(100), name).input('email', sql.VarChar(100), email)
+      .input('phone', sql.VarChar(50), phone).input('department', sql.VarChar(50), department)
+      .input('primary', sql.Char(1), String(levels[0])).input('levels', sql.VarChar(50), levels.join(','))
+      .query(`UPDATE dbo.[${TABLES.USER}] SET USERNAME = @name, EMAIL = @email, PHONE = @phone,
+        DEPARTMENT = @department, ACCESS_LEVEL = @primary, ${schema.levels ? 'ACCESS_LEVELS = @levels,' : ''} ${schema.signature ? 'ROLE_SIGNATURE = @signature,' : ''}
+        UPDATED_DATE = GETDATE() WHERE USER_CODE = @code ${schema.signature ? 'AND (ROLE_SIGNATURE = @oldSignature OR (ROLE_SIGNATURE IS NULL AND @oldSignature IS NULL))' : ''}`);
+    if (update.rowsAffected[0] !== 1) return res.status(409).json({ error: 'User changed during editing. Reload and try again.' });
+    res.json({ message: 'User updated. Sign in again to use the updated access levels.' });
+  } catch (err) { res.status(500).json({ error: 'Unable to update user.' }); }
+};

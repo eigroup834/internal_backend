@@ -1,10 +1,11 @@
+const { hasAccessLevel } = require('../utils/accessLevels');
 const { poolPromise, sql } = require('../db');
 const { TABLES } = require('../helper');
 const ExcelJS = require('exceljs');
 const crypto = require('crypto');
 
 const VISITOR_HEAD_LEVELS = [2, 5];
-const isVisitorHead = (req) => VISITOR_HEAD_LEVELS.includes(Number(req.user?.access_level));
+const isVisitorHead = (req) => hasAccessLevel(req.user, VISITOR_HEAD_LEVELS);
 const INTERNAL_LEAD_CATEGORIES = ['VISITOR', 'DELEGATE', 'BUYER', 'OTHER', 'INVALID'];
 let contactLeadCategorySchemaPromise;
 
@@ -821,9 +822,9 @@ exports.getTeamMembers = async (req, res) => {
 
     request.input('me', sql.VarChar(100), req.user?.user_code || '');
     const q = `
-      SELECT USER_CODE, USERNAME, DEPARTMENT, ACCESS_LEVEL
+      SELECT USER_CODE, USERNAME, DEPARTMENT, ACCESS_LEVEL, ACCESS_LEVELS
       FROM dbo.[${TABLES.USER}]
-      WHERE ACTIVE = 1 AND (ACCESS_LEVEL IN (5, 6) OR USER_CODE = @me)
+      WHERE ACTIVE = 1 AND ((ACCESS_LEVEL IN (5, 6) OR EXISTS (SELECT 1 FROM STRING_SPLIT(ISNULL(ACCESS_LEVELS, ''), ',') roleLevel WHERE TRY_CONVERT(INT, roleLevel.value) IN (5, 6))) OR USER_CODE = @me)
       ORDER BY ACCESS_LEVEL, USERNAME;
     `;
     const result = await request.query(q);
@@ -1036,7 +1037,6 @@ exports.getMyContacts = async (req, res) => {
 exports.getFollowups = async (req, res) => {
   try {
     const userCode = req.user?.user_code;
-    const level = Number(req.user?.access_level);
     if (!userCode) return res.status(401).json({ error: 'Unauthorized' });
 
     const isHead = isVisitorHead(req);
@@ -1773,7 +1773,7 @@ exports.getAnalytics = async (req, res) => {
       SELECT KIND, ISNULL(OUTCOME, 'Pending') AS outcome, COUNT(*) AS cnt
       FROM #A GROUP BY KIND, ISNULL(OUTCOME, 'Pending');
       SELECT u.USER_CODE, u.USERNAME FROM dbo.[${TABLES.USER}] u
-      WHERE (u.ACTIVE = 1 AND u.ACCESS_LEVEL IN (5, 6))
+      WHERE (u.ACTIVE = 1 AND (u.ACCESS_LEVEL IN (5, 6) OR EXISTS (SELECT 1 FROM STRING_SPLIT(ISNULL(u.ACCESS_LEVELS, ''), ',') roleLevel WHERE TRY_CONVERT(INT, roleLevel.value) IN (5, 6))))
         OR EXISTS (SELECT 1 FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c WHERE c.ASSIGNED_TO_USER_CODE = u.USER_CODE)
         OR EXISTS (SELECT 1 FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el WHERE el.ASSIGNED_TO_USER_CODE = u.USER_CODE)
       ORDER BY u.USERNAME;

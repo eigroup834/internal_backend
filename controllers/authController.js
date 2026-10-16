@@ -1,3 +1,6 @@
+const bcrypt = require('bcrypt');
+const { accountAllowed, enforcementEnabled, publicUser } = require('../utils/roleSignature');
+const { getAccessLevels } = require('../utils/accessLevels');
 const { poolPromise, sql } = require('../db');
 const jwt = require('jsonwebtoken');
 const { TABLES } = require('../helper');
@@ -38,7 +41,13 @@ exports.login = async (req, res) => {
       return res.status(401).json({ message: 'Username does not exist' });
     }
 
-    const isMatch = (password === user.PASSWORD);
+    if (!accountAllowed(user)) {
+      return res.status(403).json({ message: 'Account access verification failed. Please contact an administrator.' });
+    }
+    const hashed = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(user.PASSWORD || '');
+    const isMatch = typeof password === 'string' && (hashed
+      ? await bcrypt.compare(password, user.PASSWORD)
+      : !enforcementEnabled() && !user.ROLE_SIGNATURE && password === user.PASSWORD);
     if (!isMatch) {
       return res.status(401).json({ message: 'Incorrect password' });
     }
@@ -55,13 +64,15 @@ exports.login = async (req, res) => {
         username: user.USERNAME,
         user_code: user.USER_CODE,
         access_level: user.ACCESS_LEVEL,
+        access_levels: getAccessLevels(user),
         department: user.DEPARTMENT,
+        role_signature: user.ROLE_SIGNATURE,
       },
       process.env.JWT_SECRET,
       { expiresIn }
     );
 
-    const { PASSWORD, ...userData } = user;
+    const userData = publicUser(user);
 
     res.json({
       message: 'Login successful',
