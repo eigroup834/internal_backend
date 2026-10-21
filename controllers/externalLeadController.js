@@ -121,7 +121,7 @@ exports.list = async (req, res) => {
           THEN COALESCE(JSON_VALUE(CASE WHEN ISJSON(l.RAW_JSON) = 1 THEN l.RAW_JSON ELSE N'{}' END, '$.assignedPersonName'),
             JSON_VALUE(CASE WHEN ISJSON(l.RAW_JSON) = 1 THEN l.RAW_JSON ELSE N'{}' END, '$.assignedpersonname'))
           ELSE NULL END AS assignedpersonname,
-        l.ASSIGNED_TO_USER_CODE, u.USERNAME AS ASSIGNED_TO_NAME,
+        l.ASSIGNED_TO_USER_CODE, l.ASSIGNED_DATE, u.USERNAME AS ASSIGNED_TO_NAME,
         LatestLog.STATUS AS CURRENT_STATUS,
         LatestLog.REMARKS AS LAST_REMARK,
         LatestLog.CREATED_DATE AS LAST_ACTIVITY_DATE

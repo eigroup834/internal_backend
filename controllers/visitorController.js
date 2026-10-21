@@ -1319,7 +1319,7 @@ exports.addContactLog = async (req, res) => {
   }
 };
 
-// Same person or company sitting in a *different* batch, where that other copy already
+// Same person and company sitting in a different batch, where that other copy already
 // has at least one logged action. Surfaced so an agent about to work a lead can see it
 // was already touched elsewhere first — batches are allowed to overlap, so this is the
 // only warning signal we have against double-contacting someone.
@@ -1330,18 +1330,19 @@ exports.getContactCrossBatchHistory = async (req, res) => {
 
     const me = await pool.request()
       .input('contactId', sql.VarChar(100), contactId)
-      .query(`SELECT PERSON_CODE, COMPANY_CODE FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE CONTACT_CODE = @contactId`);
+      .query(`SELECT PERSON_CODE, COMPANY_CODE, BATCH_CODE FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] WHERE CONTACT_CODE = @contactId`);
     if (!me.recordset.length) return res.json([]);
-    const { PERSON_CODE, COMPANY_CODE } = me.recordset[0];
+    const { PERSON_CODE, COMPANY_CODE, BATCH_CODE } = me.recordset[0];
 
     const result = await pool.request()
       .input('contactId', sql.VarChar(100), contactId)
       .input('personCode', sql.VarChar(100), PERSON_CODE)
       .input('companyCode', sql.VarChar(100), COMPANY_CODE)
+      .input('batchCode', sql.VarChar(100), BATCH_CODE)
       .query(`
         SELECT
           c.CONTACT_CODE, c.BATCH_CODE, b.BATCH_NAME, b.BATCH_YEAR,
-          CASE WHEN c.PERSON_CODE = @personCode THEN 'PERSON' ELSE 'COMPANY' END AS MATCH_TYPE,
+          'PERSON' AS MATCH_TYPE,
           u.USERNAME AS ASSIGNED_TO_NAME,
           ll.STATUS, ll.ACTION_TYPE, ll.REMARKS, ll.CREATED_DATE, ll.NEXT_FOLLOWUP,
           ll.USER_NAME AS DONE_BY_NAME
@@ -1350,7 +1351,9 @@ exports.getContactCrossBatchHistory = async (req, res) => {
         LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = c.ASSIGNED_TO_USER_CODE
         JOIN dbo.[${TABLES.VISITOR_CONTACT_LOG}] ll ON ll.CONTACT_CODE = c.CONTACT_CODE
         WHERE c.CONTACT_CODE <> @contactId
-          AND (c.PERSON_CODE = @personCode OR c.COMPANY_CODE = @companyCode)
+          AND c.BATCH_CODE <> @batchCode
+          AND c.PERSON_CODE = @personCode
+          AND c.COMPANY_CODE = @companyCode
         ORDER BY ll.CREATED_DATE DESC
       `);
     res.json(result.recordset);
