@@ -1209,6 +1209,11 @@ exports.addEditor = async (req, res) => {
       telecmi_password,
     } = req.body;
 
+    name = typeof name === "string" ? name.trim() : "";
+    usercode = typeof usercode === "string" ? usercode.trim().toUpperCase() : "";
+    email = typeof email === "string" ? email.trim() : "";
+    phone = typeof phone === "string" ? phone.trim() : "";
+
     if (!name || typeof password !== "string" || !password || !usercode || !department) {
       return res
         .status(400)
@@ -1228,26 +1233,25 @@ exports.addEditor = async (req, res) => {
       .input("PHONE", sql.VarChar(50), phone)
       .input("USER_CODE", sql.VarChar(50), usercode)
       .query(`
-        SELECT USERNAME, EMAIL, PHONE, USER_CODE
+        SELECT
+          CASE WHEN UPPER(LTRIM(RTRIM(USERNAME))) = UPPER(@USERNAME) THEN 1 ELSE 0 END AS duplicateName,
+          CASE WHEN UPPER(LTRIM(RTRIM(USER_CODE))) = UPPER(@USER_CODE) THEN 1 ELSE 0 END AS duplicateCode,
+          CASE WHEN @EMAIL <> '' AND EMAIL = @EMAIL THEN 1 ELSE 0 END AS duplicateEmail,
+          CASE WHEN @PHONE <> '' AND PHONE = @PHONE THEN 1 ELSE 0 END AS duplicatePhone
         FROM dbo.[${TABLES.USER}]
-        WHERE USERNAME = @USERNAME
-           OR EMAIL = @EMAIL
-           OR PHONE = @PHONE
-           OR USER_CODE = @USER_CODE
+        WHERE UPPER(LTRIM(RTRIM(USERNAME))) = UPPER(@USERNAME)
+           OR (@EMAIL <> '' AND EMAIL = @EMAIL)
+           OR (@PHONE <> '' AND PHONE = @PHONE)
+           OR UPPER(LTRIM(RTRIM(USER_CODE))) = UPPER(@USER_CODE)
       `);
 
-    if (duplicate.recordset.length > 0) {
-      const row = duplicate.recordset[0];
-      if (row.USER_CODE === usercode)
-        return res.status(400).json({ error: "User code already exists" });
-      if (row.EMAIL === email)
-        return res.status(400).json({ error: "Email already exists" });
-
-      if (row.PHONE === phone)
-        return res.status(400).json({ error: "Phone already exists" });
-
-      if (row.USERNAME === name)
-        return res.status(400).json({ error: "Username already exists" });
+    const errors = {};
+    if (duplicate.recordset.some(row => row.duplicateName)) errors.name = "Username already exists";
+    if (duplicate.recordset.some(row => row.duplicateCode)) errors.usercode = "User code already exists";
+    if (duplicate.recordset.some(row => row.duplicateEmail)) errors.email = "Email already exists";
+    if (duplicate.recordset.some(row => row.duplicatePhone)) errors.phone = "Phone already exists";
+    if (Object.keys(errors).length) {
+      return res.status(409).json({ error: Object.values(errors)[0], errors });
     }
 
     const idResult = await pool.request().query(`
@@ -2504,8 +2508,10 @@ exports.updateEditorByCode = async (req, res) => {
   let levels;
   try { levels = validateAccessLevels(req.body.access_levels ?? req.body.role); }
   catch (err) { return res.status(400).json({ error: err.message }); }
-  const { name, email, phone, department } = req.body;
-  if (!name || !email || !phone || !department) return res.status(400).json({ error: 'Name, email, phone and department are required.' });
+  const { name, department } = req.body;
+  const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
+  const phone = typeof req.body.phone === 'string' ? req.body.phone.trim() : '';
+  if (!name || !department) return res.status(400).json({ error: 'Name and department are required.' });
   try {
     const pool = await poolPromise;
     const existing = await pool.request().input('code', sql.VarChar(50), req.params.userCode)

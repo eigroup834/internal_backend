@@ -1,3 +1,11 @@
+# Current mode: signatures optional
+
+Role signature enforcement defaults to `disabled`. Users may be created through the frontend or directly in SQL without `ROLE_SIGNATURE`; no migration is required. Password and active-account checks still apply. Database role changes are read on authenticated requests. Restart the backend after deploying these changes.
+
+Set `ROLE_SIGNATURE_ENFORCEMENT=disabled` to explicitly disable signature checks, including when a saved security configuration exists. `compat` allows unsigned accounts but validates existing signatures; `strict` requires valid signatures. The environment setting takes precedence over the saved mode.
+
+The setup procedure below is optional and enables strict mode only when no environment override is set.
+
 # One-command user security setup
 
 Deploy the updated code, pause users, then run this on the backend server:

@@ -60,3 +60,18 @@ test('strict mode rejects unsigned accounts and missing schema', () => {
     assert.throws(() => optionalSignature(original, { signature: false }));
   } finally { delete process.env.ROLE_SIGNATURE_ENFORCEMENT; }
 });
+
+ test('disabled mode allows SQL accounts and ignores stale signatures without a signing key', () => {
+  const key = process.env.ROLE_SIGNING_KEY;
+  process.env.ROLE_SIGNATURE_ENFORCEMENT = 'disabled';
+  delete process.env.ROLE_SIGNING_KEY;
+  try {
+    assert.equal(accountAllowed(original), true);
+    assert.equal(accountAllowed({ ...original, ROLE_SIGNATURE: 'stale' }), true);
+    assert.equal(accountAllowed(null), false);
+    assert.equal(optionalSignature(original, { signature: true }), null);
+  } finally {
+    process.env.ROLE_SIGNING_KEY = key;
+    delete process.env.ROLE_SIGNATURE_ENFORCEMENT;
+  }
+});

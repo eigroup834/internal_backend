@@ -47,7 +47,7 @@ exports.login = async (req, res) => {
     const hashed = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(user.PASSWORD || '');
     const isMatch = typeof password === 'string' && (hashed
       ? await bcrypt.compare(password, user.PASSWORD)
-      : !enforcementEnabled() && !user.ROLE_SIGNATURE && password === user.PASSWORD);
+      : !enforcementEnabled() && (require('../utils/roleSecurityConfig').settings().mode === 'disabled' || !user.ROLE_SIGNATURE) && password === user.PASSWORD);
     if (!isMatch) {
       return res.status(401).json({ message: 'Incorrect password' });
     }

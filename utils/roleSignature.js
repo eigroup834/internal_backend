@@ -4,11 +4,12 @@ const { validateAccessLevels } = require('./accessLevels');
 
 function enforcementEnabled() {
   const mode = settings().mode;
-  if (!['compat', 'strict'].includes(mode)) throw new Error('ROLE_SIGNATURE_ENFORCEMENT must be compat or strict.');
+  if (!['disabled', 'compat', 'strict'].includes(mode)) throw new Error('ROLE_SIGNATURE_ENFORCEMENT must be disabled, compat or strict.');
   return mode === 'strict';
 }
 function accountAllowed(user) {
   if (!user) return false;
+  if (settings().mode === 'disabled') return true;
   if (user.ROLE_SIGNATURE) return verifyUser(user);
   return !enforcementEnabled();
 }
@@ -17,6 +18,7 @@ async function userSchema(pool) {
   return { signature: result.recordset[0].signatureColumn != null, levels: result.recordset[0].levelsColumn != null };
 }
 function optionalSignature(user, schema) {
+  if (settings().mode === 'disabled') return null;
   if (!schema.signature || !settings().key) {
     if (enforcementEnabled()) throw new Error('Run the user security migration and configure ROLE_SIGNING_KEY first.');
     return null;

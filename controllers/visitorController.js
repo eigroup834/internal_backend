@@ -26,12 +26,12 @@ const PERSON_COLS = `
   LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
   CASE WHEN ISJSON(CP.DESIG)=1        THEN JSON_VALUE(CP.DESIG,'$[0].value')   ELSE CP.DESIG END AS DESIGNATION,
   CASE WHEN ISJSON(CP.DEPT)=1         THEN JSON_VALUE(CP.DEPT,'$[0]')          ELSE CP.DEPT  END AS DEPARTMENT,
-  CASE WHEN CM.ACTIVE = 1 THEN 'XXXXXXXXXX'
+  CASE WHEN CM.ACTIVE = 0 THEN 'XXXXXXXXXX'
        WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS MOBILE,
   CP.[OLD_MOBILE] AS OLD_MOBILE,
-  CASE WHEN CM.ACTIVE = 1 THEN 'xxxxxx@xxxxx.xxx'
+  CASE WHEN CM.ACTIVE = 0 THEN 'xxxxxx@xxxxx.xxx'
        WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]')  ELSE NULL END AS EMAIL,
-  CASE WHEN ISNULL(CM.ACTIVE, 0) <> 1 THEN 1 ELSE 0 END AS COMPANY_ACTIVE,
+  CASE WHEN CM.ACTIVE = 0 THEN 0 ELSE 1 END AS COMPANY_ACTIVE,
   CD.COMPANY_NAME, CD.DIVISION, CD.CITY, CD.STATE, CD.COUNTRY`;
 
 const OTHER_BATCH_LOGS_COL = `
@@ -40,7 +40,7 @@ const OTHER_BATCH_LOGS_COL = `
      JOIN dbo.[${TABLES.VISITOR_CONTACT_LOG}] ol ON ol.CONTACT_CODE = oc.CONTACT_CODE
     WHERE oc.PERSON_CODE = c.PERSON_CODE AND oc.CONTACT_CODE <> c.CONTACT_CODE) AS OTHER_BATCH_LOGS`;
 
-const SEARCH_CONTACT_INFO = `(ISNULL(CM.ACTIVE, 0) <> 1 AND (CP.MOBILE LIKE @s OR CP.PERSON_EMAIL LIKE @s))`;
+const SEARCH_CONTACT_INFO = `(ISNULL(CM.ACTIVE, 1) <> 0 AND (CP.MOBILE LIKE @s OR CP.PERSON_EMAIL LIKE @s))`;
 
 const PERSON_JOINS = `
   LEFT JOIN dbo.[${TABLES.COMP_PERSON}]    CP ON CP.PERSON_CODE  = c.PERSON_CODE
@@ -699,8 +699,8 @@ exports.getBatchContacts = async (req, res) => {
     const { batchId } = req.params;
     const {
       page = 1, limit = 50,
-      search = '', status = '', assignedTo = '',
-      unassignedOnly = 'false',
+      search = '', status = '', assignedTo = '', designation = '', state = '',
+      unassignedOnly = 'false', assignedOnly = 'false', sortBy = '', sortDir = 'asc',
     } = req.query;
 
     const pageNum = parseInt(page, 10) || 1;
@@ -724,8 +724,36 @@ exports.getBatchContacts = async (req, res) => {
       if (unassignedOnly === 'true') {
         where.push('c.ASSIGNED_TO_USER_CODE IS NULL');
       }
+      if (assignedOnly === 'true') {
+        where.push('c.ASSIGNED_TO_USER_CODE IS NOT NULL');
+      }
     }
 
+    if (req.query.filtersOnly === 'true') {
+      const scopeSQL = 'WHERE ' + where.join(' AND ');
+      const options = await request.query(`
+        SELECT DISTINCT ${MY_CONTACTS_SORT.designation} AS value
+        FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
+        ${PERSON_JOINS}
+        ${scopeSQL}
+        ORDER BY value;
+        SELECT DISTINCT CD.STATE AS value
+        FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
+        ${PERSON_JOINS}
+        ${scopeSQL}
+        ORDER BY value;
+      `);
+      const values = rows => [...new Set(rows.map(row => row.value).filter(value => value && String(value).trim()))];
+      return res.json({ designations: values(options.recordsets[0]), states: values(options.recordsets[1]) });
+    }
+    if (designation) {
+      request.input('designation', sql.NVarChar, designation);
+      where.push(`(${MY_CONTACTS_SORT.designation}) = @designation`);
+    }
+    if (state) {
+      request.input('state', sql.NVarChar, state);
+      where.push('CD.STATE = @state');
+    }
     if (search) {
       request.input('s', sql.NVarChar, `%${search}%`);
       where.push(`(${SEARCH_PERSON_NAME} LIKE @s OR CD.COMPANY_NAME LIKE @s OR ${SEARCH_CONTACT_INFO})`);
@@ -736,6 +764,15 @@ exports.getBatchContacts = async (req, res) => {
     }
 
     const whereSQL = 'WHERE ' + where.join(' AND ');
+    const sortableColumns = new Set([
+      'COMPANY_NAME', 'PERSON_NAME', 'DESIGNATION', 'DEPARTMENT', 'MOBILE',
+      'EMAIL', 'CITY', 'STATE', 'COUNTRY', 'ASSIGNED_TO_NAME',
+    ]);
+    const sortColumn = sortableColumns.has(sortBy) ? sortBy : 'CONTACT_CODE';
+    const direction = String(sortDir).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    const orderBy = sortColumn === 'CONTACT_CODE'
+      ? 'CONTACT_CODE ' + direction
+      : '[' + sortColumn + '] ' + direction + ', CONTACT_CODE ASC';
 
     const q = `
       WITH ContactData AS (
@@ -743,14 +780,16 @@ exports.getBatchContacts = async (req, res) => {
           ${CONTACT_ALIASES},
           ${PERSON_COLS},
           ${OTHER_BATCH_LOGS_COL},
-          u.USERNAME AS ASSIGNED_TO_NAME,
-          ROW_NUMBER() OVER (ORDER BY c.CONTACT_CODE) AS RowNum
+          u.USERNAME AS ASSIGNED_TO_NAME
         FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
         ${PERSON_JOINS}
         LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = c.ASSIGNED_TO_USER_CODE
         ${whereSQL}
       )
-      SELECT * FROM ContactData WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum};
+      , RankedContacts AS (
+        SELECT *, ROW_NUMBER() OVER (ORDER BY ${orderBy}) AS RowNum FROM ContactData
+      )
+      SELECT * FROM RankedContacts WHERE RowNum BETWEEN ${offset + 1} AND ${offset + limitNum} ORDER BY RowNum;
 
       SELECT COUNT(*) AS total
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
@@ -820,15 +859,20 @@ exports.getTeamMembers = async (req, res) => {
     const pool = await poolPromise;
     const request = pool.request();
 
-    request.input('me', sql.VarChar(100), req.user?.user_code || '');
     const q = `
       SELECT USER_CODE, USERNAME, DEPARTMENT, ACCESS_LEVEL, ACCESS_LEVELS
       FROM dbo.[${TABLES.USER}]
-      WHERE ACTIVE = 1 AND ((ACCESS_LEVEL IN (5, 6) OR EXISTS (SELECT 1 FROM STRING_SPLIT(ISNULL(ACCESS_LEVELS, ''), ',') roleLevel WHERE TRY_CONVERT(INT, roleLevel.value) IN (5, 6))) OR USER_CODE = @me)
+      WHERE ACTIVE = 1
       ORDER BY ACCESS_LEVEL, USERNAME;
     `;
     const result = await request.query(q);
-    res.json(result.recordset);
+    // Parse roles in JavaScript to support older SQL Server versions.
+    const me = req.user?.user_code;
+    const members = result.recordset.filter(member =>
+      hasAccessLevel(member, [5, 6]) || hasAccessLevel(member.ACCESS_LEVEL, [5, 6]) ||
+      (me && member.USER_CODE === me)
+    );
+    res.json(members);
   } catch (err) {
     console.error('getTeamMembers error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -1773,7 +1817,9 @@ exports.getAnalytics = async (req, res) => {
       SELECT KIND, ISNULL(OUTCOME, 'Pending') AS outcome, COUNT(*) AS cnt
       FROM #A GROUP BY KIND, ISNULL(OUTCOME, 'Pending');
       SELECT u.USER_CODE, u.USERNAME FROM dbo.[${TABLES.USER}] u
-      WHERE (u.ACTIVE = 1 AND (u.ACCESS_LEVEL IN (5, 6) OR EXISTS (SELECT 1 FROM STRING_SPLIT(ISNULL(u.ACCESS_LEVELS, ''), ',') roleLevel WHERE TRY_CONVERT(INT, roleLevel.value) IN (5, 6))))
+      WHERE (u.ACTIVE = 1 AND (u.ACCESS_LEVEL IN (5, 6)
+          OR ',' + REPLACE(ISNULL(u.ACCESS_LEVELS, ''), ' ', '') + ',' LIKE '%,5,%'
+          OR ',' + REPLACE(ISNULL(u.ACCESS_LEVELS, ''), ' ', '') + ',' LIKE '%,6,%'))
         OR EXISTS (SELECT 1 FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c WHERE c.ASSIGNED_TO_USER_CODE = u.USER_CODE)
         OR EXISTS (SELECT 1 FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD}] el WHERE el.ASSIGNED_TO_USER_CODE = u.USER_CODE)
       ORDER BY u.USERNAME;

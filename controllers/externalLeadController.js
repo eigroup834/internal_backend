@@ -117,6 +117,10 @@ exports.list = async (req, res) => {
       SELECT
         l.LEAD_ID, l.SOURCE_NAME, l.CATEGORY, l.NAME, l.DESIGNATION, l.DEPARTMENT, l.COMPANY,
         l.EMAIL, l.MOBILE, l.INDUSTRY, l.CITY, l.EVENT_NAME, l.REGISTERED_DATE,
+        CASE WHEN l.SOURCE_NAME = 'EXHIBITOR_TURNED_VISITOR'
+          THEN COALESCE(JSON_VALUE(CASE WHEN ISJSON(l.RAW_JSON) = 1 THEN l.RAW_JSON ELSE N'{}' END, '$.assignedPersonName'),
+            JSON_VALUE(CASE WHEN ISJSON(l.RAW_JSON) = 1 THEN l.RAW_JSON ELSE N'{}' END, '$.assignedpersonname'))
+          ELSE NULL END AS assignedpersonname,
         l.ASSIGNED_TO_USER_CODE, u.USERNAME AS ASSIGNED_TO_NAME,
         LatestLog.STATUS AS CURRENT_STATUS,
         LatestLog.REMARKS AS LAST_REMARK,

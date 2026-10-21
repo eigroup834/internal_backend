@@ -1,3 +1,4 @@
+const { settings } = require('../utils/roleSecurityConfig');
 const jwt = require('jsonwebtoken');
 const { poolPromise, sql } = require('../db');
 const { accountAllowed, enforcementEnabled } = require('../utils/roleSignature');
@@ -14,7 +15,7 @@ async function authenticateToken(req, res, next) {
       .query(`SELECT * FROM dbo.[USER] WHERE USER_CODE = @code`);
     const record = result.recordset[0];
     if (!record || !accountAllowed(record) || !record.ACTIVE ||
-      ((enforcementEnabled() || user.role_signature) && user.role_signature !== record.ROLE_SIGNATURE)) {
+      (settings().mode !== 'disabled' && (enforcementEnabled() || user.role_signature) && user.role_signature !== record.ROLE_SIGNATURE)) {
       return res.status(403).json({ message: 'Invalid token: account permissions changed or could not be verified. Sign in again.' });
     }
     req.user = { ...user, id: record.ID, username: record.USERNAME, user_code: record.USER_CODE,
