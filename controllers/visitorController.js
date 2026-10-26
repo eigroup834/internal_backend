@@ -668,6 +668,7 @@ exports.getBatchDetail = async (req, res) => {
              AND c2.ASSIGNED_TO_USER_CODE = c.ASSIGNED_TO_USER_CODE
            ORDER BY c2.ASSIGNED_DATE DESC)                                          AS ASSIGNED_BY_NAME,
         COUNT(*)                                                                    AS ASSIGNED_COUNT,
+        SUM(CASE WHEN c.STATUS IN ('NEW','ASSIGNED') AND Worked.HAS_WORK IS NULL THEN 1 ELSE 0 END) AS PENDING_COUNT,
         SUM(CASE WHEN c.STATUS NOT IN ('NEW','ASSIGNED') THEN 1 ELSE 0 END)        AS WORKED_COUNT,
         SUM(CASE WHEN c.STATUS = 'WORKING'       THEN 1 ELSE 0 END)               AS WORKING_COUNT,
         SUM(CASE WHEN c.STATUS = 'INTERESTED'    THEN 1 ELSE 0 END)               AS INTERESTED_COUNT,
@@ -680,6 +681,11 @@ exports.getBatchDetail = async (req, res) => {
          WHERE l.USER_CODE = c.ASSIGNED_TO_USER_CODE AND cc.BATCH_CODE = c.BATCH_CODE) AS LOG_COUNT
       FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
       LEFT JOIN dbo.[${TABLES.USER}] u ON u.USER_CODE = c.ASSIGNED_TO_USER_CODE
+      OUTER APPLY (
+        SELECT TOP 1 1 AS HAS_WORK
+        FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
+        WHERE l.CONTACT_CODE = c.CONTACT_CODE AND l.STATUS IS NOT NULL
+      ) Worked
       WHERE c.BATCH_CODE = @batchId AND c.ASSIGNED_TO_USER_CODE IS NOT NULL ${memberScope}
       GROUP BY c.ASSIGNED_TO_USER_CODE, u.USERNAME, c.BATCH_CODE
       ORDER BY ASSIGNED_COUNT DESC;
@@ -1128,6 +1134,9 @@ exports.getFollowups = async (req, res) => {
         b.BATCH_NAME,
         u.USERNAME AS MEMBER_NAME,
         fu.NEXT_FOLLOWUP,
+        c.ASSIGNED_DATE,
+        fu.CREATED_DATE AS LAST_ACTIVITY_DATE,
+        fu.REMARKS AS LAST_REMARK,
         lo.STATUS AS LAST_OUTCOME,
         c.LEAD_CATEGORY AS CATEGORY
       FROM FU fu
@@ -1163,6 +1172,9 @@ exports.getFollowups = async (req, res) => {
         CAST(NULL AS NVARCHAR(200)) AS BATCH_NAME,
         u2.USERNAME AS MEMBER_NAME,
         fl.NEXT_FOLLOWUP,
+        el.ASSIGNED_DATE,
+        fl.CREATED_DATE AS LAST_ACTIVITY_DATE,
+        fl.REMARKS AS LAST_REMARK,
         lo2.STATUS AS LAST_OUTCOME,
         el.CATEGORY
       FROM FL fl
@@ -1186,7 +1198,7 @@ exports.getFollowups = async (req, res) => {
       -- would let that stale date keep winning forever. The NULL check moves
       -- to the join below, gating on rn=1's own value instead.
       ;WITH FU AS (
-        SELECT CONTACT_CODE, NEXT_FOLLOWUP,
+        SELECT CONTACT_CODE, NEXT_FOLLOWUP, CREATED_DATE, REMARKS,
           ROW_NUMBER() OVER (PARTITION BY CONTACT_CODE ORDER BY CREATED_DATE DESC) AS rn
         FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}]
       ),
@@ -1197,7 +1209,7 @@ exports.getFollowups = async (req, res) => {
         WHERE STATUS IS NOT NULL
       ),
       FL AS (
-        SELECT LEAD_ID, NEXT_FOLLOWUP,
+        SELECT LEAD_ID, NEXT_FOLLOWUP, CREATED_DATE, REMARKS,
           ROW_NUMBER() OVER (PARTITION BY LEAD_ID ORDER BY CREATED_DATE DESC) AS rn
         FROM dbo.[${TABLES.VISITOR_EXTERNAL_LEAD_LOG}]
       ),
@@ -1573,7 +1585,7 @@ exports.reassignContacts = async (req, res) => {
     request.input('toUser', sql.VarChar(100), toUser);
     request.input('assignedBy', sql.VarChar(100), assignedBy);
 
-    // TOP filter only when a positive count is supplied; otherwise move all.
+    // TOP filter only when a positive count is supplied; otherwise move all pending leads.
     let topClause = '';
     const n = parseInt(count, 10);
     if (!isNaN(n) && n > 0) {
@@ -1583,16 +1595,20 @@ exports.reassignContacts = async (req, res) => {
 
     const q = `
       WITH ToMove AS (
-        SELECT ${topClause}CONTACT_CODE
-        FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}]
-        WHERE BATCH_CODE = @batchId AND ASSIGNED_TO_USER_CODE = @fromUser
-        ORDER BY CONTACT_CODE
+        SELECT ${topClause}c.*
+        FROM dbo.[${TABLES.VISITOR_BATCH_CONTACT}] c
+        WHERE c.BATCH_CODE = @batchId AND c.ASSIGNED_TO_USER_CODE = @fromUser
+          AND c.STATUS IN ('NEW','ASSIGNED')
+          AND NOT EXISTS (
+            SELECT 1 FROM dbo.[${TABLES.VISITOR_CONTACT_LOG}] l
+            WHERE l.CONTACT_CODE = c.CONTACT_CODE AND l.STATUS IS NOT NULL
+          )
+        ${topClause ? 'ORDER BY c.CONTACT_CODE' : ''}
       )
-      UPDATE dbo.[${TABLES.VISITOR_BATCH_CONTACT}]
+      UPDATE ToMove
       SET ASSIGNED_TO_USER_CODE = @toUser,
           ASSIGNED_BY_USER_CODE = @assignedBy,
-          ASSIGNED_DATE         = GETDATE()
-      WHERE CONTACT_CODE IN (SELECT CONTACT_CODE FROM ToMove);
+          ASSIGNED_DATE         = GETDATE();
       SELECT @@ROWCOUNT AS updated;
     `;
 

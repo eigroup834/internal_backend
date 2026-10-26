@@ -218,7 +218,7 @@ exports.assign = async (req, res) => {
     const member = await pool.request()
       .input('uc', sql.VarChar(100), String(userCode))
       .input('me', sql.VarChar(100), req.user?.user_code || '')
-      .query(`SELECT USER_CODE FROM ${USER} WHERE USER_CODE = @uc AND ACTIVE = 1 AND ((ACCESS_LEVEL IN (5, 6) OR EXISTS (SELECT 1 FROM STRING_SPLIT(ISNULL(ACCESS_LEVELS, ''), ',') roleLevel WHERE TRY_CONVERT(INT, roleLevel.value) IN (5, 6))) OR USER_CODE = @me)`);
+      .query(`SELECT USER_CODE FROM ${USER} WHERE USER_CODE = @uc AND ACTIVE = 1 AND ((ACCESS_LEVEL IN (5, 6) OR ',' + REPLACE(ISNULL(ACCESS_LEVELS, ''), ' ', '') + ',' LIKE '%,5,%' OR ',' + REPLACE(ISNULL(ACCESS_LEVELS, ''), ' ', '') + ',' LIKE '%,6,%') OR USER_CODE = @me)`);
     if (!member.recordset.length) {
       return res.status(400).json({ error: 'Assignee is not an active visitor team member' });
     }
