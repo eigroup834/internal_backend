@@ -25,6 +25,7 @@ function ensureContactLeadCategoryColumn(pool) {
 const PERSON_COLS = `
   LTRIM(RTRIM(ISNULL(CP.PREFIX,'') + ' ' + ISNULL(CP.FNAME,'') + ' ' + ISNULL(CP.LNAME,''))) AS PERSON_NAME,
   CASE WHEN ISJSON(CP.DESIG)=1        THEN JSON_VALUE(CP.DESIG,'$[0].value')   ELSE CP.DESIG END AS DESIGNATION,
+  CASE WHEN ISJSON(CP.DESIG)=1 THEN JSON_VALUE(CP.DESIG,'$[0].rank') ELSE NULL END AS DESIGNATION_RANK,
   CASE WHEN ISJSON(CP.DEPT)=1         THEN JSON_VALUE(CP.DEPT,'$[0]')          ELSE CP.DEPT  END AS DEPARTMENT,
   CASE WHEN CM.ACTIVE = 0 THEN 'XXXXXXXXXX'
        WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END AS MOBILE,
@@ -61,6 +62,8 @@ const MY_CONTACTS_SORT = {
   department: `CASE WHEN ISJSON(CP.DEPT)=1  THEN JSON_VALUE(CP.DEPT,'$[0]')         ELSE CP.DEPT  END`,
   mobile: `CASE WHEN ISJSON(CP.MOBILE)=1 THEN JSON_VALUE(CP.MOBILE,'$[0].number') ELSE NULL END`,
   email: `CASE WHEN ISJSON(CP.PERSON_EMAIL)=1 THEN JSON_VALUE(CP.PERSON_EMAIL,'$[0]') ELSE NULL END`,
+  rank: `CASE WHEN ISJSON(CP.DESIG)=1 THEN JSON_VALUE(CP.DESIG,'$[0].rank') ELSE NULL END`,
+  city: `CD.CITY`,
   industry: `CSI.INDUSTRIES`,
   batch: `b.BATCH_NAME`,
   status: `LatestLog.STATUS`,
@@ -771,7 +774,7 @@ exports.getBatchContacts = async (req, res) => {
 
     const whereSQL = 'WHERE ' + where.join(' AND ');
     const sortableColumns = new Set([
-      'COMPANY_NAME', 'PERSON_NAME', 'DESIGNATION', 'DEPARTMENT', 'MOBILE',
+      'COMPANY_NAME', 'PERSON_NAME', 'DESIGNATION', 'DESIGNATION_RANK', 'DEPARTMENT', 'MOBILE',
       'EMAIL', 'CITY', 'STATE', 'COUNTRY', 'ASSIGNED_TO_NAME',
     ]);
     const sortColumn = sortableColumns.has(sortBy) ? sortBy : 'CONTACT_CODE';
@@ -1161,7 +1164,9 @@ exports.getFollowups = async (req, res) => {
       SELECT
         'LEAD' AS SRC,
         CAST(el.LEAD_ID AS NVARCHAR(50)) AS ITEM_ID,
-        el.NAME AS PERSON_NAME, el.DESIGNATION, el.DEPARTMENT, el.MOBILE,
+        el.NAME AS PERSON_NAME, el.DESIGNATION,
+        CAST(NULL AS NVARCHAR(4000)) AS DESIGNATION_RANK,
+        el.DEPARTMENT, el.MOBILE,
         CAST(NULL AS NVARCHAR(MAX)) AS OLD_MOBILE,
         el.EMAIL,
         CAST(1 AS INT) AS COMPANY_ACTIVE,

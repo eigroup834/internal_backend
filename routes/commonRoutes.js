@@ -48,4 +48,7 @@ router.get('/reports/salesDataView',  authenticateToken, commonController.getSal
 router.get('/editor/:userCode', authenticateToken, requireLevel(1, 2), commonController.getEditorByCode);
 router.put('/editor/:userCode', authenticateToken, requireLevel(1, 2), commonController.updateEditorByCode);
 
+router.get('/admin/exhibitor-turned', authenticateToken, requireLevel(1), require('../controllers/exhibitorTurnedController').list);
+router.get('/admin/exhibitor-turned/download', authenticateToken, requireLevel(1), require('../controllers/exhibitorTurnedController').list);
+
 module.exports = router;
