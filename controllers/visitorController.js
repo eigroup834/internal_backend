@@ -1631,7 +1631,7 @@ const NOT_CONNECTED_SQL = `'Wrong_Number','No_Number','Invalid','Foreign_Number'
 
 function analyticsScope(alias, { batchId, year }) {
   const conds = [];
-  if (batchId) conds.push(`${alias}.BATCH_CODE = @bid`);
+  if (batchId) conds.push(`${alias}.BATCH_CODE IN (${batchId.split(",").map((_, i) => `@analyticsBatch${i}`).join(",")})`);
   if (year) conds.push(`${alias}.BATCH_CODE IN (SELECT BATCH_CODE FROM dbo.[${TABLES.VISITOR_BATCH}] WHERE BATCH_YEAR = @yr)`);
   return conds.length ? conds.join(' AND ') : '1=1';
 }
@@ -1649,7 +1649,9 @@ const analyticsCache = createTtlCache(60000);
 
 exports.getAnalytics = async (req, res) => {
   try {
-    const { batchId, year, member = '' } = req.query;
+    const { year, member = '' } = req.query;
+    const batchId = [...new Set((Array.isArray(req.query.batchId) ? req.query.batchId : [req.query.batchId || ''])
+      .flatMap(value => String(value).split(',')).map(value => value.trim()).filter(Boolean))].sort().join(',');
     const granularity = ['day', 'week', 'month'].includes(req.query.granularity) ? req.query.granularity : 'day';
 
     // Date range — default last 30 days. Previous window = same length, immediately before.
@@ -1668,7 +1670,7 @@ exports.getAnalytics = async (req, res) => {
       const pool = await poolPromise;
       const request = pool.request();
       if (member) request.input('member', sql.VarChar(100), member);
-      if (batchId) request.input('bid', sql.VarChar(100), batchId);
+      if (batchId) batchId.split(',').forEach((id, i) => request.input(`analyticsBatch${i}`, sql.VarChar(100), id));
       if (year) request.input('yr', sql.Int, parseInt(year, 10));
       request.input('from', sql.Date, ymd(from));
       request.input('to', sql.Date, ymd(to));
@@ -1834,9 +1836,9 @@ exports.getAnalytics = async (req, res) => {
         SUM(CASE WHEN ASSIGNED_TO_USER_CODE IS NULL THEN 1 ELSE 0 END) AS unassigned
       FROM #A GROUP BY SOURCE_NAME;
       SELECT
-        COALESCE(SUM(CASE WHEN CATEGORY = 'BUYER' AND OUTCOME = 'Interested' THEN 1 ELSE 0 END), 0) AS interestedBuyers,
+        COALESCE(SUM(CASE WHEN CATEGORY = 'BUYER' THEN 1 ELSE 0 END), 0) AS buyers,
         COALESCE(SUM(CASE WHEN CATEGORY = 'DELEGATE' THEN 1 ELSE 0 END), 0) AS delegates,
-        COALESCE(SUM(CASE WHEN CATEGORY = 'VISITOR' AND OUTCOME = 'Interested' THEN 1 ELSE 0 END), 0) AS interestedVisitors
+        COALESCE(SUM(CASE WHEN CATEGORY = 'VISITOR' THEN 1 ELSE 0 END), 0) AS visitors
       FROM #A;
       SELECT KIND, ISNULL(OUTCOME, 'Pending') AS outcome, COUNT(*) AS cnt
       FROM #A GROUP BY KIND, ISNULL(OUTCOME, 'Pending');
